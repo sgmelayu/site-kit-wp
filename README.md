@@ -1,3 +1,5 @@
+[![Gitpod ready-to-code](https://img.shields.io/badge/Gitpod-ready--to--code-blue?logo=gitpod)](https://gitpod.io/#https://github.com/google/site-kit-wp)
+
 [![Build Status](https://travis-ci.com/google/site-kit-wp.svg?token=smY3Y9yhMfh6hWnXQ2te&branch=develop)](https://travis-ci.com/google/site-kit-wp/)
 # Site Kit by Google
 
