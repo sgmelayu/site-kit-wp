@@ -19,6 +19,8 @@
 /**
  * External dependencies
  */
+import { useEffectOnce } from 'react-use';
+import classnames from 'classnames';
 import PropTypes from 'prop-types';
 import useMergedRef from '@react-hook/merged-ref';
 
@@ -33,6 +35,8 @@ import { forwardRef, useCallback, useEffect, useRef, useState } from '@wordpress
 import { MDCMenu } from '../material-components';
 
 const Menu = forwardRef( ( {
+	children,
+	className,
 	menuOpen,
 	menuItems,
 	onSelected,
@@ -47,7 +51,7 @@ const Menu = forwardRef( ( {
 		onSelected( index, event );
 	}, [ onSelected ] );
 
-	useEffect( () => {
+	useEffectOnce( () => {
 		if ( ! menuRef?.current ) {
 			return;
 		}
@@ -59,7 +63,7 @@ const Menu = forwardRef( ( {
 		return () => {
 			menuComponent.unlisten( 'MDCMenu:selected', handleMenuSelected );
 		};
-	}, [] );
+	} );
 
 	useEffect( () => {
 		if ( menu ) {
@@ -70,7 +74,7 @@ const Menu = forwardRef( ( {
 
 	return (
 		<div
-			className="mdc-menu mdc-menu-surface"
+			className={ classnames( 'mdc-menu', 'mdc-menu-surface', className ) }
 			ref={ mergedRefs }
 		>
 			<ul
@@ -81,7 +85,7 @@ const Menu = forwardRef( ( {
 				role="menu"
 				tabIndex="-1"
 			>
-				{ menuItems.map( ( item, index ) => (
+				{ ! children && menuItems.map( ( item, index ) => (
 					<li
 						key={ index }
 						className="mdc-list-item"
@@ -90,6 +94,7 @@ const Menu = forwardRef( ( {
 						<span className="mdc-list-item__text">{ item }</span>
 					</li>
 				) ) }
+				{ children }
 			</ul>
 		</div>
 	);
@@ -98,9 +103,16 @@ const Menu = forwardRef( ( {
 Menu.displayName = 'Menu';
 
 Menu.propTypes = {
+	className: PropTypes.string,
+	children: PropTypes.node,
 	menuOpen: PropTypes.bool.isRequired,
-	menuItems: PropTypes.array.isRequired,
+	menuItems: PropTypes.array,
 	id: PropTypes.string.isRequired,
+	onSelected: PropTypes.func,
+};
+
+Menu.defaultProps = {
+	onSelected: () => {},
 };
 
 export default Menu;

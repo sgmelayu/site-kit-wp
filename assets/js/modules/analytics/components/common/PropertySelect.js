@@ -20,7 +20,7 @@
  * WordPress dependencies
  */
 import { useCallback } from '@wordpress/element';
-import { __ } from '@wordpress/i18n';
+import { sprintf, __ } from '@wordpress/i18n';
 
 /**
  * Internal dependencies
@@ -30,7 +30,7 @@ import { Select, Option } from '../../../../material-components';
 import ProgressBar from '../../../../components/ProgressBar';
 import { STORE_NAME, PROPERTY_CREATE } from '../../datastore/constants';
 import { MODULES_TAGMANAGER } from '../../../tagmanager/datastore/constants';
-import { isValidAccountID } from '../../util';
+import { isValidAccountSelection } from '../../util';
 import { trackEvent } from '../../../../util';
 const { useSelect, useDispatch } = Data;
 
@@ -66,7 +66,11 @@ export default function PropertySelect() {
 			selectProperty( newPropertyID, item.dataset.internalId ); // eslint-disable-line sitekit/acronym-case
 			trackEvent( 'analytics_setup', 'property_change', newPropertyID );
 		}
-	}, [ propertyID ] );
+	}, [ propertyID, selectProperty ] );
+
+	if ( ! isValidAccountSelection( accountID ) ) {
+		return null;
+	}
 
 	if ( ! hasResolvedAccounts || isResolvingProperties ) {
 		return <ProgressBar small />;
@@ -78,7 +82,7 @@ export default function PropertySelect() {
 			label={ __( 'Property', 'google-site-kit' ) }
 			value={ propertyID }
 			onEnhancedChange={ onChange }
-			disabled={ hasExistingTag || hasGTMPropertyID || ! isValidAccountID( accountID ) }
+			disabled={ hasExistingTag || hasGTMPropertyID }
 			enhanced
 			outlined
 		>
@@ -93,7 +97,14 @@ export default function PropertySelect() {
 						value={ id }
 						data-internal-id={ internalWebPropertyId } // eslint-disable-line sitekit/acronym-case
 					>
-						{ name }
+						{ internalWebPropertyId // eslint-disable-line sitekit/acronym-case
+							? sprintf(
+								/* translators: %1$s: property name, %2$s: property ID */
+								__( '%1$s (%2$s)', 'google-site-kit' ),
+								name,
+								id
+							) : name
+						}
 					</Option>
 				) ) }
 		</Select>

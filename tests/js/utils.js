@@ -4,6 +4,8 @@
 import castArray from 'lodash/castArray';
 import mapValues from 'lodash/mapValues';
 import fetchMock from 'fetch-mock';
+import { createMemoryHistory } from 'history';
+import { Router } from 'react-router';
 
 /**
  * WordPress dependencies
@@ -22,6 +24,8 @@ import * as coreUser from '../../assets/js/googlesitekit/datastore/user';
 import * as coreWidgets from '../../assets/js/googlesitekit/widgets';
 import * as modulesAdSense from '../../assets/js/modules/adsense';
 import * as modulesAnalytics from '../../assets/js/modules/analytics';
+import * as modulesAnalytics4 from '../../assets/js/modules/analytics-4';
+import * as modulesIdeaHub from '../../assets/js/modules/idea-hub';
 import * as modulesOptimize from '../../assets/js/modules/optimize';
 import * as modulesPageSpeedInsights from '../../assets/js/modules/pagespeed-insights';
 import * as modulesSearchConsole from '../../assets/js/modules/search-console';
@@ -34,7 +38,6 @@ import {
 	PERMISSION_VIEW_DASHBOARD,
 	PERMISSION_VIEW_MODULE_DETAILS,
 	PERMISSION_MANAGE_OPTIONS,
-	PERMISSION_PUBLISH_POSTS,
 	CORE_USER,
 } from '../../assets/js/googlesitekit/datastore/user/constants';
 import { CORE_MODULES } from '../../assets/js/googlesitekit/modules/datastore/constants';
@@ -53,6 +56,8 @@ const allCoreStores = [
 const allCoreModules = [
 	modulesAdSense,
 	modulesAnalytics,
+	modulesAnalytics4,
+	modulesIdeaHub,
 	modulesOptimize,
 	modulesPageSpeedInsights,
 	modulesSearchConsole,
@@ -86,13 +91,27 @@ export const createTestRegistry = () => {
  * @param {Object}    [props]          Component props.
  * @param {Function}  [props.callback] Function which receives the registry instance.
  * @param {WPElement} [props.children] Children components.
+ * @param {History}   [props.history]  History object for React Router. Defaults to MemoryHistory.
+ * @param {string}    [props.route]    Route to pass to history as starting route.
  * @param {string[]}  [props.features] Feature flags to enable for this test registry provider.
  * @param {Object}    [props.registry] Registry object; uses `createTestRegistry()` by default.
  * @return {WPElement} Wrapped components.
  */
-export function WithTestRegistry( { children, callback, features = [], registry = createTestRegistry() } = {} ) {
+export function WithTestRegistry( {
+	children,
+	callback,
+	features = [],
+	registry = createTestRegistry(),
+	history = createMemoryHistory(),
+	route = undefined,
+} = {} ) {
+	const enabledFeatures = new Set( features );
 	// Populate most basic data which should not affect any tests.
 	provideUserInfo( registry );
+
+	if ( route ) {
+		history.push( route );
+	}
 
 	if ( callback ) {
 		callback( registry );
@@ -100,8 +119,10 @@ export function WithTestRegistry( { children, callback, features = [], registry 
 
 	return (
 		<RegistryProvider value={ registry }>
-			<FeaturesProvider value={ features }>
-				{ children }
+			<FeaturesProvider value={ enabledFeatures }>
+				<Router history={ history }>
+					{ children }
+				</Router>
 			</FeaturesProvider>
 		</RegistryProvider>
 	);
@@ -125,6 +146,7 @@ export const provideSiteConnection = ( registry, extraData = {} ) => {
 		resettable: defaultConnected,
 		setupCompleted: defaultConnected,
 		hasConnectedAdmins: defaultConnected,
+		hasMultipleAdmins: false,
 		ownerID: defaultConnected ? 1 : 0,
 	};
 
@@ -152,6 +174,7 @@ export const provideUserAuthentication = ( registry, extraData = {} ) => {
 		grantedScopes: [],
 		unsatisfiedScopes: [],
 		needsReauthentication: false,
+		disconnectedReason: '',
 	};
 
 	const mergedData = { ...defaults, ...extraData };
@@ -233,7 +256,6 @@ export const provideUserCapabilities = ( registry, extraData = {} ) => {
 		[ PERMISSION_VIEW_DASHBOARD ]: true,
 		[ PERMISSION_VIEW_MODULE_DETAILS ]: true,
 		[ PERMISSION_MANAGE_OPTIONS ]: true,
-		[ PERMISSION_PUBLISH_POSTS ]: true,
 	};
 
 	registry.dispatch( CORE_USER ).receiveCapabilities( {

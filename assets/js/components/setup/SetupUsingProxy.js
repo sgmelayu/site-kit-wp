@@ -33,7 +33,7 @@ import { getQueryArg } from '@wordpress/url';
  * Internal dependencies
  */
 import Data from 'googlesitekit-data';
-import PersonWalking from '../../../svg/person-walking.svg';
+import WelcomeSVG from '../../../svg/welcome.svg';
 import { trackEvent } from '../../util';
 import Header from '../Header';
 import Button from '../Button';
@@ -46,6 +46,7 @@ import { CORE_SITE } from '../../googlesitekit/datastore/site/constants';
 import { CORE_USER, DISCONNECTED_REASON_CONNECTED_URL_MISMATCH } from '../../googlesitekit/datastore/user/constants';
 import { CORE_LOCATION } from '../../googlesitekit/datastore/location/constants';
 import { useFeature } from '../../hooks/useFeature';
+import HelpMenu from '../help/HelpMenu';
 const { useSelect, useDispatch } = Data;
 
 function SetupUsingProxy() {
@@ -75,7 +76,7 @@ function SetupUsingProxy() {
 		event.preventDefault();
 		await trackEvent( 'plugin_setup', 'proxy_start_setup_landing_page' );
 		navigateTo( proxySetupURL );
-	}, [ proxySetupURL ] );
+	}, [ proxySetupURL, navigateTo ] );
 
 	// @TODO: this needs to be migrated to the core/site datastore in the future
 	const { errorMessage } = global._googlesitekitLegacyData.setup;
@@ -103,7 +104,9 @@ function SetupUsingProxy() {
 
 	return (
 		<Fragment>
-			<Header />
+			<Header>
+				<HelpMenu />
+			</Header>
 			{ errorMessage && (
 				<Notification
 					id="setup_error"
@@ -142,7 +145,7 @@ function SetupUsingProxy() {
 															mdc-layout-grid__cell--span-6-desktop
 														"
 												>
-													<PersonWalking width="570" height="337" />
+													<WelcomeSVG width="570" height="336" />
 												</div>
 											) }
 

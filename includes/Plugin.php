@@ -131,7 +131,10 @@ final class Plugin {
 		);
 
 		$display_site_kit_meta = function() {
-			printf( '<meta name="generator" content="Site Kit by Google %s" />', esc_attr( GOOGLESITEKIT_VERSION ) );
+			echo apply_filters( // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
+				'googlesitekit_generator',
+				sprintf( '<meta name="generator" content="Site Kit by Google %s" />', esc_attr( GOOGLESITEKIT_VERSION ) )
+			);
 		};
 		add_action( 'wp_head', $display_site_kit_meta );
 		add_action( 'login_head', $display_site_kit_meta );
@@ -176,6 +179,7 @@ final class Plugin {
 				( new Core\Util\Tracking( $this->context, $user_options, $screens ) )->register();
 				( new Core\REST_API\REST_Routes( $this->context, $authentication, $modules ) )->register();
 				( new Core\Admin_Bar\Admin_Bar( $this->context, $assets, $modules ) )->register();
+				( new Core\Admin\Available_Tools() )->register();
 				( new Core\Admin\Notices() )->register();
 				( new Core\Admin\Dashboard( $this->context, $assets, $modules ) )->register();
 				( new Core\Notifications\Notifications( $this->context, $options, $authentication ) )->register();
@@ -183,7 +187,9 @@ final class Plugin {
 				( new Core\Util\Health_Checks( $authentication ) )->register();
 				( new Core\Admin\Standalone( $this->context ) )->register();
 				( new Core\Util\Activation_Notice( $this->context, $activation_flag, $assets ) )->register();
+				( new Core\Dismissals\Dismissals( $this->context, $user_options ) )->register();
 				( new Core\Feature_Tours\Feature_Tours( $this->context, $user_options ) )->register();
+				( new Core\User_Surveys\REST_User_Surveys_Controller( $authentication ) )->register();
 				( new Core\Util\Migration_1_3_0( $this->context, $options, $user_options ) )->register();
 				( new Core\Util\Migration_1_8_1( $this->context, $options, $user_options, $authentication ) )->register();
 

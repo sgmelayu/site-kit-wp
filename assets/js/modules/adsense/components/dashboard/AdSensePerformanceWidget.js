@@ -32,8 +32,8 @@ import { __ } from '@wordpress/i18n';
  */
 import Data from 'googlesitekit-data';
 import { CORE_USER } from '../../../../googlesitekit/datastore/user/constants';
-import AdSenseDashboardWidgetOverview from './AdSenseDashboardWidgetOverview';
-import AdSenseDashboardWidgetSiteStats from './AdSenseDashboardWidgetSiteStats';
+import LegacyAdSenseDashboardWidgetOverview from './LegacyAdSenseDashboardWidgetOverview';
+import LegacyAdSenseDashboardWidgetSiteStats from './LegacyAdSenseDashboardWidgetSiteStats';
 const { useSelect } = Data;
 
 export default function AdSensePerformanceWidget( { handleDataSuccess, handleDataError } ) {
@@ -51,7 +51,7 @@ export default function AdSensePerformanceWidget( { handleDataSuccess, handleDat
 	}, [] );
 
 	const metrics = {
-		EARNINGS: __( 'Earnings', 'google-site-kit' ),
+		ESTIMATED_EARNINGS: __( 'Earnings', 'google-site-kit' ),
 		PAGE_VIEWS_RPM: __( 'Page RPM', 'google-site-kit' ),
 		IMPRESSIONS: __( 'Impressions', 'google-site-kit' ),
 		PAGE_VIEWS_CTR: __( 'Page CTR', 'google-site-kit' ),
@@ -59,7 +59,7 @@ export default function AdSensePerformanceWidget( { handleDataSuccess, handleDat
 
 	return (
 		<Fragment>
-			<AdSenseDashboardWidgetOverview
+			<LegacyAdSenseDashboardWidgetOverview
 				startDate={ startDate }
 				endDate={ endDate }
 				compareStartDate={ compareStartDate }
@@ -71,7 +71,7 @@ export default function AdSensePerformanceWidget( { handleDataSuccess, handleDat
 				handleDataError={ handleDataError }
 			/>
 
-			<AdSenseDashboardWidgetSiteStats
+			<LegacyAdSenseDashboardWidgetSiteStats
 				startDate={ startDate }
 				endDate={ endDate }
 				compareStartDate={ compareStartDate }

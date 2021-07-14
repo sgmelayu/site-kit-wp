@@ -19,7 +19,8 @@
 /**
  * WordPress dependencies
  */
-import { useEffect } from '@wordpress/element';
+import { useEffect, useState } from '@wordpress/element';
+import { useParams } from 'react-router-dom';
 
 /**
  * Internal dependencies
@@ -28,7 +29,12 @@ import Data from 'googlesitekit-data';
 import { CORE_MODULES } from '../../googlesitekit/modules/datastore/constants';
 const { useSelect, useDispatch } = Data;
 
-export default function SettingsRenderer( { slug, isOpen, isEditing } ) {
+export default function SettingsRenderer( { slug } ) {
+	const { action, moduleSlug } = useParams();
+	const isEditing = action === 'edit';
+	const isOpen = moduleSlug === slug;
+
+	const [ initiallyConnected, setInitiallyConnected ] = useState();
 	const storeName = useSelect( ( select ) => select( CORE_MODULES ).getModuleStoreName( slug ) );
 	const isDoingSubmitChanges = useSelect( ( select ) => select( CORE_MODULES ).isDoingSubmitChanges( slug ) );
 	const haveSettingsChanged = useSelect( ( select ) => select( storeName )?.haveSettingsChanged?.() || false );
@@ -46,6 +52,13 @@ export default function SettingsRenderer( { slug, isOpen, isEditing } ) {
 		};
 	} );
 
+	// Store the initial connected state once the module is loaded.
+	useEffect( () => {
+		if ( moduleLoaded && initiallyConnected === undefined ) {
+			setInitiallyConnected( connected );
+		}
+	}, [ moduleLoaded, initiallyConnected, connected ] );
+
 	// Rollback any temporary selections to saved values if settings have changed and no longer editing.
 	const { rollbackSettings } = useDispatch( storeName ) || {};
 	useEffect( () => {
@@ -56,7 +69,7 @@ export default function SettingsRenderer( { slug, isOpen, isEditing } ) {
 
 	if ( ! isOpen || ! moduleLoaded ) {
 		return null;
-	} else if ( isOpen && ! connected ) {
+	} else if ( isOpen && initiallyConnected === false ) {
 		return <SettingsSetupIncompleteComponent slug={ slug } />;
 	}
 

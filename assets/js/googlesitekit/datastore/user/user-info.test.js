@@ -36,7 +36,7 @@ describe( 'core/user userInfo', () => {
 			name: 'admin',
 			picture: 'https://path/to/image',
 		},
-		connectURL: 'http://example.com/wp-admin/admin.php?page=googlesitekit-splash&googlesitekit_connect=1&nonce=a1b2c3d4e5',
+		connectURL: 'http://example.com/wp-admin/index.php?action=googlesitekit_connect&nonce=abc123',
 		initialVersion: '1.0.0',
 		verified: true,
 		userInputState: 'completed',
@@ -139,9 +139,31 @@ describe( 'core/user userInfo', () => {
 				const additionalScopes = [ 'http://example.com/test/scope/a', 'http://example.com/test/scope/b' ];
 				const connectURL = registry.select( STORE_NAME ).getConnectURL( { additionalScopes } );
 
+				// Note: scopes that are in the form of a URL are rewritten to start with gttp.
 				expect( connectURL ).toMatchQueryParameters( {
-					'additional_scopes[0]': 'http://example.com/test/scope/a',
-					'additional_scopes[1]': 'http://example.com/test/scope/b',
+					'additional_scopes[0]': 'gttp://example.com/test/scope/a',
+					'additional_scopes[1]': 'gttp://example.com/test/scope/b',
+				} );
+			} );
+
+			it( 'only rewrites additional scopes that are URLs', () => {
+				registry.dispatch( STORE_NAME ).receiveConnectURL( userData.connectURL );
+				const additionalScopes = [
+					'http://example.com/test/scope/a',
+					'https://example.com/test/scope/b',
+					'openid',
+					'http',
+					'example.com/test/scope/a',
+				];
+				const connectURL = registry.select( STORE_NAME ).getConnectURL( { additionalScopes } );
+
+				// Note: scopes that are in the form of a URL are rewritten to start with gttp.
+				expect( connectURL ).toMatchQueryParameters( {
+					'additional_scopes[0]': 'gttp://example.com/test/scope/a',
+					'additional_scopes[1]': 'gttps://example.com/test/scope/b',
+					'additional_scopes[2]': 'openid',
+					'additional_scopes[3]': 'http',
+					'additional_scopes[4]': 'example.com/test/scope/a',
 				} );
 			} );
 

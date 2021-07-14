@@ -27,11 +27,11 @@ import { addFilter } from '@wordpress/hooks';
 import { isFeatureEnabled } from '../../features';
 import { createAddToFilter } from '../../util/helpers';
 import { getQueryParameter } from '../../util';
-import DashboardCoreSiteAlerts from './dashboard-core-site-alerts';
+import DashboardCoreSiteAlerts from './DashboardCoreSiteAlerts';
 import DashboardSetupAlerts from './dashboard-setup-alerts';
 import DashboardModulesAlerts from './dashboard-modules-alerts';
-import UserInputSettings from '../notifications/UserInputSettings';
-import UnsatisfiedScopesAlert from '../notifications/UnsatisfiedScopesAlert';
+import UserInputPromptNotification from '../notifications/UserInputPromptNotification';
+import IdeaHubModuleNotification from '../notifications/IdeaHubModuleNotification';
 
 const { setup } = global._googlesitekitLegacyData;
 const notification = getQueryParameter( 'notification' );
@@ -39,23 +39,23 @@ const notification = getQueryParameter( 'notification' );
 const addCoreSiteNotifications = createAddToFilter( <DashboardCoreSiteAlerts /> );
 const addSetupNotifications = createAddToFilter( <DashboardSetupAlerts /> );
 const addModulesNotifications = createAddToFilter( <DashboardModulesAlerts /> );
-const addUserInputSettings = createAddToFilter( <UserInputSettings /> );
-const addAuthNotification = createAddToFilter( <UnsatisfiedScopesAlert /> );
+const addUserInputPrompt = createAddToFilter( <UserInputPromptNotification /> );
+const addIdeaHubModuleNotification = createAddToFilter( <IdeaHubModuleNotification /> );
 
 addFilter( 'googlesitekit.DashboardNotifications',
 	'googlesitekit.SetupNotification',
 	addCoreSiteNotifications, 10 );
 
-if ( setup.needReauthenticate ) {
-	addFilter( 'googlesitekit.ErrorNotification',
-		'googlesitekit.AuthNotification',
-		addAuthNotification, 1 );
-}
-
 if ( isFeatureEnabled( 'userInput' ) ) {
 	addFilter( 'googlesitekit.DashboardNotifications',
 		'googlesitekit.UserInputSettings',
-		addUserInputSettings, 1 );
+		addUserInputPrompt, 1 );
+}
+
+if ( isFeatureEnabled( 'ideaHubModule' ) && 'authentication_success' !== notification && 'authentication_failure' !== notification ) {
+	addFilter( 'googlesitekit.DashboardNotifications',
+		'googlesitekit.IdeaHubModule',
+		addIdeaHubModuleNotification, 1 );
 }
 
 if ( 'authentication_success' === notification || 'authentication_failure' === notification || 'user_input_success' === notification ) {

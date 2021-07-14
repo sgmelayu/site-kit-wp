@@ -25,19 +25,16 @@ import { storiesOf } from '@storybook/react';
  * Internal dependencies
  */
 import { AMP_MODE_PRIMARY } from '../assets/js/googlesitekit/datastore/site/constants';
-import { CORE_MODULES } from '../assets/js/googlesitekit/modules/datastore/constants';
 import { MODULES_ANALYTICS } from '../assets/js/modules/analytics/datastore/constants';
 import { STORE_NAME } from '../assets/js/modules/optimize/datastore/constants';
-import fixtures from '../assets/js/googlesitekit/modules/datastore/__fixtures__';
 import {
 	createTestRegistry,
 	provideSiteInfo,
 	provideModules,
 	provideModuleRegistrations,
+	provideUserAuthentication,
 } from '../tests/js/utils';
 import createLegacySettingsWrapper from './utils/create-legacy-settings-wrapper';
-
-const analyticsFixture = fixtures.filter( ( fixture ) => fixture.slug === 'analytics' );
 
 const defaultSettings = {
 	optimizeID: '',
@@ -47,32 +44,52 @@ const defaultSettings = {
 
 const Settings = createLegacySettingsWrapper( 'optimize' );
 
-storiesOf( 'Optimize Module/Settings', module )
-	.addDecorator( ( storyFn ) => {
-		const registry = createTestRegistry();
-		registry.dispatch( STORE_NAME ).receiveGetSettings( {} );
-		provideModules( registry, [ {
+const withRegistry = ( Story ) => {
+	const registry = createTestRegistry();
+	registry.dispatch( STORE_NAME ).receiveGetSettings( {} );
+
+	provideModules( registry, [
+		{
 			slug: 'optimize',
 			active: true,
 			connected: true,
-		} ] );
-		provideModuleRegistrations( registry );
+		},
+		{
+			slug: 'analytics',
+			active: true,
+			connected: true,
+		},
+	] );
 
-		return storyFn( registry );
+	provideModuleRegistrations( registry );
+	provideUserAuthentication( registry );
+
+	return (
+		<Story registry={ registry } />
+	);
+};
+
+storiesOf( 'Optimize Module/Settings', module )
+	.add( 'View, closed', ( args, { registry } ) => {
+		return <Settings registry={ registry } route="/connected-services" />;
+	}, {
+		decorators: [
+			withRegistry,
+		],
 	} )
-	.add( 'View, closed', ( registry ) => {
-		return <Settings isOpen={ false } registry={ registry } />;
-	} )
-	.add( 'View, open with all settings', ( registry ) => {
+	.add( 'View, open with all settings', ( args, { registry } ) => {
 		registry.dispatch( STORE_NAME ).receiveGetSettings( {
 			...defaultSettings,
 			optimizeID: 'OPT-1234567',
 		} );
 
-		return <Settings isOpen={ true } registry={ registry } />;
+		return <Settings registry={ registry } route="/connected-services/optimize" />;
+	}, {
+		decorators: [
+			withRegistry,
+		],
 	} )
-	.add( 'Edit, open with all settings', ( registry ) => {
-		registry.dispatch( CORE_MODULES ).receiveGetModules( analyticsFixture );
+	.add( 'Edit, open with all settings', ( args, { registry } ) => {
 		registry.dispatch( MODULES_ANALYTICS ).setUseSnippet( true );
 		registry.dispatch( STORE_NAME ).receiveGetSettings( {
 			...defaultSettings,
@@ -80,18 +97,24 @@ storiesOf( 'Optimize Module/Settings', module )
 			ampExperimentJSON: '{"experimentName":{"sticky":true,"variants":{"0":33.4,"1":33.3,"2":33.3}}}',
 		} );
 
-		return <Settings isOpen={ true } isEditing={ true } registry={ registry } />;
+		return <Settings registry={ registry } route="/connected-services/optimize/edit" />;
+	}, {
+		decorators: [
+			withRegistry,
+		],
 	} )
-	.add( 'Edit, open with no optimize ID', ( registry ) => {
-		registry.dispatch( CORE_MODULES ).receiveGetModules( analyticsFixture );
+	.add( 'Edit, open with no optimize ID', ( args, { registry } ) => {
 		registry.dispatch( STORE_NAME ).receiveGetSettings( defaultSettings );
 		registry.dispatch( MODULES_ANALYTICS ).setUseSnippet( true );
 
-		return <Settings isOpen={ true } isEditing={ true } registry={ registry } />;
+		return <Settings registry={ registry } route="/connected-services/optimize/edit" />;
+	}, {
+		decorators: [
+			withRegistry,
+		],
 	} )
-	.add( 'Edit, open with all settings and AMP Experiment JSON Field', ( registry ) => {
+	.add( 'Edit, open with all settings and AMP Experiment JSON Field', ( args, { registry } ) => {
 		provideSiteInfo( registry, { ampMode: AMP_MODE_PRIMARY } );
-		registry.dispatch( CORE_MODULES ).receiveGetModules( analyticsFixture );
 		registry.dispatch( MODULES_ANALYTICS ).setUseSnippet( true );
 		registry.dispatch( STORE_NAME ).receiveGetSettings( {
 			...defaultSettings,
@@ -99,6 +122,10 @@ storiesOf( 'Optimize Module/Settings', module )
 			ampExperimentJSON: '{"experimentName":{"sticky":true,"variants":{"0":33.4,"1":33.3,"2":33.3}}}',
 		} );
 
-		return <Settings isOpen={ true } isEditing={ true } registry={ registry } />;
+		return <Settings registry={ registry } route="/connected-services/optimize/edit" />;
+	}, {
+		decorators: [
+			withRegistry,
+		],
 	} )
 ;

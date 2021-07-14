@@ -32,15 +32,14 @@ import { __, _n, _x, sprintf } from '@wordpress/i18n';
  */
 import Data from 'googlesitekit-data';
 import SearchConsoleIcon from '../../../../../svg/search-console.svg';
-import SearchConsoleDashboardWidgetSiteStats from './SearchConsoleDashboardWidgetSiteStats';
+import LegacySearchConsoleDashboardWidgetSiteStats from './LegacySearchConsoleDashboardWidgetSiteStats';
 import LegacySearchConsoleDashboardWidgetKeywordTable from './LegacySearchConsoleDashboardWidgetKeywordTable';
-import SearchConsoleDashboardWidgetOverview from './SearchConsoleDashboardWidgetOverview';
+import LegacySearchConsoleDashboardWidgetOverview from './LegacySearchConsoleDashboardWidgetOverview';
 import PageHeader from '../../../../components/PageHeader';
 import Layout from '../../../../components/layout/Layout';
 import ProgressBar from '../../../../components/ProgressBar';
 import getNoDataComponent from '../../../../components/legacy-notifications/nodata';
 import getDataErrorComponent from '../../../../components/legacy-notifications/data-error';
-import HelpLink from '../../../../components/HelpLink';
 import { getCurrentDateRangeDayCount } from '../../../../util/date-range';
 import { STORE_NAME, DATE_RANGE_OFFSET } from '../../datastore/constants';
 import { CORE_USER } from '../../../../googlesitekit/datastore/user/constants';
@@ -212,13 +211,13 @@ const GoogleSitekitSearchConsoleDashboardWidget = () => {
 								) }
 								headerCTALink={ searchConsoleDeepLink }
 							>
-								<SearchConsoleDashboardWidgetOverview
+								<LegacySearchConsoleDashboardWidgetOverview
 									selectedStats={ selectedStats }
 									handleStatSelection={ handleStatSelection }
 									handleDataError={ handleDataError }
 									handleDataSuccess={ handleDataSuccess }
 								/>
-								<SearchConsoleDashboardWidgetSiteStats selectedStats={ selectedStats } series={ series } vAxes={ vAxes } />
+								<LegacySearchConsoleDashboardWidgetSiteStats selectedStats={ selectedStats } series={ series } vAxes={ vAxes } />
 							</Layout>
 						</div>
 						<div className={ classnames(
@@ -246,13 +245,6 @@ const GoogleSitekitSearchConsoleDashboardWidget = () => {
 							>
 								<LegacySearchConsoleDashboardWidgetKeywordTable />
 							</Layout>
-						</div>
-						<div className="
-								mdc-layout-grid__cell
-								mdc-layout-grid__cell--span-12
-								mdc-layout-grid__cell--align-right
-							">
-							<HelpLink />
 						</div>
 					</div>
 				</div>

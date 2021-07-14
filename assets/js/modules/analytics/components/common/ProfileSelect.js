@@ -29,38 +29,19 @@ import Data from 'googlesitekit-data';
 import { Select, Option } from '../../../../material-components';
 import ProgressBar from '../../../../components/ProgressBar';
 import { STORE_NAME, PROFILE_CREATE } from '../../datastore/constants';
-import { isValidPropertyID, isValidAccountID } from '../../util';
+import { isValidPropertySelection, isValidAccountSelection } from '../../util';
 import { trackEvent } from '../../../../util';
 const { useSelect, useDispatch } = Data;
 
 export default function ProfileSelect() {
+	const accountID = useSelect( ( select ) => select( STORE_NAME ).getAccountID() );
+	const propertyID = useSelect( ( select ) => select( STORE_NAME ).getPropertyID() );
 	const profileID = useSelect( ( select ) => select( STORE_NAME ).getProfileID() );
-	const hasResolvedAccounts = useSelect( ( select ) => select( STORE_NAME ).hasFinishedResolution( 'getAccounts' ) );
-
-	const {
-		accountID,
-		propertyID,
-		profiles,
-		isResolvingProperties,
-		isResolvingProfiles,
-	} = useSelect( ( select ) => {
-		const data = {
-			accountID: select( STORE_NAME ).getAccountID(),
-			propertyID: select( STORE_NAME ).getPropertyID(),
-			profiles: [],
-			isResolvingProperties: false,
-			isResolvingProfiles: false,
-		};
-
-		if ( data.accountID ) {
-			data.isResolvingProperties = select( STORE_NAME ).isResolving( 'getProperties', [ data.accountID ] );
-			if ( data.propertyID ) {
-				data.profiles = select( STORE_NAME ).getProfiles( data.accountID, data.propertyID );
-				data.isResolvingProfiles = select( STORE_NAME ).isResolving( 'getProfiles', [ data.accountID, data.propertyID ] );
-			}
-		}
-
-		return data;
+	const profiles = useSelect( ( select ) => select( STORE_NAME ).getProfiles( accountID, propertyID ) );
+	const isLoading = useSelect( ( select ) => {
+		return ! select( STORE_NAME ).hasFinishedResolution( 'getAccounts' ) ||
+			select( STORE_NAME ).isResolving( 'getProperties', [ accountID ] ) ||
+			select( STORE_NAME ).isResolving( 'getProfiles', [ accountID, propertyID ] );
 	} );
 
 	const { setProfileID } = useDispatch( STORE_NAME );
@@ -70,9 +51,13 @@ export default function ProfileSelect() {
 			setProfileID( item.dataset.value );
 			trackEvent( 'analytics_setup', 'profile_change', item.dataset.value );
 		}
-	}, [ profileID ] );
+	}, [ profileID, setProfileID ] );
 
-	if ( ! hasResolvedAccounts || isResolvingProperties || isResolvingProfiles ) {
+	if ( ! isValidAccountSelection( accountID ) || ! isValidPropertySelection( propertyID ) ) {
+		return null;
+	}
+
+	if ( isLoading ) {
 		return <ProgressBar small />;
 	}
 
@@ -82,7 +67,6 @@ export default function ProfileSelect() {
 			label={ __( 'View', 'google-site-kit' ) }
 			value={ profileID }
 			onEnhancedChange={ onChange }
-			disabled={ ! isValidAccountID( accountID ) || ! isValidPropertyID( propertyID ) }
 			enhanced
 			outlined
 		>

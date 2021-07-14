@@ -16,7 +16,9 @@ $google_services = implode(
 	array(
 		'Analytics',
 		'AnalyticsReporting',
-		'AdSense',
+		'Adsense',
+		'GoogleAnalyticsAdmin',
+		'Ideahub',
 		'Pagespeedonline',
 		'PeopleService',
 		'SearchConsole',
@@ -52,6 +54,7 @@ return array(
 			->path( '#^psr/#' )
 			->path( '#^ralouphie/#' )
 			->path( '#^react/#' )
+			->path( '#^true/#' )
 			->in( 'vendor' ),
 
 		// Google API service infrastructure classes.

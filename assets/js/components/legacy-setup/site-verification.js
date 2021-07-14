@@ -38,7 +38,6 @@ import { TextField, Input } from '../../material-components';
 import data, { TYPE_MODULES } from '../data';
 import Button from '../Button';
 import ProgressBar from '../ProgressBar';
-import HelpLink from '../HelpLink';
 
 class SiteVerification extends Component {
 	constructor( props ) {
@@ -193,7 +192,6 @@ class SiteVerification extends Component {
 				</div>
 				<div className="googlesitekit-wizard-step__action googlesitekit-wizard-step__action--justify">
 					<Button onClick={ this.onProceed }>{ __( 'Continue', 'google-site-kit' ) }</Button>
-					<HelpLink />
 				</div>
 			</Fragment>
 		);

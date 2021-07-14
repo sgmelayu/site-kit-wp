@@ -34,7 +34,6 @@ import { trackEvent } from '../../util';
 import Button from '../Button';
 import Link from '../Link';
 import OptIn from '../OptIn';
-import HelpLink from '../HelpLink';
 
 class WizardStepAuthentication extends Component {
 	render() {
@@ -87,8 +86,6 @@ class WizardStepAuthentication extends Component {
 							</p>
 							<div className="googlesitekit-wizard-step__action googlesitekit-wizard-step__action--justify">
 								<OptIn optinAction="analytics_optin_setup_fallback" />
-
-								<HelpLink />
 							</div>
 						</div>
 					</div>
@@ -100,6 +97,7 @@ class WizardStepAuthentication extends Component {
 
 WizardStepAuthentication.propTypes = {
 	connectURL: PropTypes.string.isRequired,
+	helpVisibilityEnabled: PropTypes.bool,
 	resetAndRestart: PropTypes.func,
 };
 

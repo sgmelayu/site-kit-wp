@@ -26,6 +26,7 @@ import invariant from 'invariant';
  */
 import API from 'googlesitekit-api';
 import Data from 'googlesitekit-data';
+import { createValidatedAction } from '../../../googlesitekit/data/utils';
 import { isValidPropertyID, isValidProfileName, isValidAccountID } from '../util';
 import { STORE_NAME, PROFILE_CREATE } from './constants';
 import { createFetchStore } from '../../../googlesitekit/data/create-fetch-store';
@@ -109,13 +110,40 @@ const baseActions = {
 	 * @param {string} args.profileName The name for a new profile.
 	 * @return {Object} Object with `response` and `error`.
 	 */
-	*createProfile( accountID, propertyID, { profileName } ) {
-		invariant( isValidAccountID( accountID ), 'a valid account ID is required to create a profile.' );
-		invariant( isValidPropertyID( propertyID ), 'a valid property ID is required to create a profile.' );
-		invariant( isValidProfileName( profileName ), 'a valid name is required to create a profile.' );
+	createProfile: createValidatedAction(
+		( accountID, propertyID, { profileName } ) => {
+			invariant( isValidAccountID( accountID ), 'a valid account ID is required to create a profile.' );
+			invariant( isValidPropertyID( propertyID ), 'a valid property ID is required to create a profile.' );
+			invariant( isValidProfileName( profileName ), 'a valid name is required to create a profile.' );
+		},
+		function* ( accountID, propertyID, { profileName } ) {
+			const { response, error } = yield fetchCreateProfileStore.actions.fetchCreateProfile( accountID, propertyID, { profileName } );
+			return { response, error };
+		}
+	),
 
-		const { response, error } = yield fetchCreateProfileStore.actions.fetchCreateProfile( accountID, propertyID, { profileName } );
-		return { response, error };
+	/**
+	 * Finds a profile that fits the provided property.
+	 *
+	 * @since n.e.x.t
+	 *
+	 * @param {string} accountID        Account ID.
+	 * @param {string} propertyID       Property ID.
+	 * @param {string} defaultProfileID Optional. Default profile ID set for the property.
+	 * @return {Object|undefined} Porfile object on success, otherwise undefined.
+	 */
+	*findPropertyProfile( accountID, propertyID, defaultProfileID = '' ) {
+		const registry = yield Data.commonActions.getRegistry();
+		const profiles = yield Data.commonActions.await( registry.__experimentalResolveSelect( STORE_NAME ).getProfiles( accountID, propertyID ) );
+
+		if ( defaultProfileID ) {
+			const defaultProfile = profiles.find( ( profile ) => profile.id === defaultProfileID );
+			if ( defaultProfile ) {
+				return defaultProfile;
+			}
+		}
+
+		return profiles[ 0 ];
 	},
 };
 

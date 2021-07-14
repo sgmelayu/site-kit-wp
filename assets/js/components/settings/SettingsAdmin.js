@@ -19,7 +19,7 @@
 /**
  * WordPress dependencies
  */
-import { Fragment } from '@wordpress/element';
+import { useEffect } from '@wordpress/element';
 import { __ } from '@wordpress/i18n';
 import { addQueryArgs } from '@wordpress/url';
 
@@ -30,8 +30,8 @@ import Data from 'googlesitekit-data';
 import { CORE_USER } from '../../googlesitekit/datastore/user/constants';
 import { CORE_SITE } from '../../googlesitekit/datastore/site/constants';
 import { CORE_LOCATION } from '../../googlesitekit/datastore/location/constants';
-import { Cell } from '../../material-components';
 import Layout from '../layout/Layout';
+import { Row } from '../../material-components';
 import OptIn from '../OptIn';
 import VisuallyHidden from '../VisuallyHidden';
 import ResetButton from '../ResetButton';
@@ -39,6 +39,7 @@ import UserInputPreview from '../user-input/UserInputPreview';
 import { USER_INPUT_QUESTIONS_LIST } from '../user-input/util/constants';
 import UserInputSettings from '../notifications/UserInputSettings';
 import { useFeature } from '../../hooks/useFeature';
+import { trackEvent } from '../../util';
 const { useSelect, useDispatch } = Data;
 
 const SettingsAdmin = () => {
@@ -48,17 +49,31 @@ const SettingsAdmin = () => {
 
 	const { navigateTo } = useDispatch( CORE_LOCATION );
 	const goTo = ( questionIndex = 1 ) => {
-		navigateTo( addQueryArgs( userInputURL, {
-			question: USER_INPUT_QUESTIONS_LIST[ questionIndex - 1 ],
-			redirect_url: global.location.href,
-			single: 'settings', // Allows the user to edit a single question then return to the settings page.
-		} ) );
+		const questionSlug = USER_INPUT_QUESTIONS_LIST[ questionIndex - 1 ];
+		if ( questionSlug ) {
+			trackEvent( 'user_input', 'settings_edit', questionSlug );
+
+			navigateTo( addQueryArgs( userInputURL, {
+				question: questionSlug,
+				redirect_url: global.location.href,
+				single: 'settings', // Allows the user to edit a single question then return to the settings page.
+			} ) );
+		}
 	};
 
+	useEffect( () => {
+		if ( isUserInputCompleted ) {
+			trackEvent( 'user_input', 'settings_view' );
+		}
+	}, [ isUserInputCompleted ] );
+
 	return (
-		<Fragment>
+		<Row>
 			{ userInputEnabled && (
-				<Cell size={ 12 }>
+				<div className="
+					mdc-layout-grid__cell
+					mdc-layout-grid__cell--span-12
+				">
 					{ isUserInputCompleted && (
 						<Layout>
 							<div className="
@@ -89,9 +104,9 @@ const SettingsAdmin = () => {
 						</Layout>
 					) }
 					{ ! isUserInputCompleted && (
-						<UserInputSettings isDimissable={ false } />
+						<UserInputSettings isDismissable={ false } />
 					) }
-				</Cell>
+				</div>
 			) }
 			<div className="
 				mdc-layout-grid__cell
@@ -197,7 +212,7 @@ const SettingsAdmin = () => {
 					</div>
 				</Layout>
 			</div>
-		</Fragment>
+		</Row>
 	);
 };
 

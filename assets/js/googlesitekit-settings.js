@@ -19,7 +19,7 @@
 /**
  * External dependencies
  */
-import './modules';
+import { HashRouter } from 'react-router-dom';
 
 /**
  * WordPress dependencies
@@ -33,12 +33,20 @@ import { render } from '@wordpress/element';
 import './components/legacy-notifications';
 import Root from './components/Root';
 import SettingsApp from './components/settings/SettingsApp';
+import './modules';
 
 // Initialize the app once the DOM is ready.
 domReady( () => {
 	const renderTarget = document.getElementById( 'googlesitekit-settings-wrapper' );
 
 	if ( renderTarget ) {
-		render( <Root dataAPIContext="Settings"><SettingsApp /></Root>, renderTarget );
+		render(
+			<Root dataAPIContext="Settings">
+				<HashRouter>
+					<SettingsApp />
+				</HashRouter>
+			</Root>,
+			renderTarget
+		);
 	}
 } );

@@ -84,7 +84,9 @@ class Notification extends Component {
 
 		setTimeout( () => {
 			setCache( `notification::dismissed::${ this.props.id }`, new Date() );
-			card.style.display = 'none';
+			if ( card?.style ) {
+				card.style.display = 'none';
+			}
 
 			const event = new Event( 'notificationDismissed' );
 			document.dispatchEvent( event );
@@ -304,6 +306,7 @@ class Notification extends Component {
 							<div className="
 								mdc-layout-grid__cell
 								mdc-layout-grid__cell--span-1
+								googlesitekit-publisher-win__small-media
 							">
 								<SmallImageSVG />
 							</div>

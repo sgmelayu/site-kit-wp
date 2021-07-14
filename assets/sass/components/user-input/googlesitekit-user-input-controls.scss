@@ -74,6 +74,7 @@
 			}
 		}
 
+		.mdc-text-field--disabled,
 		.mdc-checkbox--disabled,
 		.mdc-checkbox--disabled + label {
 			opacity: 0.25;
@@ -133,14 +134,23 @@
 		button {
 			border-radius: 100px;
 			margin: 0;
-			min-width: 0;
+			min-width: 35px;
 			padding: 0 12px;
 
 			svg {
 
 				path {
-					fill: $c-user-input-placeholder;
+					fill: $c-user-input-color;
 				}
+			}
+		}
+
+		.mdc-text-field {
+			width: auto;
+
+			.mdc-text-field__input {
+				color: $c-user-input-color;
+				font-weight: 500;
 			}
 		}
 	}

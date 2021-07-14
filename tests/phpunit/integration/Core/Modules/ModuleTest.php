@@ -67,10 +67,8 @@ class ModuleTest extends TestCase {
 			'slug',
 			'name',
 			'description',
-			'cta',
 			'sort',
 			'homepage',
-			'learnMore',
 			'required',
 			'autoActivate',
 			'internal',
@@ -184,6 +182,121 @@ class ModuleTest extends TestCase {
 		$this->assertEqualSets(
 			array( 'test-request' ),
 			$module->get_datapoints()
+		);
+	}
+
+	/**
+	 * @dataProvider data_site_hosts
+	 */
+	public function test_permute_site_hosts( $hostname, $expected ) {
+		$module = new FakeModule( new Context( GOOGLESITEKIT_PLUGIN_MAIN_FILE ) );
+		$method = new ReflectionMethod( $module, 'permute_site_hosts' );
+		$method->setAccessible( true );
+		$permute_site_hosts = function ( ...$args ) use ( $module, $method ) {
+			return $method->invoke( $module, ...$args );
+		};
+
+		$this->assertEqualSets(
+			$expected,
+			$permute_site_hosts( $hostname )
+		);
+	}
+
+	public function data_site_hosts() {
+		return array(
+			'example.com'              => array(
+				'example.com',
+				array(
+					'example.com',
+					'www.example.com',
+				),
+			),
+			'www.example.com'          => array(
+				'www.example.com',
+				array(
+					'example.com',
+					'www.example.com',
+				),
+			),
+			'éxämplę.test'             => array(
+				'éxämplę.test',
+				array(
+					'éxämplę.test',
+					'www.éxämplę.test',
+					'xn--xmpl-loa2a55a.test',
+					'www.xn--xmpl-loa2a55a.test',
+				),
+			),
+			'éxämplę.test as punycode' => array(
+				'xn--xmpl-loa2a55a.test',
+				array(
+					'éxämplę.test',
+					'www.éxämplę.test',
+					'xn--xmpl-loa2a55a.test',
+					'www.xn--xmpl-loa2a55a.test',
+				),
+			),
+		);
+	}
+
+	/**
+	 * @dataProvider data_site_urls
+	 */
+	public function test_permute_site_url( $site_url, $expected ) {
+		$module = new FakeModule( new Context( GOOGLESITEKIT_PLUGIN_MAIN_FILE ) );
+		$method = new ReflectionMethod( $module, 'permute_site_url' );
+		$method->setAccessible( true );
+		$permute_site_url = function ( ...$args ) use ( $module, $method ) {
+			return $method->invoke( $module, ...$args );
+		};
+
+		$this->assertEqualSets(
+			$expected,
+			$permute_site_url( $site_url )
+		);
+	}
+
+	public function data_site_urls() {
+		return array(
+			'http://éxämplę.test'               => array(
+				'http://éxämplę.test',
+				array(
+					'http://éxämplę.test',
+					'https://éxämplę.test',
+					'http://www.éxämplę.test',
+					'https://www.éxämplę.test',
+					'http://xn--xmpl-loa2a55a.test',
+					'https://xn--xmpl-loa2a55a.test',
+					'http://www.xn--xmpl-loa2a55a.test',
+					'https://www.xn--xmpl-loa2a55a.test',
+				),
+			),
+			'http://éxämplę.test/sub-directory' => array(
+				'http://éxämplę.test/sub-directory',
+				array(
+					'http://éxämplę.test/sub-directory',
+					'https://éxämplę.test/sub-directory',
+					'http://www.éxämplę.test/sub-directory',
+					'https://www.éxämplę.test/sub-directory',
+					'http://xn--xmpl-loa2a55a.test/sub-directory',
+					'https://xn--xmpl-loa2a55a.test/sub-directory',
+					'http://www.xn--xmpl-loa2a55a.test/sub-directory',
+					'https://www.xn--xmpl-loa2a55a.test/sub-directory',
+				),
+			),
+			'http://éxämplę.test/sub-directory as punycode' => array(
+				'http://xn--xmpl-loa2a55a.test/sub-directory',
+				array(
+					'http://éxämplę.test/sub-directory',
+					'https://éxämplę.test/sub-directory',
+					'http://www.éxämplę.test/sub-directory',
+					'https://www.éxämplę.test/sub-directory',
+					'http://xn--xmpl-loa2a55a.test/sub-directory',
+					'https://xn--xmpl-loa2a55a.test/sub-directory',
+					'http://www.xn--xmpl-loa2a55a.test/sub-directory',
+					'https://www.xn--xmpl-loa2a55a.test/sub-directory',
+				),
+			),
 		);
 	}
 

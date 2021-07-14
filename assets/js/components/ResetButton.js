@@ -30,7 +30,7 @@ import { useDebounce } from '../hooks/useDebounce';
 import Data from 'googlesitekit-data';
 import { clearWebStorage } from '../util';
 import Dialog from './Dialog';
-import Modal from './Modal';
+import Portal from './Portal';
 import Link from './Link';
 import { CORE_SITE } from '../googlesitekit/datastore/site/constants';
 import { CORE_LOCATION } from '../googlesitekit/datastore/location/constants';
@@ -49,11 +49,14 @@ function ResetButton( { children } ) {
 	 * the navigate call starting, we will just set a debounce to keep the spinner for 3 seconds.
 	 */
 	const debouncedSetInProgress = useDebounce( setInProgress, 3000 );
-	const mediatedSetInProgress = ( bool ) => bool ? setInProgress( true ) : debouncedSetInProgress( false );
 
 	useEffect( () => {
-		mediatedSetInProgress( isDoingReset || isNavigatingToPostResetURL );
-	}, [ isDoingReset, isNavigatingToPostResetURL ] );
+		if ( isDoingReset || isNavigatingToPostResetURL ) {
+			setInProgress( true );
+		} else {
+			debouncedSetInProgress( false );
+		}
+	}, [ isDoingReset, isNavigatingToPostResetURL, debouncedSetInProgress ] );
 
 	useEffect( () => {
 		const handleCloseModal = ( event ) => {
@@ -84,7 +87,7 @@ function ResetButton( { children } ) {
 		await reset();
 		clearWebStorage();
 		navigateTo( postResetURL );
-	}, [ reset, postResetURL ] );
+	}, [ reset, postResetURL, navigateTo ] );
 
 	const toggleDialogActive = useCallback( () => {
 		setDialogActive( ! dialogActive );
@@ -103,7 +106,7 @@ function ResetButton( { children } ) {
 			>
 				{ children || __( 'Reset Site Kit', 'google-site-kit' ) }
 			</Link>
-			<Modal>
+			<Portal>
 				<Dialog
 					dialogActive={ dialogActive }
 					handleConfirm={ handleUnlinkConfirm }
@@ -118,7 +121,7 @@ function ResetButton( { children } ) {
 					danger
 					inProgress={ inProgress }
 				/>
-			</Modal>
+			</Portal>
 		</Fragment>
 	);
 }

@@ -53,8 +53,8 @@ const defaultSettings = {
 
 const completeSettings = {
 	...defaultSettings,
-	accountID: fixtures.accounts[ 0 ].id,
-	clientID: fixtures.clients[ 0 ].id,
+	accountID: fixtures.accounts[ 0 ]._id,
+	clientID: fixtures.clients[ 0 ]._id,
 	accountStatus: ACCOUNT_STATUS_APPROVED,
 	siteStatus: SITE_STATUS_ADDED,
 	accountSetupComplete: true,
@@ -66,33 +66,40 @@ const completeSettings = {
 const Settings = createLegacySettingsWrapper( 'adsense' );
 
 const setUpAdUnits = ( registry ) => {
-	const accountID = fixtures.accounts[ 0 ].id;
-	const clientID = fixtures.clients[ 0 ].id;
+	const accountID = fixtures.accounts[ 0 ]._id;
+	const clientID = fixtures.clients[ 0 ]._id;
 	registry.dispatch( STORE_NAME ).receiveGetAdUnits( fixtures.adunits, { accountID, clientID } );
 	registry.dispatch( STORE_NAME ).finishResolution( 'getAdUnits', [ accountID, clientID ] );
 };
 
-storiesOf( 'AdSense Module/Settings', module )
-	.addDecorator( ( storyFn ) => {
-		const registry = createTestRegistry();
-		registry.dispatch( STORE_NAME ).receiveGetSettings( {} );
-		registry.dispatch( STORE_NAME ).receiveGetExistingTag( null );
-		registry.dispatch( STORE_NAME ).receiveIsAdBlockerActive( false );
-		provideSiteInfo( registry, { webStoriesActive: true } );
-		provideUserAuthentication( registry );
-		provideModules( registry, [ {
-			slug: 'adsense',
-			active: true,
-			connected: true,
-		} ] );
-		provideModuleRegistrations( registry );
+const withRegistry = ( Story ) => {
+	const registry = createTestRegistry();
+	registry.dispatch( STORE_NAME ).receiveGetSettings( {} );
+	registry.dispatch( STORE_NAME ).receiveGetExistingTag( null );
+	registry.dispatch( STORE_NAME ).receiveIsAdBlockerActive( false );
+	provideSiteInfo( registry, { webStoriesActive: true } );
+	provideUserAuthentication( registry );
+	provideModules( registry, [ {
+		slug: 'adsense',
+		active: true,
+		connected: true,
+	} ] );
+	provideModuleRegistrations( registry );
 
-		return storyFn( registry );
+	return (
+		<Story registry={ registry } />
+	);
+};
+
+storiesOf( 'AdSense Module/Settings', module )
+	.add( 'View, closed', ( args, { registry } ) => {
+		return <Settings registry={ registry } route={ `/connected-services` } />;
+	}, {
+		decorators: [
+			withRegistry,
+		],
 	} )
-	.add( 'View, closed', ( registry ) => {
-		return <Settings isOpen={ false } registry={ registry } />;
-	} )
-	.add( 'View, open with setup incomplete', ( registry ) => {
+	.add( 'View, open with setup incomplete', ( args, { registry } ) => {
 		registry.dispatch( STORE_NAME ).receiveGetSettings( {
 			...completeSettings,
 			accountStatus: ACCOUNT_STATUS_PENDING,
@@ -100,37 +107,51 @@ storiesOf( 'AdSense Module/Settings', module )
 			siteSetupComplete: false,
 		} );
 
-		const module = {
-			...global._googlesitekitLegacyData.modules.adsense,
-			active: true,
-			setupComplete: false,
-		};
-
-		return <Settings isOpen={ true } registry={ registry } module={ module } />;
+		return <Settings route={ `/connected-services/adsense` } registry={ registry } />;
+	}, {
+		decorators: [
+			withRegistry,
+		],
 	} )
-	.add( 'View, open with all settings', ( registry ) => {
+	.add( 'View, open with all settings', ( args, { registry } ) => {
 		registry.dispatch( STORE_NAME ).receiveGetSettings( completeSettings );
 
-		return <Settings isOpen={ true } registry={ registry } />;
+		return <Settings route={ `/connected-services/adsense` } registry={ registry } />;
+	}, {
+		decorators: [
+			withRegistry,
+		],
 	} )
-	.add( 'Edit, open', ( registry ) => {
+	.add( 'Edit, open', ( args, { registry } ) => {
 		registry.dispatch( STORE_NAME ).receiveGetSettings( completeSettings );
 		setUpAdUnits( registry );
 
-		return <Settings isOpen={ true } isEditing={ true } registry={ registry } />;
+		return <Settings route={ `/connected-services/adsense/edit` } registry={ registry } />;
+	}, {
+		decorators: [
+			withRegistry,
+		],
 	} )
-	.add( 'Edit, open with existing tag (same account)', ( registry ) => {
+	.add( 'Edit, open with existing tag (same account)', ( args, { registry } ) => {
 		registry.dispatch( STORE_NAME ).receiveGetSettings( completeSettings );
 		registry.dispatch( STORE_NAME ).receiveGetExistingTag( completeSettings.clientID );
 		setUpAdUnits( registry );
 
-		return <Settings isOpen={ true } isEditing={ true } registry={ registry } />;
+		return <Settings route={ `/connected-services/adsense/edit` } registry={ registry } />;
+	}, {
+		decorators: [
+			withRegistry,
+		],
 	} )
-	.add( 'Edit, open with existing tag (different account)', ( registry ) => {
+	.add( 'Edit, open with existing tag (different account)', ( args, { registry } ) => {
 		registry.dispatch( STORE_NAME ).receiveGetSettings( completeSettings );
 		registry.dispatch( STORE_NAME ).receiveGetExistingTag( 'ca-pub-12345678' );
 		setUpAdUnits( registry );
 
-		return <Settings isOpen={ true } isEditing={ true } registry={ registry } />;
+		return <Settings route={ `/connected-services/adsense/edit` } registry={ registry } />;
+	}, {
+		decorators: [
+			withRegistry,
+		],
 	} )
 ;

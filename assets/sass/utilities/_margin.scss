@@ -18,6 +18,10 @@
 
 .googlesitekit-plugin {
 
+	.googlesitekit-margin-top-0 {
+		margin-top: 0 !important;
+	}
+
 	.googlesitekit-margin-bottom-0 {
 		margin-bottom: 0 !important;
 	}
@@ -28,5 +32,9 @@
 
 	.googlesitekit-margin-left-auto {
 		margin-left: auto;
+	}
+
+	.googlesitekit-margin-right-0 {
+		margin-right: 0;
 	}
 }

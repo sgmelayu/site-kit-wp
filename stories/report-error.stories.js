@@ -17,11 +17,6 @@
  */
 
 /**
- * External dependencies
- */
-import { storiesOf } from '@storybook/react';
-
-/**
  * Internal dependencies
  */
 import {
@@ -34,12 +29,16 @@ import ReportError from '../assets/js/components/ReportError';
 
 const error = {
 	code: 'test-error-code',
-	message: 'Test error message.',
+	message: 'Test error message',
 	data: {},
 };
 
-storiesOf( 'Global', module )
-	.addDecorator( ( storyFn ) => {
+export const ReportErrorStory = () => (
+	<ReportError moduleSlug="test-module" error={ error } />
+);
+ReportErrorStory.storyName = 'Report Error';
+ReportErrorStory.decorators = [
+	( Story ) => {
 		const registry = createTestRegistry();
 		const testModuleDefinition = createModuleStore( 'test-module', {
 			storeName: 'modules/test-module',
@@ -47,10 +46,14 @@ storiesOf( 'Global', module )
 		registry.registerStore( testModuleDefinition.STORE_NAME, testModuleDefinition );
 		provideModules( registry, [ { slug: 'test-module', name: 'Test Module' } ] );
 
-		return storyFn( registry );
-	} )
-	.add( 'ReportError', ( registry ) => (
-		<WithTestRegistry registry={ registry }>
-			<ReportError moduleSlug="test-module" error={ error } />
-		</WithTestRegistry>
-	) );
+		return (
+			<WithTestRegistry registry={ registry }>
+				<Story />
+			</WithTestRegistry>
+		);
+	},
+];
+
+export default {
+	title: 'Global',
+};

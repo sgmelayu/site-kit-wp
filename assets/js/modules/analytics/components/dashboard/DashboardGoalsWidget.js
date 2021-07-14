@@ -42,6 +42,7 @@ const { useSelect } = Data;
 function DashboardGoalsWidget( { WidgetReportZero, WidgetReportError } ) {
 	const {
 		data,
+		totalUsers,
 		error,
 		loading,
 		serviceURL,
@@ -74,10 +75,31 @@ function DashboardGoalsWidget( { WidgetReportZero, WidgetReportError } ) {
 			],
 		};
 
+		const url = select( CORE_SITE ).getCurrentEntityURL();
+
+		const totalUsersArgs = {
+			startDate,
+			endDate,
+			url, // see note below
+			compareStartDate,
+			compareEndDate,
+			metrics: [
+				{
+					expression: 'ga:users',
+					alias: 'Total Users',
+				},
+			],
+		};
+
+		const isLoading = ! store.hasFinishedResolution( 'getReport', [ args ] ) ||
+			! store.hasFinishedResolution( 'getGoals', [] ) ||
+			! store.hasFinishedResolution( 'getReport', [ totalUsersArgs ] );
+
 		return {
 			data: store.getReport( args ),
+			totalUsers: store.getReport( totalUsersArgs ),
 			error: store.getErrorForSelector( 'getReport', [ args ] ) || store.getErrorForSelector( 'getGoals', [] ),
-			loading: ! store.hasFinishedResolution( 'getReport', [ args ] ) || ! store.hasFinishedResolution( 'getGoals', [] ),
+			loading: isLoading,
 			serviceURL: store.getServiceReportURL( 'conversions-goals-overview', {
 				...generateDateRangeArgs( { startDate, endDate, compareStartDate, compareEndDate } ),
 			} ),
@@ -101,15 +123,15 @@ function DashboardGoalsWidget( { WidgetReportZero, WidgetReportError } ) {
 	if ( ! goals || ! Array.isArray( goals.items ) || ! goals.items.length ) {
 		return (
 			<CTA
-				title={ __( 'Use goals to measure success.', 'google-site-kit' ) }
-				description={ __( 'Goals measure how well your site or app fulfills your target objectives.', 'google-site-kit' ) }
+				title={ __( 'Use goals to measure success', 'google-site-kit' ) }
+				description={ __( 'Goals measure how well your site or app fulfills your target objectives', 'google-site-kit' ) }
 				ctaLink={ supportURL }
 				ctaLabel={ __( 'Create a new goal', 'google-site-kit' ) }
 			/>
 		);
 	}
 
-	if ( isZeroReport( data ) ) {
+	if ( isZeroReport( totalUsers ) ) {
 		return <WidgetReportZero moduleSlug="analytics" />;
 	}
 

@@ -33,7 +33,6 @@ import { Component, Fragment } from '@wordpress/element';
 import { trackEvent } from '../../util';
 import data, { TYPE_MODULES } from '../data';
 import ProgressBar from '../ProgressBar';
-import HelpLink from '../HelpLink';
 import { Select, TextField, Input } from '../../material-components';
 import Button from '../Button';
 
@@ -204,7 +203,6 @@ class SearchConsole extends Component {
 				</div>
 				<div className="googlesitekit-wizard-step__action googlesitekit-wizard-step__action--justify">
 					<Button onClick={ this.submitPropertyEventHandler }>{ __( 'Continue', 'google-site-kit' ) }</Button>
-					<HelpLink />
 				</div>
 			</Fragment>
 		);
@@ -245,7 +243,6 @@ class SearchConsole extends Component {
 				</div>
 				<div className="googlesitekit-wizard-step__action googlesitekit-wizard-step__action--justify">
 					<Button onClick={ this.submitPropertyEventHandler }>{ __( 'Continue', 'google-site-kit' ) }</Button>
-					<HelpLink />
 				</div>
 			</Fragment>
 		);

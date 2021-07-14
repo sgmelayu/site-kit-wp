@@ -55,7 +55,7 @@ export default function UseSnippetSwitch( props ) {
 		if ( saveOnChange ) {
 			await saveSettings();
 		}
-	}, [ useSnippet ] );
+	}, [ useSnippet, saveOnChange, setUseSnippet, saveSettings ] );
 
 	if ( undefined === useSnippet ) {
 		return null;
@@ -72,16 +72,8 @@ export default function UseSnippetSwitch( props ) {
 					hideLabel={ false }
 				/> <span className="googlesitekit-recommended">{ __( 'Recommended', 'google-site-kit' ) }</span>
 			</div>
-			{ useSnippet && checkedMessage &&
-				<SettingsNotice>
-					{ checkedMessage }
-				</SettingsNotice>
-			}
-			{ ! useSnippet && uncheckedMessage &&
-				<SettingsNotice>
-					{ uncheckedMessage }
-				</SettingsNotice>
-			}
+			{ ( useSnippet && checkedMessage ) && <SettingsNotice notice={ checkedMessage } /> }
+			{ ( ! useSnippet && uncheckedMessage ) && <SettingsNotice notice={ uncheckedMessage } /> }
 		</Fragment>
 	);
 }

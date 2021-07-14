@@ -41,7 +41,7 @@ describe( 'setting up the Analytics module with an existing account and existing
 			} else if ( request.url().match( '/wp-json/google-site-kit/v1/modules/analytics/data/report?' ) ) {
 				request.respond( {
 					status: 200,
-					body: JSON.stringify( { dummy_response: true } ),
+					body: JSON.stringify( { placeholder_response: true } ),
 				} );
 			}
 
@@ -90,7 +90,7 @@ describe( 'setting up the Analytics module with an existing account and existing
 		await proceedToSetUpAnalytics();
 
 		await expect( page ).toMatchElement( '.googlesitekit-setup-module--analytics p', {
-			text: new RegExp( `An existing analytics tag was found on your site with the id ${ existingTag.propertyID }`, 'i' ),
+			text: new RegExp( `An existing Universal Analytics tag was found on your site with the ID ${ existingTag.propertyID }`, 'i' ),
 		} );
 
 		await expect( page ).toMatchElement( '.googlesitekit-analytics__select-account .mdc-select__selected-text', { text: /test account a/i } );

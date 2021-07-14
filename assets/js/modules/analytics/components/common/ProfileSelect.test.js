@@ -101,13 +101,13 @@ describe( 'ProfileSelect', () => {
 	afterEach( () => apiFetchMock.mockClear() );
 	afterAll( () => jest.restoreAllMocks() );
 
-	it( 'should render an option for each analytics profile of the currently selected account and property.', async () => {
+	it( 'should render an option for each profile of the currently selected account and property.', async () => {
 		const { getAllByRole } = render( <ProfileSelect />, { setupRegistry } );
 
 		const listItems = getAllByRole( 'menuitem', { hidden: true } );
 		// Note: we do length + 1 here because there should also be an item for
 		// "Set up a new property".
-		expect( listItems ).toHaveLength( fixtures.accountsPropertiesProfiles.profiles.length + 1 );
+		expect( listItems ).toHaveLength( fixtures.propertiesProfiles.profiles.length + 1 );
 	} );
 
 	it( 'should display profile options of an existing account when present, and not be disabled.', async () => {
@@ -130,7 +130,31 @@ describe( 'ProfileSelect', () => {
 		expect( apiFetchMock ).not.toHaveBeenCalled();
 	} );
 
-	it( 'should be disabled when in the absence of an valid account or property ID.', async () => {
+	it( 'should not render if account ID is not valid', async () => {
+		const { container, registry } = render( <ProfileSelect />, {
+			setupRegistry( { dispatch } ) {
+				setupRegistry( { dispatch } );
+				dispatch( STORE_NAME ).finishResolution( 'getProperties', [ '0' ] );
+			},
+		} );
+
+		// A valid accountID is provided, so ensure it is not currently disabled.
+		expect( container.querySelector( '.googlesitekit-analytics__select-profile' ) )
+			.not.toHaveClass( 'mdc-select--disabled' );
+
+		await act( () => registry.dispatch( STORE_NAME ).setAccountID( '0' ) );
+
+		// An empty accountID is invalid, so ensure the select is not rendered.
+		expect( container ).toBeEmptyDOMElement();
+
+		// eslint-disable-next-line sitekit/acronym-case
+		await act( () => registry.dispatch( STORE_NAME ).setAccountID( fixtures.propertiesProfiles.profiles[ 0 ].accountId ) );
+
+		// A valid account ID was set, so the select should be visible.
+		expect( container.querySelector( '.googlesitekit-analytics__select-profile' ) ).toBeInTheDocument();
+	} );
+
+	it( 'should not render if account ID or property ID are invalid', async () => {
 		const { container, registry } = render( <ProfileSelect />, {
 			setupRegistry( { dispatch } ) {
 				setupRegistry( { dispatch } );
@@ -139,23 +163,22 @@ describe( 'ProfileSelect', () => {
 		} );
 
 		const validAccountID = registry.select( STORE_NAME ).getAccountID();
+		const validPropertyID = registry.select( STORE_NAME ).getPropertyID();
 
-		// A valid accountID is provided, so ensure it is not currently disabled.
+		// A valid accountID is provided, so the select component should not be disabled.
 		expect( container.querySelector( '.googlesitekit-analytics__select-profile' ) )
 			.not.toHaveClass( 'mdc-select--disabled' );
-
-		await act( () => registry.dispatch( STORE_NAME ).setAccountID( '0' ) );
-
-		// An empty accountID is invalid, so ensure the select IS currently disabled.
-		expect( container.querySelector( '.googlesitekit-analytics__select-profile' ) )
-			.toHaveClass( 'mdc-select--disabled' );
 
 		await act( () => registry.dispatch( STORE_NAME ).setAccountID( validAccountID ) );
 		await act( () => registry.dispatch( STORE_NAME ).setPropertyID( '0' ) );
 
-		// The accountID is valid, but an empty propertyID is invalid, so ensure the select IS currently disabled.
-		expect( container.querySelector( '.googlesitekit-analytics__select-profile' ) )
-			.toHaveClass( 'mdc-select--disabled' );
+		// The accountID is valid, but an empty propertyID is invalid, so ensure the select is not rendered.
+		expect( container ).toBeEmptyDOMElement();
+
+		await act( () => registry.dispatch( STORE_NAME ).setPropertyID( validPropertyID ) );
+
+		// After setting a valid property ID, the select should be visible.
+		expect( container.querySelector( '.googlesitekit-analytics__select-profile' ) ).toBeInTheDocument();
 	} );
 
 	it( 'should render a select box with only an option to create a new property if no properties are available.', async () => {

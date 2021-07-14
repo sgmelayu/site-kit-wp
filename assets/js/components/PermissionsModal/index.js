@@ -30,7 +30,7 @@ import { CORE_USER } from '../../googlesitekit/datastore/user/constants';
 import { CORE_LOCATION } from '../../googlesitekit/datastore/location/constants';
 import { snapshotAllStores } from '../../googlesitekit/data/create-snapshot-store';
 import Dialog from '../Dialog';
-import Modal from '../Modal';
+import Portal from '../Portal';
 const { useSelect, useDispatch, useRegistry } = Data;
 
 const PermissionsModal = () => {
@@ -55,7 +55,7 @@ const PermissionsModal = () => {
 		// authorization page, do that first.
 		await snapshotAllStores( registry );
 		navigateTo( connectURL );
-	}, [ registry, connectURL ] );
+	}, [ registry, connectURL, navigateTo ] );
 
 	useEffect( () => {
 		// If error has flag to skip the modal, redirect to the authorization
@@ -85,7 +85,7 @@ const PermissionsModal = () => {
 	}
 
 	return (
-		<Modal>
+		<Portal>
 			<Dialog
 				title={ __( 'Additional Permissions Required', 'google-site-kit' ) }
 				subtitle={ permissionsError.message }
@@ -94,7 +94,7 @@ const PermissionsModal = () => {
 				handleConfirm={ onConfirm }
 				handleDialog={ onCancel }
 			/>
-		</Modal>
+		</Portal>
 	);
 };
 

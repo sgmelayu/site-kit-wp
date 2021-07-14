@@ -49,15 +49,15 @@ describe( 'management of tracking opt-in/out via settings page', () => {
 		await setSearchConsoleProperty();
 
 		await visitAdminPage( 'admin.php', 'page=googlesitekit-settings' );
-		await page.waitForSelector( '.mdc-tab-bar button.mdc-tab' );
-		await expect( page ).toMatchElement( 'button.mdc-tab', { text: 'Admin Settings' } );
+		await page.waitForSelector( '.mdc-tab-bar a.mdc-tab' );
+		await expect( page ).toMatchElement( 'a.mdc-tab', { text: 'Admin Settings' } );
 
 		await pageWait(); // Delay the next steps.
 
 		// Click on Admin Settings Tab.
 		await Promise.all( [
 			page.waitForSelector( '#googlesitekit-opt-in' ),
-			expect( page ).toClick( 'button.mdc-tab', { text: 'Admin Settings' } ),
+			expect( page ).toClick( 'a.mdc-tab', { text: 'Admin Settings' } ),
 		] );
 	} );
 
@@ -139,9 +139,13 @@ describe( 'initialization on load for Site Kit screens', () => {
 			}
 		} );
 	} );
-	describe( 'splash page', () => {
-		afterEach( async () => await resetSiteKit() );
 
+	afterEach( async () => {
+		await resetSiteKit();
+		await deactivateUtilityPlugins();
+	} );
+
+	describe( 'splash page', () => {
 		it( 'does not load tracking if not opted-in', async () => {
 			await visitAdminPage( 'admin.php', 'page=googlesitekit-splash' );
 
@@ -158,10 +162,8 @@ describe( 'initialization on load for Site Kit screens', () => {
 	} );
 
 	describe( 'settings page', () => {
-		beforeEach( async () => await setupSiteKit() );
-		afterEach( async () => await resetSiteKit() );
-
 		it( 'does not load tracking if not opted-in', async () => {
+			await setupSiteKit();
 			await visitAdminPage( 'admin.php', 'page=googlesitekit-settings' );
 
 			await expect( page ).not.toHaveTracking();
@@ -170,6 +172,7 @@ describe( 'initialization on load for Site Kit screens', () => {
 		it( 'loads tracking when opted-in', async () => {
 			await visitAdminPage( 'admin.php', 'page=googlesitekit-splash' );
 			await toggleOptIn();
+			await setupSiteKit();
 			await visitAdminPage( 'admin.php', 'page=googlesitekit-settings' );
 
 			await expect( page ).toHaveTracking();
@@ -177,14 +180,8 @@ describe( 'initialization on load for Site Kit screens', () => {
 	} );
 
 	describe( 'Site Kit dashboard', () => {
-		beforeEach( async () => await setupSiteKit() );
-
-		afterEach( async () => {
-			await resetSiteKit();
-			await deactivateUtilityPlugins();
-		} );
-
 		it( 'does not load tracking if not opted-in', async () => {
+			await setupSiteKit();
 			await visitAdminPage( 'admin.php', 'page=googlesitekit-dashboard' );
 
 			await expect( page ).not.toHaveTracking();
@@ -193,6 +190,7 @@ describe( 'initialization on load for Site Kit screens', () => {
 		it( 'loads tracking when opted-in', async () => {
 			await visitAdminPage( 'admin.php', 'page=googlesitekit-splash' );
 			await toggleOptIn();
+			await setupSiteKit();
 			await visitAdminPage( 'admin.php', 'page=googlesitekit-dashboard' );
 
 			await expect( page ).toHaveTracking();
@@ -200,14 +198,8 @@ describe( 'initialization on load for Site Kit screens', () => {
 	} );
 
 	describe( 'module pages', () => {
-		beforeEach( async () => await setupSiteKit() );
-
-		afterEach( async () => {
-			await resetSiteKit();
-			await deactivateUtilityPlugins();
-		} );
-
 		it( 'does not load tracking if not opted-in', async () => {
+			await setupSiteKit();
 			await visitAdminPage( 'admin.php', 'page=googlesitekit-module-search-console' );
 
 			await expect( page ).not.toHaveTracking();
@@ -216,6 +208,7 @@ describe( 'initialization on load for Site Kit screens', () => {
 		it( 'loads tracking when opted-in', async () => {
 			await visitAdminPage( 'admin.php', 'page=googlesitekit-splash' );
 			await toggleOptIn();
+			await setupSiteKit();
 			await visitAdminPage( 'admin.php', 'page=googlesitekit-module-search-console' );
 
 			await expect( page ).toHaveTracking();

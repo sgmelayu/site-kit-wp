@@ -30,6 +30,7 @@ import { CORE_USER } from '../../googlesitekit/datastore/user/constants';
 import { useFeature } from '../../hooks/useFeature';
 import { Grid, Row, Cell } from '../../material-components';
 import Header from '../Header';
+import HelpMenu from '../help/HelpMenu';
 import PageHeader from '../PageHeader';
 import ProgressBar from '../ProgressBar';
 import UserInputQuestionnaire from './UserInputQuestionnaire';
@@ -48,7 +49,9 @@ export default function UserInputApp() {
 
 	return (
 		<Fragment>
-			<Header />
+			<Header>
+				 <HelpMenu />
+			</Header>
 			<div className="googlesitekit-user-input">
 				<div className="googlesitekit-module-page">
 					{ ! hasFinishedGettingInputSettings && (

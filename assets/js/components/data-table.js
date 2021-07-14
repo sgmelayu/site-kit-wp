@@ -27,9 +27,27 @@ import {
 /**
  * Internal dependencies
  */
+import Data from 'googlesitekit-data';
+import { CORE_SITE } from '../googlesitekit/datastore/site/constants';
 import SourceLink from './SourceLink';
 import Link from './Link';
-import { getSiteKitAdminURL } from '../util';
+import { getFullURL } from '../util';
+const { useSelect } = Data;
+
+const PrimaryAdminLink = ( { children, permaLink, useAdminURLs, link } ) => {
+	const adminURL = useSelect( ( select ) => select( CORE_SITE ).getAdminURL( 'googlesitekit-dashboard', { permaLink } ) );
+
+	return (
+		<Link
+			className="googlesitekit-table__body-item-link"
+			href={ useAdminURLs ? adminURL : link }
+			external={ ! useAdminURLs }
+			inherit
+		>
+			{ children }
+		</Link>
+	);
+};
 
 // Construct a table component from a data object.
 export const getDataTableFromData = ( data, headers, options ) => {
@@ -40,7 +58,6 @@ export const getDataTableFromData = ( data, headers, options ) => {
 		source,
 		showURLs,
 		useAdminURLs = false,
-		PrimaryLink = Link,
 	} = options;
 
 	if ( options.cap ) {
@@ -50,7 +67,7 @@ export const getDataTableFromData = ( data, headers, options ) => {
 	each( data, ( row, j ) => {
 		const cells = [];
 		const link = links && links[ j ];
-		const permaLink = link && link[ 0 ] === '/' ? global._googlesitekitLegacyData.admin.siteURL + link : link;
+		const permaLink = link && link[ 0 ] === '/' ? getFullURL( global._googlesitekitLegacyData.admin.siteURL, link ) : link;
 
 		each( row, ( cell, i ) => {
 			// Replace (none) by direct.
@@ -69,17 +86,17 @@ export const getDataTableFromData = ( data, headers, options ) => {
 					) }
 				>
 					{ row[ 0 ] === cell && link
-						? <div className="googlesitekit-table__body-item-content">
-							<PrimaryLink
-								className="googlesitekit-table__body-item-link"
-								href={ useAdminURLs ? getSiteKitAdminURL( 'googlesitekit-dashboard', { permaLink } ) : link }
-								external={ ! useAdminURLs }
-								inherit
-							>
-								{ cell }
-							</PrimaryLink>
+						? (
+							<div className="googlesitekit-table__body-item-content">
+								<PrimaryAdminLink
+									permaLink={ permaLink }
+									useAdminURLs={ useAdminURLs }
+									link={ link }
+								>
+									{ cell }
+								</PrimaryAdminLink>
 
-							{ showURLs &&
+								{ showURLs &&
 								<Link
 									className="googlesitekit-table__body-item-url"
 									href={ link }
@@ -88,8 +105,9 @@ export const getDataTableFromData = ( data, headers, options ) => {
 								>
 									{ link }
 								</Link>
-							}
-						</div>
+								}
+							</div>
+						)
 						: <div className="googlesitekit-table__body-item-content">{ cell }</div>
 					}
 				</td>
@@ -156,4 +174,3 @@ export const getDataTableFromData = ( data, headers, options ) => {
 		</div>
 	);
 };
-

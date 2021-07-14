@@ -21,8 +21,10 @@
  */
 import md5 from 'md5';
 import faker from 'faker';
+import castArray from 'lodash/castArray';
 import { zip, from, Observable } from 'rxjs';
 import { map, reduce, take } from 'rxjs/operators';
+import { STORE_NAME } from '../datastore/constants';
 
 const ANALYTICS_METRIC_TYPES = {
 	'ga:users': 'INTEGER',
@@ -94,30 +96,32 @@ function getMetricType( metric ) {
  *
  * @since 1.28.0
  *
- * @param {string} type  Metric type.
- * @param {number} count Maximum number of values to generate.
+ * @param {Array.<Object>} validMetrics Metric list.
+ * @param {number}         count        Maximum number of values to generate.
  * @return {Array.<Object>} Array of metric values.
  */
-function generateMetricValues( type, count ) {
+function generateMetricValues( validMetrics, count ) {
 	const metrics = [];
 
 	for ( let i = 0; i < count; i++ ) {
 		const values = [];
 
-		switch ( type ) {
-			case 'INTEGER':
-				values.push( faker.random.number( { min: 0, max: 100 } ).toString() );
-				break;
-			case 'PERCENT':
-				values.push( faker.random.float( { min: 0, max: 100 } ).toString() );
-				break;
-			case 'TIME':
-				values.push( faker.random.number( { min: 0, max: 3600 } ).toString() ); // 1 hour max.
-				break;
-			case 'CURRENCY':
-				values.push( faker.random.float( { min: 0, max: 10000 } ).toString() ); // $10k max.
-				break;
-		}
+		validMetrics.forEach( ( validMetric ) => {
+			switch ( getMetricType( validMetric ) ) {
+				case 'INTEGER':
+					values.push( faker.datatype.number( { min: 0, max: 100 } ).toString() );
+					break;
+				case 'PERCENT':
+					values.push( faker.datatype.float( { min: 0, max: 100 } ).toString() );
+					break;
+				case 'TIME':
+					values.push( faker.datatype.number( { min: 0, max: 3600 } ).toString() ); // 1 hour max.
+					break;
+				case 'CURRENCY':
+					values.push( faker.datatype.float( { min: 0, max: 10000 } ).toString() ); // $10k max.
+					break;
+			}
+		} );
 
 		metrics.push( { values } );
 	}
@@ -138,7 +142,7 @@ function generateMetricValues( type, count ) {
 function sortRows( rows, metrics, orderby ) {
 	let sorted = rows;
 
-	const orders = Array.isArray( orderby ) ? orderby : [ orderby ];
+	const orders = castArray( orderby );
 	for ( const order of orders ) {
 		const direction = order?.sortOrder === 'DESCENDING' ? -1 : 1;
 		const index = metrics.findIndex( ( metric ) => getMetricKey( metric ) === order?.fieldName );
@@ -209,12 +213,12 @@ export function getAnalyticsMockResponse( args ) {
 	// dimension set in the combined stream (array). We need to use array of streams because report arguments may
 	// have 0 or N dimensions (N > 1) which means that in the each row of the report data we will have an array
 	// of dimension values.
-	const dimensions = Array.isArray( args.dimensions ) ? args.dimensions : [ args.dimensions ];
+	const dimensions = castArray( args.dimensions );
 	dimensions.forEach( ( dimension ) => {
 		if ( dimension === 'ga:date' ) {
 			// Generates a stream (an array) of dates when the dimension is ga:date.
 			streams.push( new Observable( ( observer ) => {
-				const currentDate = new Date( args.startDate );
+				const currentDate = new Date( args.compareStartDate || args.startDate );
 				const end = new Date( args.endDate );
 
 				while ( currentDate.getTime() <= end.getTime() ) {
@@ -224,7 +228,7 @@ export function getAnalyticsMockResponse( args ) {
 
 				observer.complete();
 			} ) );
-		} else if ( dimension && typeof ANALYTICS_DIMENSION_OPTIONS?.[ dimension ] === 'function' ) {
+		} else if ( dimension && typeof ANALYTICS_DIMENSION_OPTIONS[ dimension ] === 'function' ) {
 			// Generates a stream (an array) of dimension values using a function associated with the current dimension.
 			streams.push( new Observable( ( observer ) => {
 				for ( let i = 1; i <= 90; i++ ) { // 90 is the max number of dates in the longest date range.
@@ -238,7 +242,7 @@ export function getAnalyticsMockResponse( args ) {
 
 				observer.complete();
 			} ) );
-		} else if ( dimension && Array.isArray( ANALYTICS_DIMENSION_OPTIONS?.[ dimension ] ) ) {
+		} else if ( dimension && Array.isArray( ANALYTICS_DIMENSION_OPTIONS[ dimension ] ) ) {
 			// Uses predefined array of dimension values to create a stream (an array) from.
 			streams.push( from( ANALYTICS_DIMENSION_OPTIONS[ dimension ] ) );
 		} else {
@@ -247,12 +251,12 @@ export function getAnalyticsMockResponse( args ) {
 		}
 	} );
 
-	// This is the list of operations that we apply to the cobmined stream (array) of dimension values.
+	// This is the list of operations that we apply to the combined stream (array) of dimension values.
 	const ops = [
 		// Convert a dimension value to a row object and generate metric values.
 		map( ( dimensionValue ) => ( {
-			dimensions: Array.isArray( dimensionValue ) ? dimensionValue : [ dimensionValue ],
-			metrics: generateMetricValues( getMetricType( validMetrics[ 0 ] ), metricValuesCount ),
+			dimensions: castArray( dimensionValue ),
+			metrics: generateMetricValues( validMetrics, metricValuesCount ),
 		} ) ),
 		// Make sure we take the appropriate number of rows.
 		take( args.limit > 0 ? +args.limit : 90 ),
@@ -272,18 +276,8 @@ export function getAnalyticsMockResponse( args ) {
 		data.minimums = [ ...( rows[ 0 ]?.metrics || [] ) ];
 		data.maximums = [ ...( rows[ rows.length - 1 ]?.metrics || [] ) ];
 
-		if ( getMetricType( validMetrics[ 0 ] ) === 'INTEGER' ) {
-			data.totals = [];
-			for ( let i = 0; i < metricValuesCount; i++ ) {
-				const sumValues = ( acc, row ) => acc + parseFloat( row.metrics[ i ].values[ 0 ] );
-				const total = data.rows.reduce( sumValues, 0 ).toString();
-
-				data.totals.push( { values: [ total ] } );
-			}
-		} else {
-			// Same here, we pretend that the last row contains totals because we don't need it to be mathematically valid.
-			data.totals = [ ...( rows[ rows.length - 1 ]?.metrics || [] ) ];
-		}
+		// Same here, we pretend that the last row contains totals because we don't need it to be mathematically valid.
+		data.totals = [ ...( rows[ rows.length - 1 ]?.metrics || [] ) ];
 	} );
 
 	// Set the original seed value for the faker.
@@ -302,4 +296,19 @@ export function getAnalyticsMockResponse( args ) {
 		},
 		data,
 	} ];
+}
+
+/**
+ * Generates mock response for Analytics reports.
+ *
+ * @since 1.34.0
+ *
+ * @param {wp.data.registry} registry Registry with all available stores registered.
+ * @param {Object}           options  Report options.
+ */
+export function provideAnalyticsMockReport( registry, options ) {
+	registry.dispatch( STORE_NAME ).receiveGetReport(
+		getAnalyticsMockResponse( options ),
+		{ options }
+	);
 }

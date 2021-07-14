@@ -29,12 +29,11 @@ import { __, _x, _n, sprintf } from '@wordpress/i18n';
 import Data from 'googlesitekit-data';
 import AdSenseIcon from '../../../../../svg/adsense.svg';
 import AdSensePerformanceWidget from './AdSensePerformanceWidget';
-import DashboardAdSenseTopPages from './DashboardAdSenseTopPages';
+import LegacyDashboardAdSenseTopPages from './LegacyDashboardAdSenseTopPages';
 import getNoDataComponent from '../../../../components/legacy-notifications/nodata';
 import getDataErrorComponent from '../../../../components/legacy-notifications/data-error';
 import ProgressBar from '../../../../components/ProgressBar';
 import ModuleSettingsWarning from '../../../../components/legacy-notifications/module-settings-warning';
-import HelpLink from '../../../../components/HelpLink';
 import PageHeader from '../../../../components/PageHeader';
 import Layout from '../../../../components/layout/Layout';
 import { CORE_USER } from '../../../../googlesitekit/datastore/user/constants';
@@ -189,11 +188,7 @@ export default function AdSenseDashboardWidget() {
 						</Cell>
 
 						<Cell className={ wrapperClass } size={ 12 }>
-							<DashboardAdSenseTopPages />
-						</Cell>
-
-						<Cell alignRight size={ 12 }>
-							<HelpLink />
+							<LegacyDashboardAdSenseTopPages />
 						</Cell>
 					</Row>
 				</Grid>
