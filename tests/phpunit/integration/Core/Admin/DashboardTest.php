@@ -6,39 +6,335 @@
  * @copyright 2021 Google LLC
  * @license   https://www.apache.org/licenses/LICENSE-2.0 Apache License 2.0
  * @link      https://sitekit.withgoogle.com
- */
+ * */
 
 namespace Google\Site_Kit\Tests\Core\Admin;
 
 use Google\Site_Kit\Context;
 use Google\Site_Kit\Core\Admin\Dashboard;
+use Google\Site_Kit\Core\Admin\Dashboard_Widget_Enabled;
+use Google\Site_Kit\Core\Modules\Modules;
 use Google\Site_Kit\Core\Permissions\Permissions;
+use Google\Site_Kit\Core\REST_API\REST_Routes;
+use Google\Site_Kit\Tests\RestTestTrait;
 use Google\Site_Kit\Tests\TestCase;
+use WP_REST_Request;
 
 /**
  * @group Admin
  */
 class DashboardTest extends TestCase {
 
+	use RestTestTrait;
+
+	/**
+	 * Admin user ID.
+	 *
+	 * @var int
+	 */
+	private $admin_id;
+
+	/**
+	 * Context object.
+	 *
+	 * @var Context
+	 */
+	private $context;
+
+	/**
+	 * Set up the test.
+	 */
+	public function set_up(): void {
+		parent::set_up();
+		$this->admin_id = $this->factory()->user->create( array( 'role' => 'administrator' ) );
+		$this->context  = new Context( GOOGLESITEKIT_PLUGIN_MAIN_FILE );
+	}
+
+	public function tear_down() {
+		parent::tear_down();
+		unset( $GLOBALS['wp_rest_server'] );
+	}
+
 	public function test_register() {
+		global $wp_meta_boxes;
+		$this->get_widget_markup();
+
+		// Check that the dashboard widget was registered.
+		$this->assertArrayHasKey( 'google_dashboard_widget', $wp_meta_boxes['dashboard']['normal']['core'], 'Dashboard widget should be registered in meta boxes.' );
+
+		// Check that expected assets are enqueued.
+		$this->assertTrue( wp_script_is( 'googlesitekit-wp-dashboard', 'enqueued' ), 'The expected script assets are not enqueued.' );
+		$this->assertTrue( wp_style_is( 'googlesitekit-wp-dashboard-css', 'enqueued', ), 'The expected style assets are not enqueued.' );
+	}
+
+	/**
+	 * @group dashboard_widget
+	 */
+	public function test_render_googlesitekit_wp_dashboard_loading_container() {
+		$output = $this->get_widget_markup();
+
+		$dom = new \DOMDocument();
+		$dom->loadHTML( $output );
+
+		$this->assertNotEmpty( $dom->getElementById( 'js-googlesitekit-wp-dashboard' ), 'The dashboard should not be empty.' );
+
+		$xpath = new \DOMXPath( $dom );
+		$query = "//div[@class[contains(., 'googlesitekit-wp-dashboard')] and @class[contains(., 'googlesitekit-wp-dashboard-loading')]]";
+
+		$elements = $xpath->query( $query );
+
+		$this->assertEquals( 1, $elements->length, 'Dashboard should have exactly one loading container element.' );
+	}
+
+	/**
+	 * @group dashboard_widget
+	 */
+	public function test_render_googlesitekit_wp_dashboard_only_search_console_connected() {
+		$modules = new Modules( $this->context );
+		$modules->get_module( 'search-console' )->get_settings()->merge(
+			array(
+				'propertyID' => '123456789',
+			)
+		);
+
+		$output = $this->get_widget_markup( $modules );
+
+		$dom = new \DOMDocument();
+		$dom->loadHTML( $output );
+		$this->assertNotEmpty( $dom->getElementById( 'js-googlesitekit-wp-dashboard' ), 'Dashboard container should exist when Search Console is connected.' );
+
+		// Ensure that "googlesitekit-wp-dashboard-search_console_active_and_connected" class exists.
+		$xpath    = new \DOMXPath( $dom );
+		$query    = "//div[@class[contains(., 'googlesitekit-wp-dashboard')] and @class[contains(., 'googlesitekit-wp-dashboard-loading')]]";
+		$elements = $xpath->query( $query );
+		$this->assertEquals( 1, $elements->length, 'Dashboard should have exactly one loading container when only Search Console is connected.' );
+
+		// Ensure that "googlesitekit-wp-dashboard-analytics_active_and_connected" class does not exist.
+		$query    = "//div[@class[contains(., 'googlesitekit-wp-dashboard')] and @class[contains(., 'googlesitekit-wp-dashboard-analytics_active_and_connected')]]";
+		$elements = $xpath->query( $query );
+		$this->assertEquals( 0, $elements->length, 'Analytics active and connected class should not exist when only Search Console is connected.' );
+	}
+
+	/**
+	 * @group dashboard_widget
+	 */
+	public function test_render_googlesitekit_wp_dashboard_only_analytics4_connected() {
+		$modules = new Modules( $this->context );
+		$modules->get_module( 'analytics-4' )->get_settings()->merge(
+			array(
+				'accountID'       => '12345678',
+				'propertyID'      => '12345678',
+				'webDataStreamID' => '987654321',
+				'measurementID'   => 'G-123',
+				'ownerID'         => 2,
+			)
+		);
+
+		$output = $this->get_widget_markup( $modules );
+
+		$dom = new \DOMDocument();
+		$dom->loadHTML( $output );
+
+		$this->assertNotEmpty( $dom->getElementById( 'js-googlesitekit-wp-dashboard' ), 'Dashboard container should exist when Analytics 4 is connected.' );
+
+		// Ensure that "googlesitekit-wp-dashboard-analytics_active_and_connected" class exists.
+		$xpath    = new \DOMXPath( $dom );
+		$query    = "//div[@class[contains(., 'googlesitekit-wp-dashboard')] and @class[contains(., 'googlesitekit-wp-dashboard-loading')]]";
+		$elements = $xpath->query( $query );
+		$this->assertEquals( 1, $elements->length, 'Dashboard should have exactly one loading container when only Analytics 4 is connected.' );
+
+		// Ensure that "googlesitekit-wp-dashboard-search_console_active_and_connected" class does not exist.
+		$query    = "//div[contains(concat(' ', normalize-space(@class), ' '), ' googlesitekit-wp-dashboard ') and contains(concat(' ', normalize-space(@class), ' '), ' googlesitekit-wp-dashboard-search_console_active_and_connected ')]";
+		$elements = $xpath->query( $query );
+		$this->assertEquals( 0, $elements->length, 'Search Console active and connected class should not exist when only Analytics 4 is connected.' );
+
+		// Ensure that "googlesitekit-preview-block googlesitekit-wp-dashboard-stats__cta" exists.
+		$query    = "//div[contains(concat(' ', normalize-space(@class), ' '), ' googlesitekit-preview-block ') and contains(concat(' ', normalize-space(@class), ' '), ' googlesitekit-wp-dashboard-stats__cta ')]";
+		$elements = $xpath->query( $query );
+		$this->assertEquals( 0, $elements->length, 'Preview block CTA should not exist when only Analytics 4 is connected.' );
+	}
+
+	/**
+	 * @group dashboard_widget
+	 */
+	public function test_render_googlesitekit_wp_dashboard_analytics4_and_search_console_connected() {
+		$modules = new Modules( $this->context );
+		$modules->get_module( 'analytics-4' )->get_settings()->merge(
+			array(
+				'accountID'       => '12345678',
+				'propertyID'      => '12345678',
+				'webDataStreamID' => '987654321',
+				'measurementID'   => 'G-123',
+				'ownerID'         => 2,
+			)
+		);
+		$modules->get_module( 'search-console' )->get_settings()->merge(
+			array(
+				'propertyID' => '123456789',
+			)
+		);
+
+		$output = $this->get_widget_markup( $modules );
+
+		$dom = new \DOMDocument();
+		$dom->loadHTML( $output );
+
+		$this->assertNotEmpty( $dom->getElementById( 'js-googlesitekit-wp-dashboard' ), 'Dashboard container should exist when both Analytics 4 and Search Console are connected.' );
+
+		// Ensure that both "googlesitekit-wp-dashboard-analytics_active_and_connected" and "googlesitekit-wp-dashboard-search_console_active_and_connected" classes exist.
+		$xpath    = new \DOMXPath( $dom );
+		$query    = "//div[@class[contains(., 'googlesitekit-wp-dashboard')] and @class[contains(., 'googlesitekit-wp-dashboard-loading')]]";
+		$elements = $xpath->query( $query );
+		$this->assertEquals( 1, $elements->length, 'Dashboard should have exactly one loading container when both Analytics 4 and Search Console are connected.' );
+
+		// Ensure that "googlesitekit-preview-block googlesitekit-wp-dashboard-stats__cta" exists.
+		$query    = "//div[contains(concat(' ', normalize-space(@class), ' '), ' googlesitekit-preview-block ') and contains(concat(' ', normalize-space(@class), ' '), ' googlesitekit-wp-dashboard-stats__cta ')]";
+		$elements = $xpath->query( $query );
+		$this->assertEquals( 0, $elements->length, 'Preview block CTA should not exist when both Analytics 4 and Search Console are connected.' );
+	}
+
+	public function test_register__widget_disabled_by_setting() {
+		update_option( Dashboard_Widget_Enabled::OPTION, false );
+
+		$this->assert_widget_not_registered();
+	}
+
+	public function test_register__widget_disabled_by_filter() {
+		add_filter( 'googlesitekit_show_wp_dashboard_widget', '__return_false' );
+
+		$this->assert_widget_not_registered();
+	}
+
+	public function test_register__rest_routes_and_preload_path() {
+		remove_all_filters( 'googlesitekit_rest_routes' );
+		remove_all_filters( 'googlesitekit_apifetch_preload_paths' );
+
+		$dashboard = new Dashboard( $this->context );
+		$dashboard->register();
+
+		$this->assertTrue( has_filter( 'googlesitekit_rest_routes' ), 'Dashboard REST routes should be registered.' );
+		$this->assertContains(
+			'/' . REST_Routes::REST_ROOT . '/core/site/data/wp-dashboard-widget-settings',
+			apply_filters( 'googlesitekit_apifetch_preload_paths', array() ),
+			'The WordPress dashboard widget settings path should be preloaded.'
+		);
+	}
+
+	public function test_get_wp_dashboard_widget_settings() {
+		$this->register_dashboard_rest_routes();
+		wp_set_current_user( $this->admin_id );
+
+		$request  = new WP_REST_Request( 'GET', '/' . REST_Routes::REST_ROOT . '/core/site/data/wp-dashboard-widget-settings' );
+		$response = rest_get_server()->dispatch( $request );
+		$this->assertEquals( array( 'enabled' => true ), $response->get_data(), 'The WordPress dashboard widget should be enabled by default.' );
+
+		update_option( Dashboard_Widget_Enabled::OPTION, false );
+
+		$response = rest_get_server()->dispatch( $request );
+		$this->assertEquals( array( 'enabled' => false ), $response->get_data(), 'The response should reflect the stored setting.' );
+	}
+
+	public function test_get_wp_dashboard_widget_settings__requires_manage_options() {
+		$this->register_dashboard_rest_routes();
+		wp_set_current_user( $this->factory()->user->create( array( 'role' => 'editor' ) ) );
+
+		$request  = new WP_REST_Request( 'GET', '/' . REST_Routes::REST_ROOT . '/core/site/data/wp-dashboard-widget-settings' );
+		$response = rest_get_server()->dispatch( $request );
+
+		$this->assertEquals( 'rest_forbidden', $response->get_data()['code'], 'Reading the setting should be forbidden for a user who cannot manage options.' );
+	}
+
+	public function test_set_wp_dashboard_widget_settings() {
+		$this->register_dashboard_rest_routes();
+		wp_set_current_user( $this->admin_id );
+
+		$request = new WP_REST_Request( 'POST', '/' . REST_Routes::REST_ROOT . '/core/site/data/wp-dashboard-widget-settings' );
+		$request->set_body_params( array( 'data' => array( 'enabled' => false ) ) );
+		$response = rest_get_server()->dispatch( $request );
+
+		$this->assertEquals( array( 'enabled' => false ), $response->get_data(), 'The response should contain the updated setting.' );
+		$this->assertFalse( get_option( Dashboard_Widget_Enabled::OPTION ), 'The setting should be saved as disabled.' );
+
+		$request->set_body_params( array( 'data' => array( 'enabled' => true ) ) );
+		$response = rest_get_server()->dispatch( $request );
+
+		$this->assertEquals( array( 'enabled' => true ), $response->get_data(), 'The response should contain the re-enabled setting.' );
+		$this->assertTrue( get_option( Dashboard_Widget_Enabled::OPTION ), 'The setting should be saved as enabled.' );
+	}
+
+	public function test_set_wp_dashboard_widget_settings__requires_manage_options() {
+		$this->register_dashboard_rest_routes();
+		wp_set_current_user( $this->factory()->user->create( array( 'role' => 'editor' ) ) );
+
+		$request = new WP_REST_Request( 'POST', '/' . REST_Routes::REST_ROOT . '/core/site/data/wp-dashboard-widget-settings' );
+		$request->set_body_params( array( 'data' => array( 'enabled' => false ) ) );
+		$response = rest_get_server()->dispatch( $request );
+
+		$this->assertEquals( 'rest_forbidden', $response->get_data()['code'], 'Updating the setting should be forbidden for a user who cannot manage options.' );
+		$this->assertSame( 'not-set', get_option( Dashboard_Widget_Enabled::OPTION, 'not-set' ), 'The setting should not be saved.' );
+	}
+
+	public function test_set_wp_dashboard_widget_settings__invalid_data() {
+		$this->register_dashboard_rest_routes();
+		wp_set_current_user( $this->admin_id );
+
+		$request = new WP_REST_Request( 'POST', '/' . REST_Routes::REST_ROOT . '/core/site/data/wp-dashboard-widget-settings' );
+		$request->set_body_params( array( 'data' => array( 'enabled' => 123 ) ) );
+		$response = rest_get_server()->dispatch( $request );
+
+		$this->assertEquals( 400, $response->get_status(), 'A non-boolean value should be rejected.' );
+		$this->assertEquals( 'rest_invalid_param', $response->get_data()['code'], 'A non-boolean value should return the invalid param code.' );
+	}
+
+	private function assert_widget_not_registered() {
+		global $wp_meta_boxes;
+
+		$this->setup_wp_dashboard();
+
+		$this->assertArrayNotHasKey( 'google_dashboard_widget', $wp_meta_boxes['dashboard']['normal']['core'] ?? array(), 'Dashboard widget should not be registered.' );
+		$this->assertFalse( wp_script_is( 'googlesitekit-wp-dashboard', 'enqueued' ), 'The dashboard widget script should not be enqueued.' );
+		$this->assertFalse( wp_style_is( 'googlesitekit-wp-dashboard-css', 'enqueued' ), 'The dashboard widget style should not be enqueued.' );
+	}
+
+	private function register_dashboard_rest_routes() {
+		remove_all_filters( 'googlesitekit_rest_routes' );
+		$dashboard = new Dashboard( $this->context );
+		$dashboard->register();
+		$this->register_rest_routes();
+	}
+
+	public function get_widget_markup( $modules = null ) {
 		global $wp_meta_boxes, $current_screen;
-		// Clear out any registered meta boxes
+
+		$this->setup_wp_dashboard( $modules );
+
+		ob_start();
+		$widget_callback = $wp_meta_boxes[ $current_screen->id ]['normal']['core']['google_dashboard_widget']['callback'];
+		$widget_callback();
+		$output = ob_get_clean();
+
+		return $output;
+	}
+
+	private function setup_wp_dashboard( $modules = null ) {
+		global $wp_meta_boxes, $current_screen;
+		// Clear out any registered meta boxes.
 		$wp_meta_boxes = array();
-		// Set the current screen to the dashboard
+		// Set the current screen to the dashboard.
 		$current_screen = convert_to_screen( 'dashboard' );
-		$admin_id       = $this->factory()->user->create( array( 'role' => 'administrator' ) );
-		$dashboard      = new Dashboard( new Context( GOOGLESITEKIT_PLUGIN_MAIN_FILE ) );
-		// Clear registered actions on hooks related to our assertions
-		remove_all_actions( 'wp_dashboard_setup' );
-		remove_all_actions( 'admin_enqueue_scripts' );
+		$dashboard      = new Dashboard(
+			$this->context,
+			null,
+			$modules,
+		);
 
 		$dashboard->register();
 
-		// Bypass user authentication requirement in map_meta_cap
+		// Bypass user authentication requirement in map_meta_cap.
 		add_filter(
 			'map_meta_cap',
 			function ( $caps, $cap ) {
-				if ( Permissions::VIEW_DASHBOARD === $cap ) {
+				if ( Permissions::VIEW_WP_DASHBOARD_WIDGET === $cap ) {
 					$caps = array_filter(
 						$caps,
 						function ( $cap ) {
@@ -53,20 +349,9 @@ class DashboardTest extends TestCase {
 			2
 		);
 
-		$this->assertFalse( current_user_can( Permissions::VIEW_DASHBOARD ) );
-		wp_set_current_user( $admin_id );
-		$this->assertTrue( current_user_can( Permissions::VIEW_DASHBOARD ) );
+		wp_set_current_user( $this->admin_id );
 
 		require_once ABSPATH . 'wp-admin/includes/dashboard.php';
 		wp_dashboard_setup();
-
-		// Check that the dashboard widget was registered
-		$this->assertArrayHasKey( 'google_dashboard_widget', $wp_meta_boxes['dashboard']['normal']['core'] );
-		// Check that expected assets are enqueued
-		$this->assertFalse( wp_style_is( 'googlesitekit-wp-dashboard-css', 'enqueued' ) );
-		$this->assertFalse( wp_script_is( 'googlesitekit-wp-dashboard', 'enqueued' ) );
-		do_action( 'admin_enqueue_scripts' );
-		$this->assertTrue( wp_script_is( 'googlesitekit-wp-dashboard', 'enqueued' ) );
-		$this->assertTrue( wp_style_is( 'googlesitekit-wp-dashboard-css', 'enqueued' ) );
 	}
 }

@@ -1,0 +1,246 @@
+/**
+ * Stepper styles.
+ *
+ * Site Kit by Google, Copyright 2023 Google LLC
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     https://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+.googlesitekit-plugin {
+
+	.googlesitekit-stepper {
+		list-style: none;
+		margin: 0;
+		padding: 0;
+	}
+
+	.googlesitekit-stepper__step {
+		gap: 10px;
+		margin: 0;
+
+		@media (min-width: $bp-tablet) {
+			display: flex;
+		}
+	}
+
+	.googlesitekit-stepper__step-progress {
+		display: flex;
+		flex-direction: column;
+	}
+
+	.googlesitekit-stepper__step-number {
+		align-items: center;
+		background-color: $c-surfaces-on-surface;
+		border-radius: 12px;
+		color: $c-content-on-primary;
+		display: flex;
+		font-size: $fs-label-sm;
+		height: 24px;
+		justify-content: center;
+		width: 24px;
+	}
+
+	.googlesitekit-stepper__step-progress-line {
+		background-color: $c-surfaces-surface-2;
+		display: none;
+		flex: 1;
+		height: 100%;
+		margin: 5px auto;
+		min-height: 30px;
+		width: 1px;
+
+		@media (min-width: $bp-tablet) {
+			display: block;
+		}
+	}
+
+	.googlesitekit-stepper__step-title {
+		align-items: center;
+		color: $c-surfaces-on-surface;
+		display: flex;
+		height: 24px;
+
+		@media (min-width: $bp-tablet) {
+			margin: 0;
+		}
+	}
+
+	.googlesitekit-stepper__step-content-container {
+		display: grid;
+		grid-template-rows: 0fr;
+		transition: grid-template-rows $t-default ease-in-out;
+
+		// Set visibility: hidden in order to hide from screen readers and prevent tabbing to hidden content.
+		visibility: hidden;
+	}
+
+	.googlesitekit-stepper__step-content {
+		overflow: hidden;
+	}
+
+	.googlesitekit-stepper__step--upcoming {
+
+		.googlesitekit-stepper__step-number {
+			background-color: $c-surfaces-on-surface-variant;
+		}
+
+		.googlesitekit-stepper__step-title {
+			color: $c-surfaces-on-surface-variant;
+		}
+	}
+
+	.googlesitekit-stepper__step--active {
+
+		.googlesitekit-stepper__step-content-container {
+			grid-template-rows: 1fr;
+			margin-bottom: 24px;
+			visibility: visible;
+		}
+	}
+
+	.googlesitekit-stepper__step--completed {
+
+		.googlesitekit-stepper__step-number {
+			color: $c-content-on-secondary;
+
+			svg {
+				height: 10px;
+				width: 10px;
+			}
+		}
+	}
+
+	.googlesitekit-stepper__step:last-child {
+
+		.googlesitekit-stepper__step-content-container {
+			margin-bottom: 0;
+		}
+	}
+
+	.googlesitekit-stepper--rail {
+		--googlesitekit-stepper-row-gap: 12px;
+		--googlesitekit-stepper-size: 18px;
+		--googlesitekit-stepper-small-size: 10px;
+
+		align-items: center;
+		box-sizing: content-box;
+		display: flex;
+
+		@media (min-width: $bp-nonTablet) {
+			align-items: stretch;
+			display: grid;
+			gap: var(--googlesitekit-stepper-row-gap);
+			grid-auto-rows: 1fr;
+		}
+
+		.googlesitekit-stepper__step {
+			display: block;
+			flex: 2 1 0;
+
+			@media (min-width: $bp-nonTablet) {
+				display: grid;
+				flex-grow: 1;
+				gap: 14px;
+				grid-template-columns: var(--googlesitekit-stepper-size) auto;
+				min-block-size: 36px;
+			}
+		}
+
+		.googlesitekit-stepper__step:first-child,
+		.googlesitekit-stepper__step:last-child {
+			flex-grow: 1;
+		}
+
+		.googlesitekit-stepper__step-info {
+			display: none;
+
+			@media (min-width: $bp-nonTablet) {
+				align-self: center;
+				display: block;
+			}
+		}
+
+		.googlesitekit-stepper__step-title {
+			block-size: auto;
+		}
+
+		.googlesitekit-stepper__step-progress {
+			display: flex;
+			flex-direction: row;
+			place-items: center;
+
+			@media (min-width: $bp-nonTablet) {
+				flex-direction: column;
+				position: relative;
+			}
+
+			&::after,
+			&::before {
+				background-color: $c-surfaces-surface-2;
+				block-size: 1px;
+				content: "";
+				display: block;
+				flex: 1 1 0;
+
+				@media (min-width: $bp-nonTablet) {
+					block-size: auto;
+					inline-size: 1px;
+				}
+			}
+		}
+
+		.googlesitekit-stepper__step:first-child .googlesitekit-stepper__step-progress::before,
+		.googlesitekit-stepper__step:last-child .googlesitekit-stepper__step-progress::after {
+			display: none;
+
+			@media (min-width: $bp-nonTablet) {
+				display: block;
+				visibility: hidden;
+			}
+		}
+
+		.googlesitekit-stepper__step-number {
+			aspect-ratio: 1 / 1;
+			background-color: $c-site-kit-sk-600;
+			block-size: auto;
+			inline-size: var(--googlesitekit-stepper-size);
+		}
+
+		.googlesitekit-stepper__step--active {
+
+			.googlesitekit-stepper__step-number {
+				background-clip: content-box;
+				box-shadow: inset 0 0 0 1px $c-site-kit-sk-600;
+				padding: calc((var(--googlesitekit-stepper-size) - var(--googlesitekit-stepper-small-size)) / 2);
+			}
+		}
+
+		.googlesitekit-stepper__step--upcoming .googlesitekit-stepper__step-number {
+			background-color: $c-site-kit-sk-200;
+			inline-size: var(--googlesitekit-stepper-small-size);
+		}
+
+		.googlesitekit-stepper__step-progress-line {
+			display: none;
+
+			@media (min-width: $bp-nonTablet) {
+				block-size: var(--googlesitekit-stepper-row-gap);
+				display: block;
+				inset-block-start: 100%;
+				margin: 0;
+				min-block-size: 0;
+				position: absolute;
+			}
+		}
+	}
+}

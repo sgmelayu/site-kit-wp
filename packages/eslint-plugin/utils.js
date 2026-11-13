@@ -16,7 +16,13 @@
  * limitations under the License.
  */
 
-function checkForEmptyLinesInGroup( groupOfTags, { context, jsdoc, jsdocNode } = {} ) {
+const FUNCTION_TYPES = [
+	'ArrowFunctionExpression',
+	'FunctionDeclaration',
+	'FunctionExpression',
+];
+
+function checkForEmptyLinesInGroup( groupOfTags, { context, jsdocNode } = {} ) {
 	groupOfTags.forEach( ( tag, index ) => {
 		if ( index === 0 ) {
 			return;
@@ -24,9 +30,13 @@ function checkForEmptyLinesInGroup( groupOfTags, { context, jsdoc, jsdocNode } =
 
 		const previousTag = groupOfTags[ index - 1 ];
 
-		if ( jsdoc.source.match(
-			new RegExp( `@${ previousTag.tag }.*\\n\\n@${ tag.tag }`, 'gm' )
-		) ) {
+		const source = getJsdocContent( context, jsdocNode );
+
+		if (
+			source.match(
+				new RegExp( `@${ previousTag.tag }.*\\n\\n@${ tag.tag }`, 'gm' )
+			)
+		) {
 			context.report( {
 				data: { name: jsdocNode.name },
 				message: `There should not be an empty line between @${ previousTag.tag } and @${ tag.tag }.`,
@@ -52,11 +62,23 @@ function findTagInGroup( tagsInGroup, utils, index = 0 ) {
 	return findTagInGroup( tagsInGroup, utils, index + 1 );
 }
 
+function getJsdocContent( context, jsdocNode ) {
+	const sourceCode = context.getSourceCode();
+
+	return sourceCode
+		.getText( jsdocNode )
+		.replace( /^\s*\/\*\*+/, '' ) // Remove opening `/**`.
+		.replace( /\s*\*\/\s*$/, '' ) // Remove closing `*/`.
+		.replace( /^\s*\* ?/gm, '' ); // Remove leading `*` and optional space.
+}
+
 function isDependencyBlock( jsdoc ) {
 	return !! (
 		jsdoc &&
 		jsdoc.description &&
-		/^(Node|External|WordPress|Internal) dependencies$/.test( jsdoc.description.trim() )
+		/^(Node|External|WordPress|Internal) dependencies$/.test(
+			jsdoc.description.trim()
+		)
 	);
 }
 
@@ -74,7 +96,10 @@ function isImported( node ) {
 		'ImportDeclaration',
 	];
 
-	if ( importTypes.includes( node.type ) || importTypes.includes( node.parent?.type ) ) {
+	if (
+		importTypes.includes( node.type ) ||
+		importTypes.includes( node.parent?.type )
+	) {
 		return true;
 	}
 
@@ -85,9 +110,11 @@ function isImported( node ) {
 	}
 
 	if ( node.declarations?.length ) {
-		const hasImportedDeclarations = node.specifiers.some( ( importedNode ) => {
-			return isImported( importedNode );
-		} );
+		const hasImportedDeclarations = node.specifiers.some(
+			( importedNode ) => {
+				return isImported( importedNode );
+			}
+		);
 
 		if ( hasImportedDeclarations ) {
 			return true;
@@ -101,61 +128,78 @@ function isImported( node ) {
 	return false;
 }
 
-const isTypeFunction = ( type ) => {
-	const functionTypes = [ 'ArrowFunctionExpression', 'FunctionDeclaration', 'FunctionExpression' ];
-	return functionTypes.includes( type );
-};
+function isTypeFunction( type ) {
+	return FUNCTION_TYPES.includes( type );
+}
 
-function isFunction( node ) {
-	if ( ! node ) {
+function isFunctionDeclaration( node ) {
+	return node?.type && FUNCTION_TYPES.includes( node.type );
+}
+
+function isFunctionProperty( node ) {
+	return node.type === 'Property' && node.value && isFunction( node.value );
+}
+
+function hasFunctionInDeclarations( declarations ) {
+	return declarations?.some( ( declaration ) =>
+		isFunction( declaration.init )
+	);
+}
+
+function isFunctionIdentifier( node ) {
+	if ( node?.type !== 'Identifier' ) {
 		return false;
 	}
 
-	if ( node?.type === 'Identifier' ) {
-		if ( isTypeFunction( node?.parent?.type ) || isTypeFunction( node?.parent?.init?.type ) ) {
-			return true;
-		}
+	const parent = node?.parent;
+
+	if (
+		isTypeFunction( parent?.type ) ||
+		isTypeFunction( parent?.init?.type )
+	) {
+		// The identifier is the function name if it's the `id` property, as opposed to being in `params`.
+		return parent?.id === node;
 	}
 
-	const isFunctionDeclaration = node.type && (
-		[ 'ArrowFunctionExpression', 'FunctionDeclaration', 'FunctionExpression' ].includes( node.type )
-	);
+	return false;
+}
 
-	if ( isFunctionDeclaration ) {
+function isFunctionExportOrVariable( node ) {
+	if (
+		! [ 'ExportNamedDeclaration', 'VariableDeclaration' ].includes(
+			node.type
+		)
+	) {
+		return false;
+	}
+
+	if ( hasFunctionInDeclarations( node.declarations ) ) {
 		return true;
 	}
-
-	if ( node.type === 'Property' && node.value ) {
-		return isFunction( node.value );
-	}
-
-	if (
-		( node.type === 'ExportNamedDeclaration' || node.type === 'VariableDeclaration' ) &&
-		node.declarations &&
-		node.declarations.length
-	) {
-		const hasFunctionDeclaration = node.declarations.some( ( declaration ) => {
-			return isFunction( declaration.init );
-		} );
-
-		if ( hasFunctionDeclaration ) {
-			return true;
-		}
-	}
-
-	if (
-		( node.type === 'ExportNamedDeclaration' || node.type === 'VariableDeclaration' ) &&
-		node.declaration
-	) {
+	if ( node.declaration ) {
 		return isFunction( node.declaration );
 	}
 
 	return false;
 }
 
+function isFunction( node ) {
+	if ( ! node ) {
+		return false;
+	}
+
+	return (
+		isFunctionIdentifier( node ) ||
+		isFunctionDeclaration( node ) ||
+		isFunctionProperty( node ) ||
+		isFunctionExportOrVariable( node )
+	);
+}
+
 module.exports = {
 	checkForEmptyLinesInGroup,
 	findTagInGroup,
+	getJsdocContent,
 	isDependencyBlock,
 	isFunction,
 	isImported,

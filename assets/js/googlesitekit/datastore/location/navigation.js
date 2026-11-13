@@ -21,6 +21,12 @@
  */
 import invariant from 'invariant';
 
+/**
+ * Internal dependencies
+ */
+import { createReducer } from 'googlesitekit-data';
+import { createValidatedAction } from '@/js/googlesitekit/data/utils';
+
 const DO_NAVIGATE_TO = 'DO_NAVIGATE_TO';
 const SET_NAVIGATING_TO = 'SET_NAVIGATING_TO';
 
@@ -29,7 +35,6 @@ export const initialState = {
 };
 
 export const actions = {
-
 	/**
 	 * Sets navigating URL.
 	 *
@@ -38,28 +43,30 @@ export const actions = {
 	 * @param {string} url The navigation URL.
 	 * @return {Object} Redux-style action.
 	 */
-	*navigateTo( url ) {
-		const payload = { url };
-		let isValidURL = false;
+	navigateTo: createValidatedAction(
+		( url ) => {
+			let isValidURL = false;
 
-		try {
-			isValidURL = new URL( url );
-		} catch {
+			try {
+				isValidURL = new URL( url );
+			} catch {}
+
+			invariant( !! isValidURL, 'url must be a valid URI.' );
+		},
+		function* ( url ) {
+			const payload = { url };
+
+			yield {
+				type: SET_NAVIGATING_TO,
+				payload,
+			};
+
+			return yield {
+				type: DO_NAVIGATE_TO,
+				payload,
+			};
 		}
-
-		invariant( !! isValidURL, 'url must be a valid URI.' );
-
-		yield {
-			type: SET_NAVIGATING_TO,
-			payload,
-		};
-
-		return yield {
-			type: DO_NAVIGATE_TO,
-			payload,
-		};
-	},
-
+	),
 };
 
 export const controls = {
@@ -68,24 +75,20 @@ export const controls = {
 	},
 };
 
-export function reducer( state, { type, payload } ) {
+export const reducer = createReducer( ( state, { type, payload } ) => {
 	switch ( type ) {
-		case SET_NAVIGATING_TO: {
-			return {
-				...state,
-				navigatingTo: payload.url,
-			};
-		}
-		default: {
-			return state;
-		}
+		case SET_NAVIGATING_TO:
+			state.navigatingTo = payload.url;
+			break;
+
+		default:
+			break;
 	}
-}
+} );
 
 export const resolvers = {};
 
 export const selectors = {
-
 	/**
 	 * Determines whether the navigation is happening or not.
 	 *
@@ -110,7 +113,10 @@ export const selectors = {
 	isNavigatingTo( state, url ) {
 		const { navigatingTo } = state;
 
-		invariant( typeof url === 'string' || url instanceof RegExp, 'url must be either a string or a regular expression.' );
+		invariant(
+			typeof url === 'string' || url instanceof RegExp,
+			'url must be either a string or a regular expression.'
+		);
 
 		if ( typeof url === 'string' ) {
 			return navigatingTo === url;
@@ -130,7 +136,6 @@ export const selectors = {
 	getNavigateURL( state ) {
 		return state.navigatingTo || null;
 	},
-
 };
 
 export default {

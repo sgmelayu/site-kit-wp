@@ -13,19 +13,21 @@ namespace Google\Site_Kit\Tests\Core\Authentication;
 use Google\Site_Kit\Context;
 use Google\Site_Kit\Core\Authentication\Credentials;
 use Google\Site_Kit\Core\Authentication\Google_Proxy;
+use Google\Site_Kit\Core\Authentication\Verification_Evidence;
+use Google\Site_Kit\Core\Authentication\Verification_Meta;
 use Google\Site_Kit\Core\Storage\Options;
-use Google\Site_Kit\Tests\MethodSpy;
 use Google\Site_Kit\Tests\MutableInput;
 use Google\Site_Kit\Tests\TestCase;
 use Google\Site_Kit\Tests\Fake_Site_Connection_Trait;
 use WP_Error;
 use Exception;
+use Google\Site_Kit\Core\Authentication\Clients\OAuth_Client;
+use Google\Site_Kit\Core\Storage\User_Options;
 
 /**
  * @group Authentication
  */
 class Google_ProxyTest extends TestCase {
-
 	use Fake_Site_Connection_Trait;
 
 	/**
@@ -40,19 +42,149 @@ class Google_ProxyTest extends TestCase {
 	 *
 	 * @var Google_Proxy
 	 */
-	private $proxy;
+	private $google_proxy;
 
-	public function setUp() {
-		parent::setUp();
+	/**
+	 * The last HTTP request URL.
+	 *
+	 * @var string
+	 */
+	private $request_url;
 
-		$this->context      = new Context( GOOGLESITEKIT_PLUGIN_MAIN_FILE );
+	/**
+	 * The last HTTP request arguments.
+	 *
+	 * @var array
+	 */
+	private $request_args;
+
+	public function set_up() {
+		parent::set_up();
+
+		$this->context      = new Context( GOOGLESITEKIT_PLUGIN_MAIN_FILE, new MutableInput() );
 		$this->google_proxy = new Google_Proxy( $this->context );
 	}
 
 	private function get_credentials() {
 		$credentials = new Credentials( new Options( $this->context ) );
-		$fake_creds  = $this->fake_proxy_site_connection();
-		return array( $credentials, $fake_creds );
+
+		list( $site_id, $site_secret ) = $this->fake_proxy_site_connection();
+
+		return array( $credentials, $site_id, $site_secret );
+	}
+
+	public function test_setup_url() {
+		// Ensure the correct URL is returned with the given query parameters.
+		$url = $this->google_proxy->setup_url(
+			array(
+				'code'    => 'code-123',
+				'site_id' => 'site_id-456',
+				'foo'     => 'foo-789',
+			)
+		);
+		$this->assertEquals( $url, 'https://sitekit.withgoogle.com/v3/site-management/setup/?code=code-123&site_id=site_id-456&foo=foo-789&service_version=v3&steps=5&verification_evidence=none', 'Setup URL should match expected format with query parameters, including the service_version and steps query parameters.' );
+
+		$url = $this->google_proxy->setup_url(
+			array(
+				'code'      => 'code-123',
+				'site_code' => 'site_code-456',
+			)
+		);
+		$this->assertEquals( $url, 'https://sitekit.withgoogle.com/v3/site-management/setup/?code=code-123&site_code=site_code-456&service_version=v3&steps=5&verification_evidence=none', 'Setup URL should match expected format with site code parameter.' );
+
+		// Check an exception is thrown when `code` query param is not passed.
+		try {
+			$this->google_proxy->setup_url( array() );
+			$this->fail( 'Expected Exception to be thrown' );
+		} catch ( Exception $e ) {
+			$this->assertEquals( 'Missing code parameter for setup URL.', $e->getMessage(), 'Should throw exception when code parameter is missing.' );
+		}
+
+		// Check an exception is thrown when neither `site_id` or `site_code` query param is passed.
+		try {
+			$this->google_proxy->setup_url( array( 'code' => 'code-123' ) );
+			$this->fail( 'Expected Exception to be thrown' );
+		} catch ( Exception $e ) {
+			$this->assertEquals( 'Missing site_id or site_code parameter for setup URL.', $e->getMessage(), 'Should throw exception when site_id or site_code parameter is missing.' );
+		}
+	}
+
+	public function test_setup_url__applies_params_filter() {
+		add_filter(
+			'googlesitekit_proxy_setup_url_params',
+			function ( $params ) {
+				$params['foo'] = 'foo-789';
+				return $params;
+			}
+		);
+
+		$url = $this->google_proxy->setup_url(
+			array(
+				'code'    => 'code-123',
+				'site_id' => 'site_id-456',
+			)
+		);
+
+		$this->assertEquals(
+			$url,
+			'https://sitekit.withgoogle.com/v3/site-management/setup/?code=code-123&site_id=site_id-456&service_version=v3&steps=5&verification_evidence=none&foo=foo-789',
+			'Setup URL should include filtered query parameters.'
+		);
+	}
+
+	public function test_add_setup_step_from_error_code() {
+		// Ensure the `step` query param is correctly added according to the error code.
+		$params = $this->google_proxy->add_setup_step_from_error_code( array(), 'missing_verification' );
+		$this->assertEquals( $params['step'], 'verification', 'Step should be set to verification for missing_verification error code.' );
+
+		$params = $this->google_proxy->add_setup_step_from_error_code( array(), 'missing_delegation_consent' );
+		$this->assertEquals( $params['step'], 'delegation_consent', 'Step should be set to delegation_consent for missing_delegation_consent error code.' );
+
+		$params = $this->google_proxy->add_setup_step_from_error_code( array(), 'missing_search_console_property' );
+		$this->assertEquals( $params['step'], 'search_console_property', 'Step should be set to search_console_property for missing_search_console_property error code.' );
+
+		// Ensure the `step` query param is not added for an unhandled error code.
+		$params = $this->google_proxy->add_setup_step_from_error_code( array(), 'something_unhandled' );
+		$this->assertEqualSets( $params, array(), 'Params should remain empty for unhandled error codes.' );
+
+		// Ensure existing params are retained.
+		$params = $this->google_proxy->add_setup_step_from_error_code( array( 'foo' => 123 ), 'missing_verification' );
+		$this->assertEqualSets(
+			$params,
+			array(
+				'foo'  => 123,
+				'step' => 'verification',
+			),
+			'Existing params should be retained when adding step parameter.'
+		);
+	}
+
+	public function test_get_metadata_fields__intent_purpose() {
+		$_GET['purpose'] = 'intent';
+
+		remove_all_filters( 'googlesitekit_proxy_setup_mode' );
+
+		$metadata = $this->google_proxy->get_metadata_fields();
+
+		$this->assertSame( 'intent-step', $metadata['mode'], 'The mode should be `intent-step` when the request has `purpose=intent`.' );
+	}
+
+	public function test_get_metadata_fields__no_purpose() {
+		remove_all_filters( 'googlesitekit_proxy_setup_mode' );
+
+		$metadata = $this->google_proxy->get_metadata_fields();
+
+		$this->assertSame( '', $metadata['mode'], 'The mode should be empty when the request has no `purpose`.' );
+	}
+
+	public function test_get_metadata_fields__other_purpose() {
+		$_GET['purpose'] = 'something-else';
+
+		remove_all_filters( 'googlesitekit_proxy_setup_mode' );
+
+		$metadata = $this->google_proxy->get_metadata_fields();
+
+		$this->assertSame( '', $metadata['mode'], 'The mode should be empty when the request has a `purpose` other than `intent`.' );
 	}
 
 	public function test_get_site_fields() {
@@ -61,111 +193,199 @@ class Google_ProxyTest extends TestCase {
 				'url'                    => home_url(),
 				'action_uri'             => admin_url( 'index.php' ),
 				'name'                   => get_bloginfo( 'name' ),
-				'return_uri'             => $this->context->admin_url( 'splash' ),
+				'return_uri'             => admin_url( 'index.php' ),
 				'redirect_uri'           => add_query_arg( 'oauth2callback', 1, admin_url( 'index.php' ) ),
-				'analytics_redirect_uri' => add_query_arg( 'gatoscallback', 1, admin_url( 'index.php' ) ),
+				'analytics_redirect_uri' => add_query_arg(
+					'service_version',
+					'v3',
+					add_query_arg( 'gatoscallback', 1, admin_url( 'index.php' ) )
+				),
+				'intent_uri'             => $this->context->admin_url( 'dashboard' ),
 			),
-			$this->google_proxy->get_site_fields()
+			$this->google_proxy->get_site_fields(),
+			'Site fields should contain all required site information.'
 		);
 	}
 
-	public function test_fetch_site_fields() {
-		list ( $credentials ) = $this->get_credentials();
+	/**
+	 * @group ms-required
+	 */
+	public function test_get_site_fields__intent_uri_in_network_mode() {
+		if ( ! is_multisite() ) {
+			$this->markTestSkipped( 'This test only runs on multisite.' );
+		}
 
-		$pre_args = null;
-		$pre_url  = null;
+		$this->network_activate_site_kit();
+		add_filter( 'googlesitekit_is_network_mode', '__return_true' );
 
-		// Use pre_http_request for backwards compatibility as http_api_debug is not fired for blocked requests before WP 5.3
-		add_filter(
-			'pre_http_request',
-			function ( $_, $args, $url ) use ( &$pre_args, &$pre_url ) {
-				$pre_args = $args;
-				$pre_url  = $url;
+		$context      = new Context( GOOGLESITEKIT_PLUGIN_MAIN_FILE );
+		$google_proxy = new Google_Proxy( $context );
+		$site_fields  = $google_proxy->get_site_fields();
 
-				return $_;
-			},
-			10,
-			3
-		);
-
-		// Force WP_Error response from as http requests are blocked.
-		$mock_url   = $this->google_proxy->url( Google_Proxy::OAUTH2_SITE_URI );
-		$mock_error = new WP_Error( 'test_error', 'test_error_message' );
-
-		// Ensure WP_Error response is passed through.
-		$this->mock_http_failure( $mock_url, $mock_error );
-		$error_response_data = $this->google_proxy->fetch_site_fields( $credentials );
-		$this->assertWPErrorWithMessage( 'test_error_message', $error_response_data );
-
-		// Mock reponse.
-		$mock_response = array(
-			'site_id',
-			'site_secret',
-			'url',
-			'name',
-			'redirect_uri',
-			'return_uri',
-			'action_uri',
-			'analytics_redirect_uri',
-		);
-		$this->mock_http_request( $mock_url, $mock_response );
-		$this->google_proxy->fetch_site_fields( $credentials );
-
-		// Ensure the request was made with the proper URL and body parameters.
-		$this->assertEquals( $mock_url, $pre_url );
-		$this->assertEquals( 'POST', $pre_args['method'] );
-		$this->assertEqualSets(
-			array(
-				'site_id',
-				'site_secret',
-			),
-			array_keys( $pre_args['body'] )
+		$this->assertEquals(
+			add_query_arg( 'page', 'googlesitekit-dashboard', network_admin_url( 'admin.php' ) ),
+			$site_fields['intent_uri'],
+			'The intent URI should point at the dashboard screen under the network admin.'
 		);
 	}
 
-	public function test_are_site_fields_synced() {
-		list ( $credentials ) = $this->get_credentials();
+	public function data_intent_requests() {
+		return array(
+			'get_intent'      => array(
+				'get_intent',
+				sprintf( Google_Proxy::INTENT_URI, 'ads-conversion-tracking' ),
+			),
+			'complete_intent' => array(
+				'complete_intent',
+				sprintf( Google_Proxy::INTENT_COMPLETE_URI, 'ads-conversion-tracking' ),
+			),
+		);
+	}
 
-		$pre_args = null;
-		$pre_url  = null;
+	/**
+	 * Calls one of the intent methods, which take the same arguments and differ only in the endpoint.
+	 *
+	 * @param string $method Google_Proxy method name.
+	 * @return array|WP_Error Method response.
+	 */
+	private function call_intent_method( $method ) {
+		$credentials = new Credentials( new Options( $this->context ) );
+
+		return $this->google_proxy->$method( $credentials, 'ads-conversion-tracking', 'abc123', 'test-access-token' );
+	}
+
+	/**
+	 * @dataProvider data_intent_requests
+	 */
+	public function test_intent_request( $method, $uri ) {
+		list ( , $site_id, $site_secret ) = $this->get_credentials();
+
+		$expected_url      = $this->google_proxy->url( $uri );
+		$expected_response = array( 'intent' => 'ads-conversion-tracking' );
+		$expected_body     = array(
+			'site_id'     => $site_id,
+			'site_secret' => $site_secret,
+			'intent_code' => 'abc123',
+		);
+
+		$this->mock_http_request( $expected_url, $expected_response );
+
+		$response = $this->call_intent_method( $method );
+
+		$this->assertEquals( $expected_url, $this->request_url, 'The request should go to the intent endpoint.' );
+		$this->assertEquals( 'POST', $this->request_args['method'], 'The intent request should be a POST.' );
+		$this->assertEquals( 'Bearer test-access-token', $this->request_args['headers']['Authorization'], 'The intent request should include the access token.' );
+		$this->assertEqualSetsWithIndex( $expected_body, $this->request_args['body'], 'The intent request body should include the site credentials and the intent code.' );
+		$this->assertEqualSetsWithIndex( $expected_response, $response, 'The intent method should return the decoded response body.' );
+	}
+
+	/**
+	 * @dataProvider data_intent_requests
+	 */
+	public function test_intent_request__without_credentials( $method, $uri ) {
+		$requested = false;
 
 		add_filter(
 			'pre_http_request',
-			function ( $_, $args, $url ) use ( &$pre_args, &$pre_url ) {
-				$pre_args = $args;
-				$pre_url  = $url;
+			function ( $preempt ) use ( &$requested ) {
+				$requested = true;
 
-				return $_;
-			},
-			10,
-			3
+				return $preempt;
+			}
 		);
 
-		// Mock matching reponse.
-		$matching_mock_url      = $this->google_proxy->url( Google_Proxy::OAUTH2_SITE_URI );
-		$matching_mock_response = array(
-			'url'                    => home_url(),
-			'action_uri'             => admin_url( 'index.php' ),
-			'name'                   => get_bloginfo( 'name' ),
-			'return_uri'             => $this->context->admin_url( 'splash' ),
-			'redirect_uri'           => add_query_arg( 'oauth2callback', 1, admin_url( 'index.php' ) ),
-			'analytics_redirect_uri' => add_query_arg( 'gatoscallback', 1, admin_url( 'index.php' ) ),
+		$response = $this->call_intent_method( $method );
+
+		$this->assertWPError( $response, 'A site without credentials should get an error.' );
+		$this->assertEquals( 'oauth_credentials_not_exist', $response->get_error_code(), 'The error should name the missing credentials.' );
+		$this->assertFalse( $requested, 'A site without credentials should not reach the Service.' );
+	}
+
+	/**
+	 * @dataProvider data_intent_requests
+	 */
+	public function test_intent_request__with_a_failing_request( $method, $uri ) {
+		$this->get_credentials();
+
+		$this->mock_http_failure(
+			$this->google_proxy->url( $uri ),
+			new WP_Error( 'http_request_failed', 'Service unreachable.' )
 		);
 
-		$this->mock_http_request( $matching_mock_url, $matching_mock_response );
-		$success_response_data = $this->google_proxy->are_site_fields_synced( $credentials );
+		$response = $this->call_intent_method( $method );
 
-		// Ensure matching response array returns true.
-		$this->assertEquals( $success_response_data, true );
+		$this->assertWPError( $response, 'A failed request should come back as an error.' );
+		$this->assertEquals( 'http_request_failed', $response->get_error_code(), 'The error from the request should be passed through.' );
+	}
 
-		// Mock non matching response.
-		$mock_non_matching_response = array( 'incorrect', 'keys' );
+	/**
+	 * @runInSeparateProcess
+	 */
+	public function test_url_handles_staging() {
+		$url = $this->google_proxy->url();
+		$this->assertEquals( $url, Google_Proxy::PRODUCTION_BASE_URL, 'URL should be production base URL by default.' );
 
-		$this->mock_http_request( $matching_mock_url, $mock_non_matching_response );
-		$failure_response_data = $this->google_proxy->are_site_fields_synced( $credentials );
+		define( 'GOOGLESITEKIT_PROXY_URL', Google_Proxy::STAGING_BASE_URL );
 
-		// Ensure non-matching response array returns false.
-		$this->assertEquals( $failure_response_data, false );
+		$url = $this->google_proxy->url();
+		$this->assertEquals( $url, Google_Proxy::STAGING_BASE_URL, 'URL should be staging base URL when constant is set.' );
+	}
+
+	/**
+	 * @runInSeparateProcess
+	 */
+	public function test_url_ignores_invalid_values() {
+		define( 'GOOGLESITEKIT_PROXY_URL', 'https://example.com' );
+
+		$url = $this->google_proxy->url();
+
+		$this->assertEquals( $url, Google_Proxy::PRODUCTION_BASE_URL, 'URL should be production base URL for invalid constant.' );
+	}
+
+	/**
+	 * @dataProvider data_sanitized_base_urls
+	 */
+	public function test_sanitize_base_url( $input, $expected ) {
+		$this->assertEquals(
+			$expected,
+			$this->google_proxy->sanitize_base_url( $input ),
+			'Sanitized base URL should match expected.'
+		);
+	}
+
+	public function data_sanitized_base_urls() {
+		yield 'production URL' => array(
+			Google_Proxy::PRODUCTION_BASE_URL,
+			Google_Proxy::PRODUCTION_BASE_URL,
+		);
+		yield 'staging URL' => array(
+			Google_Proxy::STAGING_BASE_URL,
+			Google_Proxy::STAGING_BASE_URL,
+		);
+		yield 'development URL' => array(
+			Google_Proxy::DEVELOPMENT_BASE_URL,
+			Google_Proxy::DEVELOPMENT_BASE_URL,
+		);
+		yield 'invalid URL' => array(
+			'https://example.com',
+			Google_Proxy::PRODUCTION_BASE_URL,
+		);
+		yield 'production instance URL' => array(
+			'https://20191031t123456-dot-site-kit.ue.r.appspot.com/',
+			'https://20191031t123456-dot-site-kit.ue.r.appspot.com/',
+		);
+		yield 'staging instance URL, no region' => array(
+			'https://20191031t123456-dot-site-kit-dev.appspot.com/',
+			'https://20191031t123456-dot-site-kit-dev.appspot.com/',
+		);
+		yield 'development instance URL' => array(
+			'https://20191031t123456-dot-site-kit-local.ue.r.appspot.com/',
+			'https://20191031t123456-dot-site-kit-local.ue.r.appspot.com/',
+		);
+		yield 'invalid instance URL' => array(
+			'https://20191031t123456-dot-site-kit-impersonator.ue.r.appspot.com/',
+			Google_Proxy::PRODUCTION_BASE_URL,
+		);
 	}
 
 	public function test_get_user_fields() {
@@ -176,18 +396,18 @@ class Google_ProxyTest extends TestCase {
 			array(
 				'user_roles' => 'editor',
 			),
-			$this->google_proxy->get_user_fields()
+			$this->google_proxy->get_user_fields(),
+			'User fields should contain editor role for single role user.'
 		);
 
-		// WordPress technically allows for multiple roles, and some plugins
-		// make use of that feature - we can just fake it like below.
-		wp_get_current_user()->roles[] = 'shop_vendor';
+		wp_get_current_user()->add_role( 'subscriber' );
 
 		$this->assertEqualSetsWithIndex(
 			array(
-				'user_roles' => 'editor,shop_vendor',
+				'user_roles' => 'editor,subscriber',
 			),
-			$this->google_proxy->get_user_fields()
+			$this->google_proxy->get_user_fields(),
+			'User fields should contain multiple roles when user has multiple roles.'
 		);
 	}
 
@@ -203,27 +423,13 @@ class Google_ProxyTest extends TestCase {
 			array(
 				'user_roles' => 'administrator,network_administrator',
 			),
-			$this->google_proxy->get_user_fields()
+			$this->google_proxy->get_user_fields(),
+			'User fields should contain administrator and network_administrator roles for super admin.'
 		);
 	}
 
 	public function test_unregister_site() {
-		list ( $credentials, $fake_creds ) = $this->get_credentials();
-
-		$pre_args = null;
-		$pre_url  = null;
-
-		add_filter(
-			'pre_http_request',
-			function ( $_, $args, $url ) use ( &$pre_args, &$pre_url ) {
-				$pre_args = $args;
-				$pre_url  = $url;
-
-				return $_;
-			},
-			10,
-			3
-		);
+		list ( $credentials, $site_id, $site_secret ) = $this->get_credentials();
 
 		$expected_success_response = array( 'success' => true );
 		$expected_url              = $this->google_proxy->url( Google_Proxy::OAUTH2_DELETE_SITE_URI );
@@ -232,63 +438,115 @@ class Google_ProxyTest extends TestCase {
 		$response_data = $this->google_proxy->unregister_site( $credentials );
 
 		// Ensure the request was made with the proper URL and body parameters.
-		$this->assertEquals( $expected_url, $pre_url );
-		$this->assertEquals( 'POST', $pre_args['method'] );
+		$this->assertEquals( $expected_url, $this->request_url, 'Unregister site request URL should match expected.' );
+		$this->assertEquals( 'POST', $this->request_args['method'], 'Unregister site request method should be POST.' );
 		$this->assertEqualSetsWithIndex(
 			array(
-				'site_id'     => $fake_creds['client_id'],
-				'site_secret' => $fake_creds['client_secret'],
+				'site_id'     => $site_id,
+				'site_secret' => $site_secret,
 			),
-			$pre_args['body']
+			$this->request_args['body'],
+			'Unregister site request body should contain site ID and secret.'
 		);
 
 		// Ensure success response data is correct.
-		$this->assertEquals( $expected_success_response, $response_data );
+		$this->assertEquals( $expected_success_response, $response_data, 'Unregister site response data should match expected.' );
 
 		$expected_error_response = array( 'error' => "invalid 'site_id' or 'site_secret'" );
 		$this->mock_http_request( $expected_url, $expected_error_response, 400 );
 
 		// Ensure error with correct message is returned for error response.
 		$error_response_data = $this->google_proxy->unregister_site( $credentials );
-		$this->assertWPErrorWithMessage( $expected_error_response['error'], $error_response_data );
+		$this->assertWPErrorWithMessage( $expected_error_response['error'], $error_response_data, 'Error response should match expected response shape.' );
+	}
+
+	public function test_verification_evidence__included_in_setup_url_and_metadata_fields() {
+		$user_id = $this->factory()->user->create( array( 'role' => 'administrator' ) );
+		wp_set_current_user( $user_id );
+		( new User_Options( $this->context, $user_id ) )->set( Verification_Meta::OPTION, 'meta-token' );
+
+		$url = $this->google_proxy->setup_url(
+			array(
+				'code'    => 'code-123',
+				'site_id' => 'site_id-456',
+			)
+		);
+		wp_parse_str( wp_parse_url( $url, PHP_URL_QUERY ), $query_params );
+		$this->assertEquals( Verification_Evidence::META, $query_params['verification_evidence'], 'Setup URL should include the current verification evidence.' );
+
+		$metadata = $this->google_proxy->get_metadata_fields();
+		$this->assertEquals( Verification_Evidence::META, $metadata['verification_evidence'], 'Metadata fields should include the current verification evidence.' );
+	}
+
+	public function test_register_site() {
+		$expected_url              = $this->google_proxy->url( Google_Proxy::OAUTH2_SITE_URI );
+		$expected_success_response = array();
+
+		$this->mock_http_request( $expected_url, $expected_success_response );
+		$this->google_proxy->register_site();
+
+		// Ensure the request was made with the proper URL and body parameters.
+		$this->assertEquals( $expected_url, $this->request_url, 'Register site request URL should match expected.' );
+		$this->assertEquals( 'POST', $this->request_args['method'], 'Register site request method should be POST.' );
+		$this->assertEqualSets(
+			array(
+				'action_uri',
+				'analytics_redirect_uri',
+				'application_name',
+				'hl',
+				'intent_uri',
+				'mode',
+				'name',
+				'nonce',
+				'redirect_uri',
+				'return_uri',
+				'scope',
+				'service_version',
+				'supports',
+				'url',
+				'user_roles',
+				'verification_evidence',
+			),
+			array_keys( $this->request_args['body'] ),
+			'Register site request body should contain all required parameters.'
+		);
 	}
 
 	public function test_sync_site_fields() {
 		list ( $credentials ) = $this->get_credentials();
 
-		$pre_args = null;
-		$pre_url  = null;
+		$expected_url              = $this->google_proxy->url( Google_Proxy::OAUTH2_SITE_URI );
+		$expected_success_response = array();
 
-		// Use pre_http_request for backwards compatibility as http_api_debug is not fired for blocked requests before WP 5.3
-		add_filter(
-			'pre_http_request',
-			function ( $_, $args, $url ) use ( &$pre_args, &$pre_url ) {
-				$pre_args = $args;
-				$pre_url  = $url;
-
-				return $_;
-			},
-			10,
-			3
-		);
-
+		$this->mock_http_request( $expected_url, $expected_success_response );
 		$this->google_proxy->sync_site_fields( $credentials );
 
 		// Ensure the request was made with the proper URL and body parameters.
-		$this->assertEquals( $this->google_proxy->url( Google_Proxy::OAUTH2_SITE_URI ), $pre_url );
-		$this->assertEquals( 'POST', $pre_args['method'] );
+		$this->assertEquals( $expected_url, $this->request_url, 'Sync site fields request URL should match expected.' );
+		$this->assertEquals( 'POST', $this->request_args['method'], 'Sync site fields request method should be POST.' );
 		$this->assertEqualSets(
 			array(
-				'site_id',
-				'site_secret',
-				'url',
-				'name',
-				'redirect_uri',
-				'return_uri',
 				'action_uri',
 				'analytics_redirect_uri',
+				'application_name',
+				'hl',
+				'intent_uri',
+				'mode',
+				'name',
+				'nonce',
+				'redirect_uri',
+				'return_uri',
+				'scope',
+				'service_version',
+				'site_id',
+				'site_secret',
+				'supports',
+				'url',
+				'user_roles',
+				'verification_evidence',
 			),
-			array_keys( $pre_args['body'] )
+			array_keys( $this->request_args['body'] ),
+			'Sync site fields request body should contain all required parameters.'
 		);
 	}
 
@@ -307,50 +565,656 @@ class Google_ProxyTest extends TestCase {
 		$credentials = $this->google_proxy->exchange_site_code( 'test-site-code', 'test-undelegated-code' );
 		$this->assertEqualSetsWithIndex(
 			$expected_credentials,
-			$credentials
+			$credentials,
+			'Exchange site code should return expected credentials.'
 		);
 	}
 
 	public function test_get_features() {
-		list ( $credentials, $fake_creds ) = $this->get_credentials();
+		global $wp_version;
 
-		$pre_args = null;
-		$pre_url  = null;
+		// Remove the filter being added by Modules::register() or any other class during bootstrap.
+		remove_all_filters( 'googlesitekit_feature_metrics' );
 
-		add_filter(
-			'pre_http_request',
-			function ( $_, $args, $url ) use ( &$pre_args, &$pre_url ) {
-				$pre_args = $args;
-				$pre_url  = $url;
+		list ( $credentials, $site_id, $site_secret ) = $this->get_credentials();
 
-				return $_;
-			},
-			10,
-			3
-		);
+		// Create one more administrator and 3 non-administrators.
+		$this->factory()->user->create( array( 'role' => 'administrator' ) );
+		$this->factory()->user->create_many( 2, array( 'role' => 'editor' ) );
+		$this->factory()->user->create( array( 'role' => 'subscriber' ) );
 
 		$expected_url              = $this->google_proxy->url( Google_Proxy::FEATURES_URI );
 		$expected_success_response = array(
-			'userInput'         => array( 'enabled' => true ),
-			'widgets.dashboard' => array( 'enabled' => true ),
+			'test.featureName' => array( 'enabled' => true ),
 		);
 
 		$this->mock_http_request( $expected_url, $expected_success_response );
-		$features = $this->google_proxy->get_features( $credentials );
+		$features = $this->google_proxy->get_features( $credentials, new OAuth_Client( $this->context, null, null, $credentials, $this->google_proxy ) );
 
 		// Ensure the request was made with the proper URL and body parameters.
-		$this->assertEquals( $expected_url, $pre_url );
-		$this->assertEquals( 'POST', $pre_args['method'] );
+		$this->assertEquals( $expected_url, $this->request_url, 'Get features request URL should match expected.' );
+		$this->assertEquals( 'POST', $this->request_args['method'], 'Get features request method should be POST.' );
 		$this->assertEqualSetsWithIndex(
 			array(
-				'platform'    => 'wordpress/google-site-kit',
-				'version'     => GOOGLESITEKIT_VERSION,
-				'site_id'     => $fake_creds['client_id'],
-				'site_secret' => $fake_creds['client_secret'],
+				'site_id'                => $site_id,
+				'site_secret'            => $site_secret,
+				'platform'               => is_multisite() ? 'wordpress-multisite/google-site-kit' : 'wordpress/google-site-kit',
+				'version'                => GOOGLESITEKIT_VERSION,
+				'platform_version'       => $wp_version,
+				'user_count'             => 5, // 1 default admin + 1 admin + 2 editors + 1 subscriber.
+				'connectable_user_count' => 2, // 2 admins.
+				'connected_user_count'   => 0, // No authenticated users - tested in test_count_connected_users() below.
+				'active_modules'         => 'site-verification search-console pagespeed-insights',
+				'connected_modules'      => 'site-verification search-console pagespeed-insights',
+				'php_version'            => phpversion(),
+				'feature_metrics'        => array(),
+				'amp_mode'               => '', // No AMP mode by default.
 			),
-			$pre_args['body']
+			$this->request_args['body'],
+			'Get features request body should contain site credentials and platform information.'
 		);
-		$this->assertEqualSetsWithIndex( $expected_success_response, $features );
+		$this->assertEqualSetsWithIndex( $expected_success_response, $features, 'Get features should return expected feature data.' );
+	}
+
+	/**
+	 * @dataProvider amp_mode_provider
+	 */
+	public function test_get_features_with_amp_mode( $amp_mode, $context_method ) {
+		// Remove the filter being added by Modules::register() or any other class during bootstrap.
+		remove_all_filters( 'googlesitekit_feature_metrics' );
+
+		list ( $credentials, $site_id, $site_secret ) = $this->get_credentials();
+
+		$context      = call_user_func( array( $this, $context_method ) );
+		$google_proxy = new Google_Proxy( $context );
+
+		$expected_url              = $google_proxy->url( Google_Proxy::FEATURES_URI );
+		$expected_success_response = array(
+			'test.featureName' => array( 'enabled' => true ),
+		);
+
+		$this->mock_http_request( $expected_url, $expected_success_response );
+		$google_proxy->get_features( $credentials, new OAuth_Client( $context, null, null, $credentials, $google_proxy ) );
+
+		// Ensure amp_mode is set to the expected value.
+		$this->assertEquals( $amp_mode, $this->request_args['body']['amp_mode'], "Get features request should include '$amp_mode' amp_mode." );
+	}
+
+	public function amp_mode_provider() {
+		return array(
+			'primary AMP mode'   => array( 'primary', 'get_amp_primary_context' ),
+			'secondary AMP mode' => array( 'secondary', 'get_amp_secondary_context' ),
+		);
+	}
+
+	public function test_count_connected_users() {
+		$context  = new Context( GOOGLESITEKIT_PLUGIN_MAIN_FILE );
+		$meta_key = ( new User_Options( $context ) )->get_meta_key( OAuth_Client::OPTION_ACCESS_TOKEN );
+
+		// Test there are no connected users to begin with.
+		$this->assertEquals( 0, $this->google_proxy->count_connected_users(), 'Should be zero connected users initially.' );
+
+		// Create and connect an administrator.
+		$administrator_id = $this->factory()->user->create( array( 'role' => 'administrator' ) );
+		update_user_meta( $administrator_id, $meta_key, 'test-access-token' );
+		$this->assertEquals( 1, $this->google_proxy->count_connected_users(), 'Should be one connected user after connecting admin.' );
+
+		// Create another administrator who is not connected.
+		$administrator_2_id = $this->factory()->user->create( array( 'role' => 'administrator' ) );
+		$this->assertEquals( 1, $this->google_proxy->count_connected_users(), 'Should still be one connected user after adding unconnected admin.' );
+
+		// Connect administrator_2.
+		update_user_meta( $administrator_2_id, $meta_key, 'test-access-token' );
+		$this->assertEquals( 2, $this->google_proxy->count_connected_users(), 'Should be two connected users after connecting second admin.' );
+	}
+
+	/**
+	 * @group ms-excluded
+	 */
+	public function test_get_platform() {
+		$this->assertEquals( 'wordpress', Google_Proxy::get_platform(), 'Platform should be WordPress.' ); // PHPCS:ignore
+	}
+
+	/**
+	 * @group ms-required
+	 */
+	public function test_get_platform__multiste() {
+		$this->assertEquals( 'wordpress-multisite', Google_Proxy::get_platform(), 'Platform should be wordpress-multisite for multisite.' );
+	}
+
+	public function test_send_survey_trigger() {
+		list ( $credentials, $site_id, $site_secret ) = $this->get_credentials();
+
+		$expected_url              = $this->google_proxy->url( Google_Proxy::SURVEY_TRIGGER_URI );
+		$expected_success_response = array(
+			'no_available_survey_reason' => '',
+			'survey_id'                  => 'xyz',
+			'survey_payload'             => array(
+				'language' => 'en_US',
+				'question' => array(
+					'question_ordinal' => '1',
+					'question_text'    => 'What time is it?',
+					'question_type'    => 'open_text',
+				),
+			),
+			'session'                    => array(
+				'session_id'    => '0123456789abcdef',
+				'session_token' => '0123-4567-89ab-cdef',
+			),
+		);
+
+		$this->mock_http_request( $expected_url, $expected_success_response );
+
+		$access_token = 'abcd';
+		$trigger_id   = '1234';
+		$response     = $this->google_proxy->send_survey_trigger( $credentials, $access_token, $trigger_id );
+
+		$this->assertEquals( $expected_url, $this->request_url, 'Survey trigger request URL should match expected.' );
+		$this->assertEquals( 'POST', $this->request_args['method'], 'Survey trigger request method should be POST.' );
+
+		$this->assertArrayHasKey( 'Authorization', $this->request_args['headers'], 'Survey trigger request should have Authorization header.' );
+		$this->assertEquals( "Bearer $access_token", $this->request_args['headers']['Authorization'], 'Survey trigger Authorization header should match access token.' );
+
+		$this->assertEqualSetsWithIndex(
+			array(
+				'site_id'         => $site_id,
+				'site_secret'     => $site_secret,
+				'trigger_context' => array(
+					'trigger_id' => $trigger_id,
+					'language'   => 'en_US',
+				),
+			),
+			json_decode( $this->request_args['body'], true ),
+			'Survey trigger request body should contain site credentials and trigger context.'
+		);
+
+		$this->assertEqualSetsWithIndex( $expected_success_response, $response, 'Survey trigger should return expected response data.' );
+	}
+
+	public function test_send_survey_event() {
+		list ( $credentials, $site_id, $site_secret ) = $this->get_credentials();
+
+		$expected_url              = $this->google_proxy->url( Google_Proxy::SURVEY_EVENT_URI );
+		$expected_success_response = array();
+
+		$this->mock_http_request( $expected_url, $expected_success_response );
+
+		$access_token = 'dcba';
+		$session      = array(
+			'session_id'    => '0123456789abcdef',
+			'session_token' => '0123-4567-89ab-cdef',
+		);
+		$event        = array(
+			'survey_shown'  => array(),
+			'survey_closed' => array(),
+		);
+
+		$response = $this->google_proxy->send_survey_event( $credentials, $access_token, $session, $event );
+
+		$this->assertEquals( $expected_url, $this->request_url, 'Survey event request URL should match expected.' );
+		$this->assertEquals( 'POST', $this->request_args['method'], 'Survey event request method should be POST.' );
+
+		$this->assertArrayHasKey( 'Authorization', $this->request_args['headers'], 'Survey event request should have Authorization header.' );
+		$this->assertEquals( "Bearer $access_token", $this->request_args['headers']['Authorization'], 'Survey event Authorization header should match access token.' );
+
+		$this->assertEqualSetsWithIndex(
+			array(
+				'site_id'     => $site_id,
+				'site_secret' => $site_secret,
+				'session'     => $session,
+				'event'       => $event,
+			),
+			json_decode( $this->request_args['body'], true ),
+			'Survey event request body should contain site credentials, session, and event data.'
+		);
+
+		$this->assertEqualSetsWithIndex( $expected_success_response, $response, 'Survey event should return expected response data.' );
+	}
+
+	public function test_send_feedback() {
+		list ( $credentials, $site_id, $site_secret ) = $this->get_credentials();
+
+		$expected_url              = $this->google_proxy->url( Google_Proxy::FEEDBACK_URI );
+		$expected_success_response = array( 'success' => true );
+
+		$this->mock_http_request( $expected_url, $expected_success_response );
+
+		$access_token = 'abcd';
+		$feedback     = array(
+			'namespace' => 'feature_hub',
+			'group'     => 'feature_relevancy_analytics-4',
+			'key'       => 'vote',
+			'value'     => 'up',
+		);
+
+		$response = $this->google_proxy->send_feedback( $credentials, $access_token, $feedback );
+
+		$this->assertEquals( $expected_url, $this->request_url, 'Feedback request URL should match expected.' );
+		$this->assertEquals( 'POST', $this->request_args['method'], 'Feedback request method should be POST.' );
+
+		$this->assertArrayHasKey( 'Authorization', $this->request_args['headers'], 'Feedback request should have Authorization header.' );
+		$this->assertEquals( "Bearer $access_token", $this->request_args['headers']['Authorization'], 'Feedback Authorization header should match access token.' );
+
+		$this->assertEqualSetsWithIndex(
+			array(
+				'site_id'        => $site_id,
+				'site_secret'    => $site_secret,
+				'namespace'      => 'feature_hub',
+				'group'          => 'feature_relevancy_analytics-4',
+				'key'            => 'vote',
+				'value'          => 'up',
+				'language'       => 'en_US',
+				'plugin_version' => GOOGLESITEKIT_VERSION,
+			),
+			json_decode( $this->request_args['body'], true ),
+			'Feedback request body should contain site credentials, feedback fields, language, and plugin version.'
+		);
+
+		$this->assertEqualSetsWithIndex( $expected_success_response, $response, 'Feedback should return expected response data.' );
+	}
+
+	public function test_send_feedback__without_credentials() {
+		$requested = false;
+
+		add_filter(
+			'pre_http_request',
+			function ( $preempt ) use ( &$requested ) {
+				$requested = true;
+
+				return $preempt;
+			}
+		);
+
+		$credentials = new Credentials( new Options( $this->context ) );
+		$response    = $this->google_proxy->send_feedback(
+			$credentials,
+			'abcd',
+			array(
+				'namespace' => 'feature_hub',
+				'group'     => 'feature_relevancy_analytics-4',
+				'key'       => 'vote',
+				'value'     => 'up',
+			)
+		);
+
+		$this->assertWPError( $response, 'Feedback without site credentials should return an error.' );
+		$this->assertEquals( 'oauth_credentials_not_exist', $response->get_error_code(), 'The error should name the missing credentials.' );
+		$this->assertFalse( $requested, 'Feedback without site credentials should not reach the Service.' );
+	}
+
+	public function test_send_feedback__with_a_failing_request() {
+		list ( $credentials ) = $this->get_credentials();
+
+		$this->mock_http_failure(
+			$this->google_proxy->url( Google_Proxy::FEEDBACK_URI ),
+			new WP_Error( 'http_request_failed', 'Service unreachable.' )
+		);
+
+		$response = $this->google_proxy->send_feedback(
+			$credentials,
+			'abcd',
+			array(
+				'namespace' => 'feature_hub',
+				'group'     => 'feature_relevancy_analytics-4',
+				'key'       => 'vote',
+				'value'     => 'up',
+			)
+		);
+
+		$this->assertWPError( $response, 'A failed feedback request should come back as an error.' );
+		$this->assertEquals( 'http_request_failed', $response->get_error_code(), 'The error from the request should be passed through.' );
+	}
+
+	/**
+	 * @dataProvider data_errors
+	 */
+	public function test_send_feedback__returns_error_for_invalid_response( $params ) {
+		list ( $credentials ) = $this->get_credentials();
+
+		$error_code             = $params['error_code'];
+		$error_message          = $params['error_message'];
+		$expected_error_code    = $params['expected_error_code'];
+		$expected_error_message = $params['expected_error_message'];
+
+		$this->mock_http_request(
+			$this->google_proxy->url( Google_Proxy::FEEDBACK_URI ),
+			array(
+				'error_code' => $error_code,
+				'error'      => $error_message,
+			),
+			403
+		);
+
+		$response = $this->google_proxy->send_feedback(
+			$credentials,
+			'abcd',
+			array(
+				'namespace' => 'feature_hub',
+				'group'     => 'feature_relevancy_analytics-4',
+				'key'       => 'vote',
+				'value'     => 'up',
+			)
+		);
+
+		$this->assertWPError( $response, 'An invalid feedback response should return a WP error.' );
+		$this->assertEquals( $expected_error_code, $response->get_error_code(), 'Error response should contain error code.' );
+		$this->assertEquals( $expected_error_message, $response->get_error_message(), 'Error response should contain error message.' );
+	}
+
+	public function test_send_benchmarking_insight_request() {
+		list ( $credentials, $site_id, $site_secret ) = $this->get_credentials();
+
+		$expected_url              = $this->google_proxy->url( '/v1/ai/benchmarking?hl=de-DE' );
+		$expected_success_response = array(
+			'operation_id'   => 'operation-123',
+			'interaction_id' => 'interaction-456',
+			'model_version'  => 'model-1',
+		);
+
+		$this->mock_http_request( $expected_url, $expected_success_response );
+
+		$access_token = 'abcd';
+		$payload      = array(
+			'metric' => 'sessions',
+			'value'  => 1200,
+		);
+		$response     = $this->google_proxy->send_benchmarking_insight_request( $credentials, $access_token, $payload, 'de-DE' );
+
+		$this->assertEquals( $expected_url, $this->request_url, 'Benchmarking insight request URL should have the language tag as the hl query parameter.' );
+		$this->assertEquals( 'POST', $this->request_args['method'], 'Benchmarking insight request method should be POST.' );
+		$this->assertEquals( "Bearer $access_token", $this->request_args['headers']['Authorization'], 'Benchmarking insight Authorization header should match access token.' );
+		$this->assertEquals( 'application/json', $this->request_args['headers']['Content-Type'], 'Benchmarking insight request should be sent as JSON.' );
+		$this->assertTrue( $this->request_args['blocking'], 'Benchmarking insight request should wait for the response.' );
+		$this->assertTrue( json_decode( $this->request_args['body'], true )['async'], 'Benchmarking insight request body should have async set to the boolean true.' );
+
+		$this->assertEqualSetsWithIndex(
+			array(
+				'site_id'     => $site_id,
+				'site_secret' => $site_secret,
+				'metric'      => 'sessions',
+				'value'       => 1200,
+				'async'       => true,
+			),
+			json_decode( $this->request_args['body'], true ),
+			'Benchmarking insight request body should contain site credentials, the payload, and async set to true.'
+		);
+
+		$this->assertEqualSetsWithIndex( $expected_success_response, $response, 'Benchmarking insight request should return the operation from the response.' );
+	}
+
+	public function test_send_benchmarking_insight_request__cached_insight() {
+		list ( $credentials ) = $this->get_credentials();
+
+		$expected_response = array(
+			'scenario'       => 'above_benchmark',
+			'teaser'         => 'Your site is doing well.',
+			'text'           => 'Your site had more sessions than similar sites.',
+			'driver'         => 'organic_search',
+			'interaction_id' => 'interaction-456',
+			'model_version'  => 'model-1',
+		);
+
+		$this->mock_http_request( $this->google_proxy->url( '/v1/ai/benchmarking?hl=de-DE' ), $expected_response );
+
+		$response = $this->google_proxy->send_benchmarking_insight_request( $credentials, 'abcd', array(), 'de-DE' );
+
+		$this->assertEqualSetsWithIndex( $expected_response, $response, 'Benchmarking insight request should return the generated insight from the response.' );
+	}
+
+	public function test_send_benchmarking_insight_request__error_response() {
+		list ( $credentials ) = $this->get_credentials();
+
+		$this->mock_http_request(
+			$this->google_proxy->url( '/v1/ai/benchmarking?hl=de-DE' ),
+			array( 'error' => 'Too many requests.' ),
+			429
+		);
+
+		$response = $this->google_proxy->send_benchmarking_insight_request( $credentials, 'abcd', array(), 'de-DE' );
+
+		$this->assertWPError( $response, 'A 429 response to the benchmarking insight request should return a WP_Error.' );
+		$this->assertEquals( 'Too many requests.', $response->get_error_message(), 'The benchmarking insight error should have the error message from the response.' );
+		$this->assertEquals( 429, $response->get_error_data()['status'], 'The benchmarking insight error should have status 429.' );
+	}
+
+	public function test_send_conversion_insight_request() {
+		list ( $credentials, $site_id, $site_secret ) = $this->get_credentials();
+
+		$expected_url              = $this->google_proxy->url( '/v1/ai/conversion-insights?hl=de-DE' );
+		$expected_success_response = array(
+			'operation_id'   => 'YhMZgdgne7B3vkpA7VTLJa',
+			'interaction_id' => '01M4ZDVWTA3J4SBF8QX8NVXT93',
+			'model_version'  => 'model-1',
+		);
+
+		$this->mock_http_request( $expected_url, $expected_success_response );
+
+		$access_token = 'abcd';
+		$events       = array(
+			array(
+				'event_name'               => 'generate_lead',
+				'month_start_date'         => '2026-09-09',
+				'current'                  => array(
+					'conversions'     => 150,
+					'conversion_rate' => 0.025,
+					'sessions'        => 6000,
+					'engagement_rate' => 0.66,
+				),
+				'previous'                 => array(
+					'conversions'     => 100,
+					'conversion_rate' => 0.02,
+					'sessions'        => 5000,
+					'engagement_rate' => 0.6,
+				),
+				'yoy_current_conversions'  => 130,
+				'yoy_previous_conversions' => 125,
+			),
+		);
+		$response     = $this->google_proxy->send_conversion_insight_request( $credentials, $access_token, array( 'events' => $events ), 'de-DE' );
+
+		$this->assertEquals( $expected_url, $this->request_url, 'Conversion insight request URL should have the language tag as the hl query parameter.' );
+		$this->assertEquals( 'POST', $this->request_args['method'], 'Conversion insight request method should be POST.' );
+		$this->assertEquals( "Bearer $access_token", $this->request_args['headers']['Authorization'], 'Conversion insight Authorization header should match access token.' );
+		$this->assertEquals( 'application/json', $this->request_args['headers']['Content-Type'], 'Conversion insight request should be sent as JSON.' );
+		$this->assertTrue( $this->request_args['blocking'], 'Conversion insight request should wait for the response.' );
+		$this->assertTrue( json_decode( $this->request_args['body'], true )['async'], 'Conversion insight request body should have async set to the boolean true.' );
+
+		$this->assertEqualSetsWithIndex(
+			array(
+				'site_id'     => $site_id,
+				'site_secret' => $site_secret,
+				'events'      => $events,
+				'async'       => true,
+			),
+			json_decode( $this->request_args['body'], true ),
+			'Conversion insight request body should contain site credentials, the events, and async set to true.'
+		);
+
+		$this->assertEqualSetsWithIndex( $expected_success_response, $response, 'Conversion insight request should return the operation from the response.' );
+	}
+
+	public function test_send_conversion_insight_request__cached_insight() {
+		list ( $credentials ) = $this->get_credentials();
+
+		$expected_response = array(
+			'interaction_id' => '01M4B0KB2E2VWF72GMV1X4BE08',
+			'scenario'       => 'GROWTH_VOL_UP_CR_UP_NOT_SEASONAL',
+			'insights'       => array(
+				array(
+					'event_name'                => 'generate_lead',
+					'code'                      => 'GROWTH_VOL_UP_CR_UP_NOT_SEASONAL',
+					'text'                      => 'Leads are up 50% over the past 28 days.',
+					'actionable_recommendation' => 'Both an increase in site traffic and a higher conversion rate contributed to this lead growth.',
+				),
+			),
+		);
+
+		$this->mock_http_request( $this->google_proxy->url( '/v1/ai/conversion-insights?hl=de-DE' ), $expected_response );
+
+		$response = $this->google_proxy->send_conversion_insight_request( $credentials, 'abcd', array(), 'de-DE' );
+
+		$this->assertEqualSetsWithIndex( $expected_response, $response, 'Conversion insight request should return the cached insight from the response.' );
+	}
+
+	/**
+	 * @dataProvider data_conversion_insight_error_responses
+	 */
+	public function test_send_conversion_insight_request__error_response( $response_code, array $response_data, $expected_message ) {
+		list ( $credentials ) = $this->get_credentials();
+
+		$this->mock_http_request(
+			$this->google_proxy->url( '/v1/ai/conversion-insights?hl=de-DE' ),
+			$response_data,
+			$response_code
+		);
+
+		$response = $this->google_proxy->send_conversion_insight_request( $credentials, 'abcd', array(), 'de-DE' );
+
+		$this->assertWPError( $response, "A $response_code response to the conversion insight request should return a WP_Error." );
+		$this->assertEquals( $expected_message, $response->get_error_message(), 'The conversion insight error should have the error message of the response, or an empty message when the response has no error message.' );
+		$this->assertEquals( $response_code, $response->get_error_data()['status'], "The conversion insight error should have status $response_code." );
+	}
+
+	public function data_conversion_insight_error_responses() {
+		return array(
+			'429 with an error message' => array(
+				429,
+				array( 'error' => 'Too many requests.' ),
+				'Too many requests.',
+			),
+			'400 with no error message' => array(
+				400,
+				array(),
+				'',
+			),
+		);
+	}
+
+	public function test_get_ai_operation() {
+		list ( $credentials, $site_id ) = $this->get_credentials();
+
+		$expected_url              = $this->google_proxy->url( '/v1/ai/operations/operation-123' ) . '?site_id=' . rawurlencode( $site_id );
+		$expected_success_response = array(
+			'done'     => true,
+			'state'    => 'SUCCEEDED',
+			'response' => array(
+				'scenario'       => 'above_benchmark',
+				'teaser'         => 'Your site is doing well.',
+				'text'           => 'Your site had more sessions than similar sites.',
+				'driver'         => 'organic_search',
+				'interaction_id' => 'interaction-456',
+				'model_version'  => 'model-1',
+			),
+		);
+
+		$this->mock_http_request( $expected_url, $expected_success_response );
+
+		$access_token = 'dcba';
+		$response     = $this->google_proxy->get_ai_operation( $credentials, $access_token, 'operation-123' );
+
+		$this->assertEquals( $expected_url, $this->request_url, 'AI operation request URL should have site_id as its only query parameter.' );
+		$this->assertEquals( 'GET', $this->request_args['method'], 'AI operation request method should be GET.' );
+		$this->assertEquals( "Bearer $access_token", $this->request_args['headers']['Authorization'], 'AI operation Authorization header should match access token.' );
+		$this->assertArrayNotHasKey( 'Content-Type', $this->request_args['headers'], 'AI operation request should not have a Content-Type header.' );
+		$this->assertNull( $this->request_args['body'], 'AI operation request should not have a body.' );
+
+		$this->assertEqualSetsWithIndex( $expected_success_response, $response, 'AI operation request should return the succeeded operation from the response.' );
+	}
+
+	public function test_get_ai_operation__failed_operation() {
+		list ( $credentials, $site_id ) = $this->get_credentials();
+
+		$expected_response = array(
+			'done'  => true,
+			'state' => 'FAILED',
+			'error' => array( 'message' => 'The insight could not be generated.' ),
+		);
+
+		$this->mock_http_request(
+			$this->google_proxy->url( '/v1/ai/operations/operation-123' ) . '?site_id=' . rawurlencode( $site_id ),
+			$expected_response
+		);
+
+		$response = $this->google_proxy->get_ai_operation( $credentials, 'dcba', 'operation-123' );
+
+		$this->assertEqualSetsWithIndex( $expected_response, $response, 'AI operation request should return the failed operation from the response.' );
+	}
+
+	public function test_get_ai_operation__error_response() {
+		list ( $credentials, $site_id ) = $this->get_credentials();
+
+		$this->mock_http_request(
+			$this->google_proxy->url( '/v1/ai/operations/operation-123' ) . '?site_id=' . rawurlencode( $site_id ),
+			array(),
+			404
+		);
+
+		$response = $this->google_proxy->get_ai_operation( $credentials, 'dcba', 'operation-123' );
+
+		$this->assertWPError( $response, 'A 404 response to the AI operation request should return a WP_Error.' );
+		$this->assertEquals( 404, $response->get_error_data()['status'], 'The AI operation error should have status 404.' );
+	}
+
+	/**
+	 * @dataProvider data_errors
+	 */
+	public function test_request_returns_error_for_invalid_response( $params ) {
+		$error_code             = $params['error_code'];
+		$error_message          = $params['error_message'];
+		$expected_error_code    = $params['expected_error_code'];
+		$expected_error_message = $params['expected_error_message'];
+
+		$this->mock_http_request(
+			$this->google_proxy->url( Google_Proxy::OAUTH2_SITE_URI ),
+			array(
+				'error_code' => $error_code,
+				'error'      => $error_message,
+			),
+			404,
+		);
+
+		$response = $this->google_proxy->register_site();
+
+		$this->assertWPError( $response, 'Invalid proxy response should return a WP error.' );
+		$this->assertEquals( $expected_error_code, $response->get_error_code(), 'Error response should contain error code.' );
+		$this->assertEquals( $expected_error_message, $response->get_error_message(), 'Error response should contain error message.' );
+	}
+
+	public function data_errors() {
+		return array(
+			'no error code or message' => array(
+				array(
+					'error_code'             => null,
+					'error_message'          => null,
+					'expected_error_code'    => 'request_failed',
+					'expected_error_message' => '',
+				),
+			),
+			'error code only'          => array(
+				array(
+					'error_code'             => 'test_error_code',
+					'error_message'          => null,
+					'expected_error_code'    => 'test_error_code',
+					'expected_error_message' => '',
+				),
+			),
+			'error message only'       => array(
+				array(
+					'error_code'             => null,
+					'error_message'          => 'test_error_message',
+					'expected_error_code'    => 'request_failed',
+					'expected_error_message' => 'test_error_message',
+				),
+			),
+			'error code and message'   => array(
+				array(
+					'error_code'             => 'test_error_code',
+					'error_message'          => 'test_error_message',
+					'expected_error_code'    => 'test_error_code',
+					'expected_error_message' => 'test_error_message',
+				),
+			),
+		);
 	}
 
 	/**
@@ -358,13 +1222,16 @@ class Google_ProxyTest extends TestCase {
 	 * given URL will yield a specific response.
 	 *
 	 * @param string $request_url   Request URL to modify response for.
-	 * @param (array)  $response_data Response data to return for the request. Will be JSON-encoded if it is an array.
+	 * @param array  $response_data Response data, encoded as JSON for the body of the mocked response.
 	 * @param int    $response_code Optional. Response status code to return. Default 200.
 	 */
 	private function mock_http_request( $request_url, array $response_data, $response_code = 200 ) {
 		add_filter(
 			'pre_http_request',
 			function ( $preempt, $args, $url ) use ( $request_url, $response_data, $response_code ) {
+				$this->request_url  = $url;
+				$this->request_args = $args;
+
 				if ( $request_url !== $url ) {
 					return $preempt;
 				}
@@ -395,7 +1262,7 @@ class Google_ProxyTest extends TestCase {
 	private function mock_http_failure( $request_url, $response_error ) {
 		add_filter(
 			'pre_http_request',
-			function( $response, $parsed_args, $url ) use ( $request_url, $response_error ) {
+			function ( $response, $parsed_args, $url ) use ( $request_url, $response_error ) {
 				if ( $url === $request_url ) {
 					return $response_error;
 				} else {
@@ -406,5 +1273,4 @@ class Google_ProxyTest extends TestCase {
 			3
 		);
 	}
-
 }

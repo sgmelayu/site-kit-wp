@@ -19,9 +19,10 @@
 /**
  * External dependencies
  */
-import PropTypes from 'prop-types';
-import { debounce } from 'lodash';
 import classnames from 'classnames';
+import { debounce } from 'lodash';
+import PropTypes from 'prop-types';
+import { useEvent } from 'react-use';
 
 /**
  * WordPress dependencies
@@ -32,37 +33,37 @@ function TableOverflowContainer( { children } ) {
 	const [ isScrolling, setScrolling ] = useState( false );
 	const scrollRef = useRef();
 
+	const debouncedScrollCheck = debounce( setIsScrolling, 100 );
+
+	useEvent( 'resize', debouncedScrollCheck );
+
 	useEffect( () => {
 		setIsScrolling();
-
-		const resize = debounce( setIsScrolling, 100 );
-
-		global.addEventListener( 'resize', resize );
-
-		return () => global.removeEventListener( 'resize', resize );
 	}, [] );
 
-	const setIsScrolling = () => {
+	function setIsScrolling() {
 		if ( ! scrollRef.current ) {
 			return;
 		}
 
 		const { scrollLeft, scrollWidth, offsetWidth } = scrollRef.current;
 		const maxScroll = scrollWidth - offsetWidth;
-		const scrolling = scrollLeft < ( maxScroll - 16 ) && 0 < ( maxScroll - 16 ); // 16 = $grid-gap-phone
+		const scrolling = scrollLeft < maxScroll - 16 && 0 < maxScroll - 16; // 16 = $grid-gap-phone
 
 		setScrolling( scrolling );
-	};
+	}
 
 	return (
 		<div
 			onScroll={ debounce( setIsScrolling, 100 ) }
-			className={ classnames(
-				'googlesitekit-table-overflow',
-				{ 'googlesitekit-table-overflow--gradient': isScrolling }
-			) }
+			className={ classnames( 'googlesitekit-table-overflow', {
+				'googlesitekit-table-overflow--gradient': isScrolling,
+			} ) }
 		>
-			<div ref={ scrollRef } className="googlesitekit-table-overflow__container">
+			<div
+				ref={ scrollRef }
+				className="googlesitekit-table-overflow__container"
+			>
 				{ children }
 			</div>
 		</div>

@@ -19,52 +19,97 @@
 /**
  * Internal dependencies
  */
-import API from 'googlesitekit-api';
-import { STORE_NAME } from './constants';
+import { get, setUsingCache } from 'googlesitekit-api';
+import { CORE_USER } from '@/js/googlesitekit/datastore/user/constants';
 import {
 	createTestRegistry,
+	createWaitForRegistry,
+	freezeFetch,
+	muteFetch,
+	provideSiteInfo,
 	subscribeUntil,
-	unsubscribeFromAll,
-} from 'tests/js/utils';
+	untilResolved,
+	waitForDefaultTimeouts,
+} from '@tests/js/utils';
 import * as fixtures from './__fixtures__';
+import { MODULES_SEARCH_CONSOLE } from './constants';
 
-describe( 'modules/adsense report', () => {
+// Spy on `get()`, because `cacheTTL` never reaches the network request.
+jest.mock( 'googlesitekit-api', () =>
+	require( '@tests/js/mock-api-utils' ).mockAPIModuleWithGetSpy()
+);
+
+describe( 'modules/search-console report', () => {
+	const searchAnalyticsRegexp = new RegExp(
+		'^/google-site-kit/v1/modules/search-console/data/searchanalytics'
+	);
+	const dataAvailableRegexp = new RegExp(
+		'^/google-site-kit/v1/modules/search-console/data/data-available'
+	);
+	const errorResponse = {
+		status: 403,
+		body: {
+			code: 403,
+			message:
+				'User does not have sufficient permissions for this profile.',
+			data: { status: 403, reason: 'forbidden' },
+		},
+	};
+	const consoleError = [
+		'Google Site Kit API Error',
+		'method:GET',
+		'datapoint:searchanalytics',
+		'type:modules',
+		'identifier:search-console',
+		'error:"User does not have sufficient permissions for this profile."',
+	];
+
 	let registry;
+	let waitForRegistry;
 
 	beforeAll( () => {
-		API.setUsingCache( false );
+		setUsingCache( false );
 	} );
 
 	beforeEach( () => {
-		registry = createTestRegistry();
-	} );
+		get.mockClear();
 
-	afterEach( () => {
-		unsubscribeFromAll( registry );
+		registry = createTestRegistry();
+		waitForRegistry = createWaitForRegistry( registry );
 	} );
 
 	afterAll( () => {
-		API.setUsingCache( true );
+		setUsingCache( true );
 	} );
 
 	describe( 'selectors', () => {
 		describe( 'getReport', () => {
 			it( 'uses a resolver to make a network request', async () => {
-				fetchMock.getOnce(
-					/^\/google-site-kit\/v1\/modules\/search-console\/data\/searchanalytics/,
-					{ body: fixtures.report, status: 200 }
-				);
-
-				const initialReport = registry.select( STORE_NAME ).getReport( {
-					dateRange: 'last-90-days',
+				fetchMock.getOnce( searchAnalyticsRegexp, {
+					body: fixtures.report,
 				} );
 
-				expect( initialReport ).toEqual( undefined );
-				await subscribeUntil( registry, () => (
-					registry.select( STORE_NAME ).getReport( { dateRange: 'last-90-days' } ) !== undefined
-				) );
+				const options = {
+					startDate: '2020-01-01',
+					endDate: '2020-04-05',
+				};
 
-				const report = registry.select( STORE_NAME ).getReport( { dateRange: 'last-90-days' } );
+				const initialReport = registry
+					.select( MODULES_SEARCH_CONSOLE )
+					.getReport( options );
+
+				expect( initialReport ).toEqual( undefined );
+				await subscribeUntil(
+					registry,
+					() =>
+						registry
+							.select( MODULES_SEARCH_CONSOLE )
+							.getReport( options ) !== undefined
+				);
+
+				const report = registry
+					.select( MODULES_SEARCH_CONSOLE )
+					.getReport( options );
 
 				expect( fetchMock ).toHaveFetchedTimes( 1 );
 				expect( report ).toEqual( fixtures.report );
@@ -72,18 +117,24 @@ describe( 'modules/adsense report', () => {
 
 			it( 'does not make a network request if report for given options is already present', async () => {
 				const options = {
-					dateRange: 'last-90-days',
+					startDate: '2020-01-01',
+					endDate: '2020-04-05',
 				};
 
 				// Load data into this store so there are matches for the data we're about to select,
 				// even though the selector hasn't fulfilled yet.
-				registry.dispatch( STORE_NAME ).receiveGetReport( fixtures.report, { options } );
+				registry
+					.dispatch( MODULES_SEARCH_CONSOLE )
+					.receiveGetReport( fixtures.report, { options } );
 
-				const report = registry.select( STORE_NAME ).getReport( options );
+				const report = registry
+					.select( MODULES_SEARCH_CONSOLE )
+					.getReport( options );
 
-				await subscribeUntil( registry, () => registry
-					.select( STORE_NAME )
-					.hasFinishedResolution( 'getReport', [ options ] )
+				await subscribeUntil( registry, () =>
+					registry
+						.select( MODULES_SEARCH_CONSOLE )
+						.hasFinishedResolution( 'getReport', [ options ] )
 				);
 
 				expect( fetchMock ).not.toHaveFetched();
@@ -97,26 +148,438 @@ describe( 'modules/adsense report', () => {
 					data: { status: 500 },
 				};
 
-				fetchMock.getOnce(
-					/^\/google-site-kit\/v1\/modules\/search-console\/data\/searchanalytics/,
-					{ body: response, status: 500 }
-				);
+				fetchMock.getOnce( searchAnalyticsRegexp, {
+					body: response,
+					status: 500,
+				} );
 
 				const options = {
-					dateRange: 'last-90-days',
+					startDate: '2020-01-01',
+					endDate: '2020-04-05',
 				};
 
-				registry.select( STORE_NAME ).getReport( options );
+				registry.select( MODULES_SEARCH_CONSOLE ).getReport( options );
 				await subscribeUntil(
 					registry,
-					() => registry.select( STORE_NAME ).isFetchingGetReport( options ) === false,
+					() =>
+						registry
+							.select( MODULES_SEARCH_CONSOLE )
+							.isFetchingGetReport( options ) === false
 				);
 
 				expect( fetchMock ).toHaveFetchedTimes( 1 );
 
-				const report = registry.select( STORE_NAME ).getReport( options );
+				const report = registry
+					.select( MODULES_SEARCH_CONSOLE )
+					.getReport( options );
 				expect( report ).toEqual( undefined );
+
+				await untilResolved(
+					registry,
+					MODULES_SEARCH_CONSOLE
+				).getReport( options );
 				expect( console ).toHaveErrored();
+			} );
+
+			it( 'forwards the abort signal from the fetch options to the report request', async () => {
+				fetchMock.getOnce( searchAnalyticsRegexp, {
+					body: fixtures.report,
+				} );
+
+				const options = {
+					startDate: '2020-01-01',
+					endDate: '2020-04-05',
+				};
+				const { signal } = new AbortController();
+
+				await registry
+					.dispatch( MODULES_SEARCH_CONSOLE )
+					.fetchGetReport( options, { signal } );
+
+				expect( fetchMock ).toHaveFetchedTimes( 1 );
+				expect( fetchMock.lastOptions().signal ).toBe( signal );
+			} );
+
+			it( 'sends no abort signal to the report request when the call has no fetch options', async () => {
+				fetchMock.getOnce( searchAnalyticsRegexp, {
+					body: fixtures.report,
+				} );
+
+				const options = {
+					startDate: '2020-01-01',
+					endDate: '2020-04-05',
+				};
+
+				await registry
+					.dispatch( MODULES_SEARCH_CONSOLE )
+					.fetchGetReport( options );
+
+				expect( fetchMock ).toHaveFetchedTimes( 1 );
+				expect( fetchMock.lastOptions().signal ).toBeUndefined();
+			} );
+
+			it( 'passes cacheTTL from the fetch options to the report request', async () => {
+				fetchMock.getOnce( searchAnalyticsRegexp, {
+					body: fixtures.report,
+				} );
+
+				const options = {
+					startDate: '2020-01-01',
+					endDate: '2020-04-05',
+				};
+
+				await registry
+					.dispatch( MODULES_SEARCH_CONSOLE )
+					.fetchGetReport( options, { cacheTTL: 300 } );
+
+				expect( fetchMock ).toHaveFetchedTimes( 1 );
+				expect( get.mock.calls[ 0 ][ 4 ] ).toStrictEqual( {
+					cacheTTL: 300,
+				} );
+			} );
+
+			it( 'sends no cacheTTL to the report request when the call has no fetch options', async () => {
+				fetchMock.getOnce( searchAnalyticsRegexp, {
+					body: fixtures.report,
+				} );
+
+				const options = {
+					startDate: '2020-01-01',
+					endDate: '2020-04-05',
+				};
+
+				await registry
+					.dispatch( MODULES_SEARCH_CONSOLE )
+					.fetchGetReport( options );
+
+				expect( fetchMock ).toHaveFetchedTimes( 1 );
+				expect( get.mock.calls[ 0 ][ 4 ] ).toBeUndefined();
+			} );
+
+			it( 'sends one request when two getReport calls differ only in cacheTTL', async () => {
+				// Hold the response open so both calls share one running request.
+				const deferredResolvers = [];
+				fetchMock.getOnce(
+					searchAnalyticsRegexp,
+					() =>
+						new Promise( ( resolve ) => {
+							deferredResolvers.push( () =>
+								resolve( { body: fixtures.report } )
+							);
+						} )
+				);
+
+				const options = {
+					startDate: '2020-01-01',
+					endDate: '2020-04-05',
+				};
+
+				registry
+					.select( MODULES_SEARCH_CONSOLE )
+					.getReport( options, { cacheTTL: 300 } );
+				while ( deferredResolvers.length < 1 ) {
+					await waitForDefaultTimeouts();
+				}
+
+				registry
+					.select( MODULES_SEARCH_CONSOLE )
+					.getReport( options, { cacheTTL: 600 } );
+				await waitForDefaultTimeouts();
+
+				const firstResolution = untilResolved(
+					registry,
+					MODULES_SEARCH_CONSOLE
+				).getReport( options, { cacheTTL: 300 } );
+				const secondResolution = untilResolved(
+					registry,
+					MODULES_SEARCH_CONSOLE
+				).getReport( options, { cacheTTL: 600 } );
+
+				deferredResolvers.forEach( ( resolve ) => resolve() );
+
+				await Promise.all( [ firstResolution, secondResolution ] );
+
+				expect( fetchMock ).toHaveFetchedTimes( 1 );
+				expect(
+					registry
+						.select( MODULES_SEARCH_CONSOLE )
+						.getReport( options, { cacheTTL: 300 } )
+				).toBe(
+					registry
+						.select( MODULES_SEARCH_CONSOLE )
+						.getReport( options, { cacheTTL: 600 } )
+				);
+			} );
+
+			it( 'forwards the abort signal from a getReport call to the report request', async () => {
+				fetchMock.getOnce( searchAnalyticsRegexp, {
+					body: fixtures.report,
+				} );
+
+				const options = {
+					startDate: '2020-01-01',
+					endDate: '2020-04-05',
+				};
+				const { signal } = new AbortController();
+
+				await registry
+					.resolveSelect( MODULES_SEARCH_CONSOLE )
+					.getReport( options, { signal } );
+
+				// The registry starts resolver runs from a timeout. Wait for
+				// those timeouts to finish, so a second run with the same
+				// options would send its request inside this test and make
+				// the test fail.
+				await waitForDefaultTimeouts();
+
+				expect( fetchMock ).toHaveFetchedTimes( 1 );
+				expect( fetchMock.lastOptions().signal ).toBe( signal );
+			} );
+
+			it( 'sends one request and no abort signal when a getReport call has no fetch options', async () => {
+				fetchMock.getOnce( searchAnalyticsRegexp, {
+					body: fixtures.report,
+				} );
+
+				const options = {
+					startDate: '2020-01-01',
+					endDate: '2020-04-05',
+				};
+
+				await registry
+					.resolveSelect( MODULES_SEARCH_CONSOLE )
+					.getReport( options );
+
+				// The registry starts resolver runs from a timeout. Wait for
+				// those timeouts to finish, so a second run with the same
+				// options would send its request inside this test and make
+				// the test fail.
+				await waitForDefaultTimeouts();
+
+				expect( fetchMock ).toHaveFetchedTimes( 1 );
+				expect( fetchMock.lastOptions().signal ).toBeUndefined();
+			} );
+
+			it( 'stores the error under the report options when a getReport call with an abort signal fails', async () => {
+				const response = {
+					code: 'internal_server_error',
+					message: 'Internal server error',
+					data: { status: 500 },
+				};
+
+				fetchMock.getOnce( searchAnalyticsRegexp, {
+					body: response,
+					status: 500,
+				} );
+
+				const options = {
+					startDate: '2020-01-01',
+					endDate: '2020-04-05',
+				};
+				const { signal } = new AbortController();
+
+				await registry
+					.resolveSelect( MODULES_SEARCH_CONSOLE )
+					.getReport( options, { signal } );
+
+				// The registry starts resolver runs from a timeout. Wait for
+				// those timeouts to finish, so a second run with the same
+				// options would send its request inside this test and make
+				// the test fail.
+				await waitForDefaultTimeouts();
+
+				expect( fetchMock ).toHaveFetchedTimes( 1 );
+
+				// The store saves the error under the report options only,
+				// so the same options that read the report also find the
+				// error.
+				expect(
+					registry
+						.select( MODULES_SEARCH_CONSOLE )
+						.getErrorForSelector( 'getReport', [ options ] )
+				).toEqual( response );
+				expect( console ).toHaveErrored();
+			} );
+		} );
+
+		describe( 'isGatheringData', () => {
+			it( 'should return `undefined` if getReport is not resolved yet', async () => {
+				freezeFetch( searchAnalyticsRegexp );
+
+				const { isGatheringData } = registry.select(
+					MODULES_SEARCH_CONSOLE
+				);
+
+				expect( isGatheringData() ).toBeUndefined();
+
+				// Wait for resolvers to run.
+				await waitForRegistry();
+
+				expect( fetchMock ).toHaveFetched( searchAnalyticsRegexp );
+			} );
+
+			it( 'should return TRUE if report API returns error', async () => {
+				fetchMock.getOnce( searchAnalyticsRegexp, errorResponse );
+
+				const { isGatheringData } = registry.select(
+					MODULES_SEARCH_CONSOLE
+				);
+
+				expect( isGatheringData() ).toBeUndefined();
+
+				// Wait for resolvers to run.
+				await waitForRegistry();
+
+				expect( console ).toHaveErroredWith( ...consoleError );
+				expect( isGatheringData() ).toBe( true );
+				expect( fetchMock ).not.toHaveFetched( dataAvailableRegexp );
+			} );
+
+			it( 'should return TRUE if the returned report is an empty array', async () => {
+				fetchMock.getOnce( searchAnalyticsRegexp, { body: [] } );
+
+				const { isGatheringData } = registry.select(
+					MODULES_SEARCH_CONSOLE
+				);
+
+				expect( isGatheringData() ).toBeUndefined();
+
+				await subscribeUntil(
+					registry,
+					() => isGatheringData() !== undefined
+				);
+
+				expect( isGatheringData() ).toBe( true );
+			} );
+
+			it( 'should return FALSE if the returned report has rows', async () => {
+				fetchMock.getOnce( searchAnalyticsRegexp, {
+					body: fixtures.report,
+				} );
+
+				muteFetch( dataAvailableRegexp );
+
+				const { isGatheringData } = registry.select(
+					MODULES_SEARCH_CONSOLE
+				);
+
+				expect( isGatheringData() ).toBeUndefined();
+
+				await subscribeUntil(
+					registry,
+					() => isGatheringData() !== undefined
+				);
+
+				expect( isGatheringData() ).toBe( false );
+			} );
+		} );
+
+		describe( 'hasZeroData', () => {
+			it( 'should return `undefined` if getReport or isGatheringData is not resolved yet', async () => {
+				freezeFetch( searchAnalyticsRegexp );
+
+				const { hasZeroData, isResolving } = registry.select(
+					MODULES_SEARCH_CONSOLE
+				);
+
+				expect( hasZeroData() ).toBeUndefined();
+
+				await subscribeUntil(
+					registry,
+					() => isResolving( 'isGatheringData', [] ) === true
+				);
+
+				// Wait for resolvers to run.
+				await waitForRegistry();
+
+				expect( fetchMock ).toHaveFetched( searchAnalyticsRegexp );
+			} );
+
+			it( 'should return TRUE if report API returns error', async () => {
+				fetchMock.getOnce( searchAnalyticsRegexp, errorResponse );
+
+				const { hasZeroData } = registry.select(
+					MODULES_SEARCH_CONSOLE
+				);
+
+				expect( hasZeroData() ).toBeUndefined();
+
+				// Wait for resolvers to run.
+				await waitForRegistry();
+
+				expect( console ).toHaveErroredWith( ...consoleError );
+
+				expect( hasZeroData() ).toBe( true );
+				expect( fetchMock ).not.toHaveFetched( dataAvailableRegexp );
+			} );
+
+			it( 'should return TRUE if report data in isGatheringData OR isZeroReport is an empty array', async () => {
+				fetchMock.getOnce( searchAnalyticsRegexp, { body: [] } );
+
+				const { hasZeroData } = registry.select(
+					MODULES_SEARCH_CONSOLE
+				);
+
+				expect( hasZeroData() ).toBeUndefined();
+
+				await subscribeUntil(
+					registry,
+					() => hasZeroData() !== undefined
+				);
+
+				expect( hasZeroData() ).toBe( true );
+			} );
+
+			it( 'should return FALSE if isGatheringData and isZeroReport return false', async () => {
+				fetchMock.getOnce( searchAnalyticsRegexp, {
+					body: fixtures.report,
+				} );
+
+				muteFetch( dataAvailableRegexp );
+
+				const { hasZeroData } = registry.select(
+					MODULES_SEARCH_CONSOLE
+				);
+
+				expect( hasZeroData() ).toBeUndefined();
+
+				await subscribeUntil(
+					registry,
+					() => hasZeroData() !== undefined
+				);
+
+				expect( hasZeroData() ).toBe( false );
+			} );
+		} );
+
+		describe( 'getSampleReportArgs', () => {
+			it( 'should return report arguments relative to the current reference date', () => {
+				registry.dispatch( CORE_USER ).setReferenceDate( '2024-05-01' );
+
+				const dates = registry.select( CORE_USER ).getDateRangeDates( {
+					compare: true,
+				} );
+
+				const args = registry
+					.select( MODULES_SEARCH_CONSOLE )
+					.getSampleReportArgs();
+
+				// `getSampleReportArgs` uses `compareStartDate` as `startDate`.
+				expect( args.startDate ).toBe( dates.compareStartDate );
+				expect( args.endDate ).toBe( dates.endDate );
+				expect( args.dimensions ).toBe( 'date' );
+				expect( args.url ).toBeUndefined();
+			} );
+
+			it( 'should include the URL property from the current entity URL', () => {
+				const entityURL = 'http://example.com';
+				provideSiteInfo( registry, { currentEntityURL: entityURL } );
+
+				const args = registry
+					.select( MODULES_SEARCH_CONSOLE )
+					.getSampleReportArgs();
+
+				expect( args.url ).toBe( entityURL );
 			} );
 		} );
 	} );

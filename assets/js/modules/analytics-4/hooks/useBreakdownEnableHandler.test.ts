@@ -1,0 +1,354 @@
+/**
+ * Tests for the useBreakdownEnableHandler hook.
+ *
+ * Site Kit by Google, Copyright 2026 Google LLC
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     https://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+/**
+ * External dependencies
+ */
+import fetchMock from 'fetch-mock';
+
+/**
+ * WordPress dependencies
+ */
+import { WPDataRegistry } from '@wordpress/data/build-types/registry';
+
+/**
+ * Internal dependencies
+ */
+import { CORE_FORMS } from '@/js/googlesitekit/datastore/forms/constants';
+import { CORE_SITE } from '@/js/googlesitekit/datastore/site/constants';
+import { CORE_USER } from '@/js/googlesitekit/datastore/user/constants';
+import { AREA_MAIN_DASHBOARD_SITE_GOALS_PRIMARY } from '@/js/googlesitekit/widgets/default-areas';
+import {
+	BREAKDOWN_ORIGIN_FORM_KEY,
+	BREAKDOWN_ORIGIN_PANEL,
+	BREAKDOWN_ORIGIN_WIDGET,
+	BREAKDOWN_SCOPE_BOTH,
+	BREAKDOWN_SCOPE_FORM_KEY,
+} from '@/js/modules/analytics-4/components/site-goals/constants';
+import { GOAL_TYPES } from '@/js/modules/analytics-4/components/site-goals/goal-drivers/constants';
+import {
+	ALL_CUSTOM_DIMENSIONS,
+	EDIT_SCOPE,
+	FORM_CUSTOM_DIMENSIONS_CREATE,
+	MODULES_ANALYTICS_4,
+} from '@/js/modules/analytics-4/datastore/constants';
+import {
+	actHook,
+	createTestRegistry,
+	provideModules,
+	provideSiteInfo,
+	provideUserAuthentication,
+	provideUserCapabilities,
+	renderHook,
+} from '@tests/js/test-utils';
+import { useBreakdownEnableHandler } from './useBreakdownEnableHandler';
+
+describe( 'useBreakdownEnableHandler', () => {
+	let registry: WPDataRegistry;
+
+	const createDimensionEndpoint = new RegExp(
+		'^/google-site-kit/v1/modules/analytics-4/data/create-custom-dimension'
+	);
+	const syncDimensionsEndpoint = new RegExp(
+		'^/google-site-kit/v1/modules/analytics-4/data/sync-custom-dimensions'
+	);
+
+	function getFormValue( key: string ) {
+		return registry
+			.select( CORE_FORMS )
+			.getValue( FORM_CUSTOM_DIMENSIONS_CREATE, key );
+	}
+
+	/**
+	 * Gets whether conversion tracking is enabled in the store.
+	 *
+	 * @since 1.189.0
+	 *
+	 * @return {boolean|undefined} Whether conversion tracking is enabled, or `undefined` while it loads.
+	 */
+	function isConversionTrackingEnabled() {
+		return registry.select( CORE_SITE ).isConversionTrackingEnabled();
+	}
+
+	/**
+	 * Sets up a site that does not track conversions yet.
+	 *
+	 * @since 1.189.0
+	 *
+	 * @return {void}
+	 */
+	function withoutConversionTracking() {
+		registry
+			.dispatch( CORE_SITE )
+			.receiveGetConversionTrackingSettings( { enabled: false } );
+	}
+
+	/**
+	 * Mocks the endpoints that create and sync the custom dimensions.
+	 *
+	 * @since 1.189.0
+	 *
+	 * @return {void}
+	 */
+	function mockDimensionCreation() {
+		fetchMock.post( createDimensionEndpoint, ( _url, opts ) => ( {
+			body: JSON.parse( opts.body as string ).data,
+			status: 200,
+		} ) );
+		fetchMock.post( syncDimensionsEndpoint, {
+			body: ALL_CUSTOM_DIMENSIONS.map( ( parameterName ) => ( {
+				parameterName,
+			} ) ),
+			status: 200,
+		} );
+	}
+
+	/**
+	 * Renders the enable handler for the lead generation widget.
+	 *
+	 * @since 1.189.0
+	 *
+	 * @return {Object} The render result.
+	 */
+	function enableHandler() {
+		return renderHook(
+			() =>
+				useBreakdownEnableHandler(
+					BREAKDOWN_ORIGIN_WIDGET,
+					GOAL_TYPES.LEAD
+				),
+			{ registry }
+		);
+	}
+
+	beforeEach( () => {
+		registry = createTestRegistry();
+		// The breakdown notice reads this setting; `true` keeps these tests on
+		// the existing notice, without the conversion tracking disclosure.
+		registry
+			.dispatch( CORE_SITE )
+			.receiveGetConversionTrackingSettings( { enabled: true } );
+		provideSiteInfo( registry );
+		provideUserCapabilities( registry );
+		provideModules( registry, [
+			{ slug: 'analytics-4', active: true, connected: true },
+		] );
+		registry.dispatch( MODULES_ANALYTICS_4 ).receiveGetSettings( {
+			propertyID: '12345',
+			availableCustomDimensions: [],
+		} );
+		// Set the selected property's custom dimensions in the store, so
+		// createCustomDimensions reads them instead of fetching the
+		// custom-dimensions endpoint.
+		registry
+			.dispatch( MODULES_ANALYTICS_4 )
+			.receiveGetCustomDimensions( [], { propertyID: '12345' } );
+	} );
+
+	it( 'triggers the OAuth flow and records the form state when the edit scope is missing', async () => {
+		provideUserAuthentication( registry, { grantedScopes: [] } );
+
+		const { result } = renderHook(
+			() =>
+				useBreakdownEnableHandler(
+					BREAKDOWN_ORIGIN_WIDGET,
+					GOAL_TYPES.LEAD
+				),
+			{ registry }
+		);
+
+		await actHook( async () => {
+			await result.current.onEnable();
+		} );
+
+		expect( getFormValue( 'autoSubmit' ) ).toBe( true );
+		expect( getFormValue( 'customDimensions' ) ).toEqual(
+			ALL_CUSTOM_DIMENSIONS
+		);
+		expect( getFormValue( BREAKDOWN_ORIGIN_FORM_KEY ) ).toBe(
+			BREAKDOWN_ORIGIN_WIDGET
+		);
+		// The enabled scope is recorded.
+		expect( getFormValue( BREAKDOWN_SCOPE_FORM_KEY ) ).toBe(
+			GOAL_TYPES.LEAD
+		);
+
+		const permissionError = registry
+			.select( CORE_USER )
+			.getPermissionScopeError();
+		expect( permissionError?.data?.scopes ).toEqual( [ EDIT_SCOPE ] );
+		// On return, the dashboard scrolls back to the Site Goals widget section.
+		expect( permissionError?.data?.redirectURL ).toContain(
+			`widgetArea=${ AREA_MAIN_DASHBOARD_SITE_GOALS_PRIMARY }`
+		);
+
+		// No dimensions are created before the scope is granted.
+		expect( fetchMock ).not.toHaveFetched( createDimensionEndpoint );
+	} );
+
+	it( 'creates all dimensions directly and records the triggering instance when the edit scope is granted', async () => {
+		provideUserAuthentication( registry, {
+			grantedScopes: [ EDIT_SCOPE ],
+		} );
+		fetchMock.post( createDimensionEndpoint, ( _url, opts ) => ( {
+			body: JSON.parse( opts.body as string ).data,
+			status: 200,
+		} ) );
+		fetchMock.post( syncDimensionsEndpoint, {
+			body: ALL_CUSTOM_DIMENSIONS.map( ( parameterName ) => ( {
+				parameterName,
+			} ) ),
+			status: 200,
+		} );
+
+		// The Side Panel enables both goal types at once, recording the combined
+		// scope so the success/error notice shows the "both" copy.
+		const { result, waitForRegistry } = renderHook(
+			() =>
+				useBreakdownEnableHandler(
+					BREAKDOWN_ORIGIN_PANEL,
+					BREAKDOWN_SCOPE_BOTH
+				),
+			{ registry }
+		);
+
+		await actHook( async () => {
+			await result.current.onEnable();
+		} );
+
+		await waitForRegistry();
+
+		expect( fetchMock ).toHaveFetched( createDimensionEndpoint );
+
+		expect( getFormValue( BREAKDOWN_ORIGIN_FORM_KEY ) ).toBe(
+			BREAKDOWN_ORIGIN_PANEL
+		);
+		expect( getFormValue( BREAKDOWN_SCOPE_FORM_KEY ) ).toBe(
+			BREAKDOWN_SCOPE_BOTH
+		);
+		// The OAuth flow is not initiated when the scope is already granted.
+		expect(
+			registry.select( CORE_USER ).getPermissionScopeError()
+		).toBeNull();
+	} );
+
+	describe( 'plugin conversion tracking', () => {
+		const conversionTrackingEndpoint = new RegExp(
+			'^/google-site-kit/v1/core/site/data/conversion-tracking'
+		);
+
+		it.each( [
+			[ 'with', [ EDIT_SCOPE ] ],
+			[ 'without', [] ],
+		] )(
+			'is switched on by "Get breakdown" %s the Analytics edit scope',
+			async ( _label, grantedScopes ) => {
+				withoutConversionTracking();
+				provideUserAuthentication( registry, { grantedScopes } );
+				fetchMock.post( conversionTrackingEndpoint, {
+					body: { enabled: true },
+					status: 200,
+				} );
+				mockDimensionCreation();
+
+				const { result, waitForRegistry } = enableHandler();
+
+				await actHook( async () => {
+					await result.current.onEnable();
+				} );
+
+				await waitForRegistry();
+
+				expect( fetchMock ).toHaveFetched( conversionTrackingEndpoint );
+				expect( isConversionTrackingEnabled() ).toBe( true );
+			}
+		);
+
+		it( 'is left alone for a site that already tracks conversions', async () => {
+			provideUserAuthentication( registry, {
+				grantedScopes: [ EDIT_SCOPE ],
+			} );
+			mockDimensionCreation();
+
+			const { result, waitForRegistry } = enableHandler();
+
+			await actHook( async () => {
+				await result.current.onEnable();
+			} );
+
+			await waitForRegistry();
+
+			expect( fetchMock ).not.toHaveFetched( conversionTrackingEndpoint );
+			expect( isConversionTrackingEnabled() ).toBe( true );
+			expect( fetchMock ).toHaveFetched( createDimensionEndpoint );
+		} );
+
+		it( 'is left alone while the setting has not loaded', async () => {
+			// A user who cannot read the setting never gets a value, and a save
+			// they are not allowed to make would only 403.
+			registry
+				.dispatch( CORE_USER )
+				.receiveCapabilities( { googlesitekit_manage_options: false } );
+			provideUserAuthentication( registry, {
+				grantedScopes: [ EDIT_SCOPE ],
+			} );
+			mockDimensionCreation();
+
+			const { result, waitForRegistry } = enableHandler();
+
+			await actHook( async () => {
+				await result.current.onEnable();
+			} );
+
+			await waitForRegistry();
+
+			expect( fetchMock ).not.toHaveFetched( conversionTrackingEndpoint );
+			expect( fetchMock ).toHaveFetched( createDimensionEndpoint );
+		} );
+
+		it( 'stays off and creates no dimension when the save fails', async () => {
+			withoutConversionTracking();
+			provideUserAuthentication( registry, {
+				grantedScopes: [ EDIT_SCOPE ],
+			} );
+			fetchMock.post( conversionTrackingEndpoint, {
+				body: {
+					code: 'internal_error',
+					message: 'Something went wrong.',
+					data: { status: 500 },
+				},
+				status: 500,
+			} );
+			mockDimensionCreation();
+
+			const { result, waitForRegistry } = enableHandler();
+
+			await actHook( async () => {
+				await result.current.onEnable();
+			} );
+
+			await waitForRegistry();
+
+			expect( isConversionTrackingEnabled() ).toBe( false );
+			expect( fetchMock ).not.toHaveFetched( createDimensionEndpoint );
+
+			// The failed save is expected, and logs through the API layer.
+			expect( console ).toHaveErrored();
+		} );
+	} );
+} );

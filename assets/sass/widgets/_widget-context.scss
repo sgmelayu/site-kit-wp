@@ -17,8 +17,20 @@
  */
 
 .googlesitekit-widget-context {
-
-	@include googlesitekit-inner-padding;
 	padding-bottom: 10px;
 	padding-top: 10px;
+
+	.mdc-layout-grid {
+		@media screen and (min-width: $bp-nonMobile) {
+			padding: $grid-gap-desktop;
+		}
+	}
+}
+
+.googlesitekit-widget-context--last {
+	min-height: 80vh;
+
+	@media screen and (height >= 1200px) {
+		min-height: 100vh;
+	}
 }

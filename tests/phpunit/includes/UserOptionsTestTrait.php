@@ -15,7 +15,7 @@ use Google\Site_Kit\Core\Authentication\Profile;
 use Google\Site_Kit\Core\Authentication\Verification;
 use Google\Site_Kit\Core\Authentication\Verification_File;
 use Google\Site_Kit\Core\Authentication\Verification_Meta;
-use Google\Site_Kit\Core\Util\Tracking_Consent;
+use Google\Site_Kit\Core\Tracking\Tracking_Consent;
 
 trait UserOptionsTestTrait {
 
@@ -49,9 +49,15 @@ trait UserOptionsTestTrait {
 	protected function assertUserOptionsDeleted( $user_id, $is_network_mode ) {
 		foreach ( $this->get_user_option_keys() as $option_name ) {
 			if ( $is_network_mode ) {
-				$this->assertFalse( metadata_exists( 'user', $user_id, $option_name ) );
+				$this->assertFalse(
+					metadata_exists( 'user', $user_id, $option_name ),
+					"{$option_name} user option should no longer exist."
+				);
 			} else {
-				$this->assertFalse( get_user_option( $option_name, $user_id ) );
+				$this->assertFalse(
+					get_user_option( $option_name, $user_id ),
+					"{$option_name} user option should no longer exist."
+				);
 			}
 		}
 	}

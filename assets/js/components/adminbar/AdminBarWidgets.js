@@ -17,106 +17,116 @@
  */
 
 /**
- * External dependencies
- */
-import classnames from 'classnames';
-
-/**
- * WordPress dependencies
- */
-import { Fragment } from '@wordpress/element';
-
-/**
  * Internal dependencies
  */
-import Data from 'googlesitekit-data';
-import AdminBarImpressions from './AdminBarImpressions';
+import { useSelect } from 'googlesitekit-data';
+import { CORE_USER } from '@/js/googlesitekit/datastore/user/constants';
+import { CORE_MODULES } from '@/js/googlesitekit/modules/datastore/constants';
+import { withWidgetComponentProps } from '@/js/googlesitekit/widgets/util/get-widget-component-props';
+import { Cell, Row } from '@/js/material-components';
+import { MODULE_SLUG_ANALYTICS_4 } from '@/js/modules/analytics-4/constants';
+import { MODULE_SLUG_SEARCH_CONSOLE } from '@/js/modules/search-console/constants';
+import AdminBarActivateAnalyticsCTA from './AdminBarActivateAnalyticsCTA';
 import AdminBarClicks from './AdminBarClicks';
-import AdminBarUniqueVisitors from './AdminBarUniqueVisitors';
-import AdminBarSessions from './AdminBarSessions';
-import ActivateModuleCTA from '../ActivateModuleCTA';
-import CompleteModuleActivationCTA from '../CompleteModuleActivationCTA';
-import AdminBarZeroData from './AdminBarZeroData';
-import { STORE_NAME as CORE_MODULES } from '../../googlesitekit/modules/datastore/constants';
-import { Row, Cell } from '../../material-components';
-import { CORE_WIDGETS } from '../../googlesitekit/widgets/datastore/constants';
-import { HIDDEN_CLASS } from '../../googlesitekit/widgets/util/constants';
-import ReportZero from '../ReportZero';
-import { withWidgetComponentProps } from '../../googlesitekit/widgets/util/get-widget-component-props';
-const { useSelect } = Data;
+import AdminBarImpressions from './AdminBarImpressions';
+import AdminBarSessionsGA4 from './AdminBarSessionsGA4';
+import AdminBarUniqueVisitorsGA4 from './AdminBarUniqueVisitorsGA4';
 
 // Widget slugs.
 const WIDGET_IMPRESSIONS = 'adminBarImpressions';
 const WIDGET_CLICKS = 'adminBarClicks';
 const WIDGET_VISITORS = 'adminBarUniqueVisitors';
 const WIDGET_SESSIONS = 'adminBarSessions';
+
 // Search Console widgets.
-const AdminBarImpressionsWidget = withWidgetComponentProps( WIDGET_IMPRESSIONS )( AdminBarImpressions );
-const AdminBarClicksWidget = withWidgetComponentProps( WIDGET_CLICKS )( AdminBarClicks );
-// Analytics Widgets.
-const AdminBarUniqueVisitorsWidget = withWidgetComponentProps( WIDGET_VISITORS )( AdminBarUniqueVisitors );
-const AdminBarSessionsWidget = withWidgetComponentProps( WIDGET_SESSIONS )( AdminBarSessions );
+const AdminBarImpressionsWidget =
+	withWidgetComponentProps( WIDGET_IMPRESSIONS )( AdminBarImpressions );
+const AdminBarClicksWidget =
+	withWidgetComponentProps( WIDGET_CLICKS )( AdminBarClicks );
+
+// Analytics 4 Widgets.
+const AdminBarUniqueVisitorsGA4Widget = withWidgetComponentProps(
+	WIDGET_VISITORS
+)( AdminBarUniqueVisitorsGA4 );
+const AdminBarSessionsGA4Widget =
+	withWidgetComponentProps( WIDGET_SESSIONS )( AdminBarSessionsGA4 );
 
 export default function AdminBarWidgets() {
-	const analyticsModuleConnected = useSelect( ( select ) => select( CORE_MODULES ).isModuleConnected( 'analytics' ) );
-	const analyticsModuleActive = useSelect( ( select ) => select( CORE_MODULES ).isModuleActive( 'analytics' ) );
+	const analyticsModuleAvailable = useSelect( ( select ) =>
+		select( CORE_MODULES ).isModuleAvailable( MODULE_SLUG_ANALYTICS_4 )
+	);
+	const analyticsModuleConnected = useSelect( ( select ) =>
+		select( CORE_MODULES ).isModuleConnected( MODULE_SLUG_ANALYTICS_4 )
+	);
+	const analyticsModuleActive = useSelect( ( select ) =>
+		select( CORE_MODULES ).isModuleActive( MODULE_SLUG_ANALYTICS_4 )
+	);
+	const canViewSharedAnalytics = useSelect( ( select ) =>
+		select( CORE_USER ).hasAccessToShareableModule(
+			MODULE_SLUG_ANALYTICS_4
+		)
+	);
+	const canViewSharedSearchConsole = useSelect( ( select ) =>
+		select( CORE_USER ).hasAccessToShareableModule(
+			MODULE_SLUG_SEARCH_CONSOLE
+		)
+	);
 
-	const searchConsoleZeroData = useSelect( ( select ) => {
-		return select( CORE_WIDGETS ).getWidgetState( WIDGET_IMPRESSIONS )?.Component === ReportZero &&
-			select( CORE_WIDGETS ).getWidgetState( WIDGET_CLICKS )?.Component === ReportZero;
-	} );
-
-	const analyticsZeroData = useSelect( ( select ) => {
-		return select( CORE_WIDGETS ).getWidgetState( WIDGET_VISITORS )?.Component === ReportZero &&
-			select( CORE_WIDGETS ).getWidgetState( WIDGET_SESSIONS )?.Component === ReportZero;
-	} );
-
-	// True if _all_ admin bar widgets have zero data.
-	const zeroData = ( searchConsoleZeroData && analyticsZeroData ) || ( searchConsoleZeroData && ! analyticsModuleConnected );
+	const searchConsoleSize = canViewSharedAnalytics
+		? { lg: 3, md: 2 }
+		: { lg: 6, md: 4 };
+	const analyticsSize = canViewSharedSearchConsole
+		? { lg: 3, md: 2 }
+		: { lg: 6, md: 4 };
 
 	return (
-		<Fragment>
-			{ zeroData && (
-				<AdminBarZeroData />
+		<Row>
+			{ canViewSharedSearchConsole && (
+				<div className="googlesitekit-adminbar__widgets-pair">
+					<Cell
+						smSize={ 2 }
+						lgSize={ searchConsoleSize.lg }
+						mdSize={ searchConsoleSize.md }
+					>
+						<AdminBarImpressionsWidget />
+					</Cell>
+					<Cell
+						smSize={ 2 }
+						lgSize={ searchConsoleSize.lg }
+						mdSize={ searchConsoleSize.md }
+					>
+						<AdminBarClicksWidget />
+					</Cell>
+				</div>
 			) }
-			<Row className={ classnames( { [ HIDDEN_CLASS ]: zeroData } ) }>
-				<Cell
-					lgSize={ searchConsoleZeroData ? 6 : 3 }
-					mdSize={ searchConsoleZeroData ? 4 : 2 }
-				>
-					<AdminBarImpressionsWidget />
-				</Cell>
-				<Cell
-					lgSize={ 3 }
-					mdSize={ 2 }
-					className={ classnames( { [ HIDDEN_CLASS ]: searchConsoleZeroData } ) }
-				>
-					<AdminBarClicksWidget />
-				</Cell>
 
-				{ analyticsModuleConnected && analyticsModuleActive && (
-					<Fragment>
-						<Cell lgSize={ 3 } mdSize={ 2 }>
-							<AdminBarUniqueVisitorsWidget />
+			{ analyticsModuleConnected &&
+				analyticsModuleActive &&
+				canViewSharedAnalytics && (
+					<div className="googlesitekit-adminbar__widgets-pair">
+						<Cell
+							smSize={ 2 }
+							lgSize={ analyticsSize.lg }
+							mdSize={ analyticsSize.md }
+						>
+							<AdminBarUniqueVisitorsGA4Widget />
 						</Cell>
-						<Cell lgSize={ 3 } mdSize={ 2 }>
-							<AdminBarSessionsWidget />
+						<Cell
+							smSize={ 2 }
+							lgSize={ analyticsSize.lg }
+							mdSize={ analyticsSize.md }
+						>
+							<AdminBarSessionsGA4Widget />
 						</Cell>
-					</Fragment>
+					</div>
 				) }
 
-				{ ( ! analyticsModuleConnected || ! analyticsModuleActive ) && (
+			{ analyticsModuleAvailable &&
+				( ! analyticsModuleConnected || ! analyticsModuleActive ) && (
 					<Cell lgSize={ 6 } mdSize={ 4 }>
-						{ ! analyticsModuleActive && (
-							<ActivateModuleCTA moduleSlug="analytics" />
-						) }
-
-						{ ( analyticsModuleActive && ! analyticsModuleConnected ) && (
-							<CompleteModuleActivationCTA moduleSlug="analytics" />
-						) }
+						<AdminBarActivateAnalyticsCTA />
 					</Cell>
 				) }
-			</Row>
-		</Fragment>
+		</Row>
 	);
 }

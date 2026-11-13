@@ -29,11 +29,15 @@ import { addQueryArgs } from '@wordpress/url';
 /**
  * Internal dependencies
  */
-import Data from 'googlesitekit-data';
-import { CORE_SITE } from '../datastore/site/constants';
-import { CORE_USER } from '../datastore/user/constants';
+import {
+	createRegistryControl,
+	createRegistrySelector,
+} from 'googlesitekit-data';
+import { CORE_SITE } from '@/js/googlesitekit/datastore/site/constants';
+import { CORE_USER } from '@/js/googlesitekit/datastore/user/constants';
 
-const { createRegistrySelector } = Data;
+// Actions
+const WAIT_FOR_REAUTH_RESOLVERS = 'WAIT_FOR_REAUTH_RESOLVERS';
 
 /**
  * Creates a store object that has selectors for managing site info.
@@ -44,24 +48,47 @@ const { createRegistrySelector } = Data;
  * @param {string}  slug                 Slug of the module that the store is for.
  * @param {Object}  args                 Arguments to configure the store.
  * @param {number}  args.storeName       Store name to use.
- * @param {string}  [args.adminPage]     Optional. Store admin page. Default is 'googlesitekit-dashboard'.
  * @param {boolean} [args.requiresSetup] Optional. Store flag, for requires setup. Default is 'true'.
  * @return {Object} The info store object.
  */
-export const createInfoStore = ( slug, {
-	storeName = undefined,
-	adminPage = 'googlesitekit-dashboard',
-	requiresSetup = true,
-} = {} ) => {
+export function createInfoStore(
+	slug,
+	{ storeName = undefined, requiresSetup = true } = {}
+) {
 	invariant( storeName, 'storeName is required.' );
 
 	const initialState = {};
 	const actions = {};
-	const controls = {};
-	const reducer = ( state ) => {
-		return state;
+	const controls = {
+		[ WAIT_FOR_REAUTH_RESOLVERS ]: createRegistryControl(
+			( registry ) => async () => {
+				const { resolveSelect } = registry;
+				const { getAuthentication, getConnectURL } =
+					resolveSelect( CORE_USER );
+				const { getSiteInfo } = resolveSelect( CORE_SITE );
+
+				await Promise.all( [
+					// Authentication is needed for checking `needsReauthentication`.
+					getAuthentication(),
+					// Site info is needed for the `adminURL`.
+					getSiteInfo(),
+					// `connectURL` is needed for the `reAuthURL` when reauthentication
+					// is needed.
+					getConnectURL(),
+				] );
+			}
+		),
 	};
-	const resolvers = {};
+	function reducer( state ) {
+		return state;
+	}
+	const resolvers = {
+		*getAdminReauthURL() {
+			yield {
+				type: WAIT_FOR_REAUTH_RESOLVERS,
+			};
+		},
+	};
 	const selectors = {
 		/**
 		 * Returns admin screen URL.
@@ -71,43 +98,79 @@ export const createInfoStore = ( slug, {
 		 * @param {(Object|undefined)} queryArgs Query arguments to add to admin URL.
 		 * @return {(string|undefined)} The admin screen URL.
 		 */
-		getAdminScreenURL: createRegistrySelector( ( select ) => ( state, queryArgs ) => {
-			return select( CORE_SITE ).getAdminURL( adminPage, queryArgs );
-		} ),
+		getAdminScreenURL: createRegistrySelector(
+			( select ) => ( state, queryArgs ) => {
+				return select( CORE_SITE ).getAdminURL(
+					'googlesitekit-dashboard',
+					queryArgs
+				);
+			}
+		),
 
 		/**
 		 * Returns admin reauthentication URL.
 		 *
 		 * @since 1.10.0
 		 *
-		 * @param {boolean} reAuth The module activation status. Default is true.
+		 * @param {Object}   options                     Options object.
+		 * @param {boolean}  options.reAuth              The module activation status. Default is true.
+		 * @param {Object}   [options.redirectQueryArgs] Optional. Additional query arguments to add to the redirect URL.
+		 * @param {string[]} [options.additionalScopes]  Optional. Additional scopes required for setup.
 		 * @return {(string|undefined)} The admin reauthentication URL, or
 		 *                              undefined if not loaded yet.
 		 */
-		getAdminReauthURL: createRegistrySelector( ( select ) => ( state, reAuth = true ) => {
-			const needsReauthentication = select( CORE_USER ).needsReauthentication();
-			if ( needsReauthentication === undefined ) {
-				return undefined;
-			}
+		getAdminReauthURL: createRegistrySelector(
+			( select ) =>
+				(
+					state,
+					{
+						reAuth = true,
+						redirectQueryArgs = {},
+						additionalScopes = [],
+					} = {}
+				) => {
+					const needsReauthentication =
+						select( CORE_USER ).needsReauthentication();
+					if ( needsReauthentication === undefined ) {
+						return undefined;
+					}
 
-			const noSetupQueryArgs = ! requiresSetup ? {
-				notification: 'authentication_success',
-				reAuth: undefined,
-			} : {};
+					const noSetupQueryArgs = {};
+					if ( ! requiresSetup && reAuth === true ) {
+						noSetupQueryArgs.notification =
+							'authentication_success';
+						noSetupQueryArgs.reAuth = undefined;
+					}
 
-			const redirectURL = select( storeName ).getAdminScreenURL( { slug, reAuth, ...noSetupQueryArgs } );
-			if ( redirectURL === undefined ) {
-				return undefined;
-			}
+					const redirectURL = select( storeName ).getAdminScreenURL( {
+						slug,
+						reAuth,
+						...noSetupQueryArgs,
+						...redirectQueryArgs,
+					} );
+					if ( redirectURL === undefined ) {
+						return undefined;
+					}
 
-			if ( ! needsReauthentication ) {
-				return redirectURL;
-			}
+					const unsatisfiedAdditionalScopes = additionalScopes.filter(
+						( scope ) => ! select( CORE_USER ).hasScope( scope )
+					);
 
-			const connectURL = select( CORE_USER ).getConnectURL( { redirectURL } );
+					if (
+						! needsReauthentication &&
+						! unsatisfiedAdditionalScopes.length
+					) {
+						return redirectURL;
+					}
 
-			return addQueryArgs( connectURL, { status: reAuth } );
-		} ),
+					const connectURL = select( CORE_USER ).getConnectURL( {
+						additionalScopes: unsatisfiedAdditionalScopes,
+						redirectURL,
+					} );
+
+					return addQueryArgs( connectURL, { status: reAuth } );
+				}
+		),
 	};
 
 	return {
@@ -119,4 +182,4 @@ export const createInfoStore = ( slug, {
 		resolvers,
 		selectors,
 	};
-};
+}

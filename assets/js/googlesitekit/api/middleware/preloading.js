@@ -19,13 +19,13 @@
 /**
  * WordPress dependencies.
  */
-import { getStablePath } from '@wordpress/api-fetch/build/middlewares/preloading';
+import { normalizePath } from '@wordpress/url';
 
 /**
  * Creates a preloading middleware.
  *
  * Based on preloadMiddleware from from @wordpress/api-fetch, this middle is a single-use per-endpoint and provides cached
- * data for the first request only and any subsequent requests hit the server.
+ * data for the first request only and any subsequent requests reach the server.
  *
  * @since 1.13.0
  *
@@ -34,7 +34,7 @@ import { getStablePath } from '@wordpress/api-fetch/build/middlewares/preloading
  */
 function createPreloadingMiddleware( preloadedData ) {
 	const cache = Object.keys( preloadedData ).reduce( ( result, path ) => {
-		result[ getStablePath( path ) ] = preloadedData[ path ];
+		result[ normalizePath( path ) ] = preloadedData[ path ];
 		return result;
 	}, {} );
 
@@ -45,7 +45,7 @@ function createPreloadingMiddleware( preloadedData ) {
 		}
 		setTimeout( () => {
 			cacheHasExpired = true;
-		}, 1000 );
+		}, 3000 );
 
 		const { parse = true } = options;
 		const uri = options.path;
@@ -53,7 +53,7 @@ function createPreloadingMiddleware( preloadedData ) {
 		if ( typeof options.path === 'string' ) {
 			const method = options.method?.toUpperCase() || 'GET';
 
-			const path = getStablePath( uri );
+			const path = normalizePath( uri );
 			if ( parse && 'GET' === method && cache[ path ] ) {
 				const result = Promise.resolve( cache[ path ].body );
 				delete cache[ path ];

@@ -1,0 +1,162 @@
+/**
+ * `core/feature-discovery` data store types.
+ *
+ * Site Kit by Google, Copyright 2026 Google LLC
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     https://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+/**
+ * External dependencies
+ */
+import type { ComponentType, LazyExoticComponent, ReactNode } from 'react';
+
+/**
+ * Internal dependencies
+ */
+import type { Registry, Select } from 'googlesitekit-data';
+import type { ErrorObject } from '@/js/util/errors';
+import type {
+	FEATURE_BADGES,
+	FEATURE_CATEGORIES,
+	FEATURE_EFFORTS,
+	FEATURE_SETUP_TYPES,
+} from './constants';
+
+export type FeatureCategorySlug =
+	typeof FEATURE_CATEGORIES[ keyof typeof FEATURE_CATEGORIES ];
+
+export type FeatureBadge = typeof FEATURE_BADGES[ keyof typeof FEATURE_BADGES ];
+
+export type FeatureEffort =
+	typeof FEATURE_EFFORTS[ keyof typeof FEATURE_EFFORTS ];
+
+export type FeatureSetupType =
+	typeof FEATURE_SETUP_TYPES[ keyof typeof FEATURE_SETUP_TYPES ];
+
+export interface FeatureScreenshot {
+	src: string;
+	alt: string;
+	width: number;
+	height: number;
+}
+
+export interface FeatureDetail {
+	description?: {
+		whatIs?: ReactNode;
+		whyUseHeading?: ReactNode;
+		whyUseList?: {
+			term: ReactNode;
+			description: ReactNode;
+		}[];
+	};
+	requirements?: {
+		serviceRequirements?: ReactNode;
+		setupList?: ReactNode[];
+		documentationURL?: string;
+	};
+	screenshots?: FeatureScreenshot[];
+}
+
+export interface FeatureSuccessNotice {
+	title: string;
+	description?: string;
+	cta?: {
+		label: string;
+		getURL?: ( select: Select ) => string | undefined;
+		external?: boolean;
+		onClick?: () => void;
+	};
+	dismissLabel?: string;
+}
+
+export interface FeatureIncompleteSetupReminder {
+	title: string;
+	description: string;
+	tooltip: string;
+	// Resolves dependencies for progress, completion, and the notification's resume URL.
+	resolveRequirements: ( registry: Registry ) => Promise< void >;
+}
+
+export interface FeatureSetup {
+	type: FeatureSetupType;
+	ctaLabel?: string;
+	resumeCTALabel?: string;
+	// The module to activate, for `setup-flow` features.
+	moduleSlug?: string;
+	// The setup destination for `setup-flow` features. Where `moduleSlug` is also
+	// set, the module is activated first and this replaces its own setup URL.
+	getSetupURL?: ( select: Select ) => string | undefined;
+	// Target override for in-progress setups that can be resumed.
+	getResumeURL?: ( select: Select ) => string | undefined;
+	// In-progress check for setups that have started but are unfinished.
+	isInProgress?: ( select: Select ) => boolean | undefined;
+	// The enable routine for `background-toggle` features.
+	activate?: ( registry: Registry ) => Promise< { error?: ErrorObject } >;
+	// Opens the existing surface over the hub, for `in-place-panel` features.
+	open?: ( registry: Registry ) => void;
+	// Completion check, overriding the default module-connected check.
+	isEnabled?: ( select: Select ) => boolean | undefined;
+	// A `React.lazy()` reference, where setup can't be expressed as a thunk.
+	SetupComponent?:
+		| ComponentType< Record< string, unknown > >
+		| LazyExoticComponent< ComponentType< Record< string, unknown > > >;
+}
+
+export interface FeatureSettings {
+	name?: string;
+	title: string;
+	shortDescription: string;
+	effort: FeatureEffort;
+	// The module whose service identity is presented on the feature card.
+	moduleSlug?: string;
+	// The modules the feature depends on but does not itself set up.
+	prerequisiteModules?: string[];
+	// In order, the first being the feature's primary category.
+	goalCategories: FeatureCategorySlug[];
+	addedInVersion: string;
+	setup: FeatureSetup;
+	// Rendered once on the hub, for setup work that runs on load, such as
+	// resuming a setup after the user returns from granting permissions.
+	EffectComponent?: ComponentType;
+	// Hides the feature entirely when it returns false. Visible by default.
+	checkRequirements?: ( select: Select ) => boolean | undefined;
+	detail?: FeatureDetail;
+	// Static badges only. The "New" badge is derived per user.
+	badges?: FeatureBadge[];
+	successNotice?: FeatureSuccessNotice;
+	incompleteSetupReminder?: FeatureIncompleteSetupReminder;
+}
+
+export interface Feature extends FeatureSettings {
+	slug: string;
+	prerequisiteModules: string[];
+	badges: FeatureBadge[];
+}
+
+export interface FeatureCategory {
+	slug: FeatureCategorySlug;
+	title: string;
+	chipLabel: string;
+}
+
+export interface PendingSetup {
+	featureSlug: string;
+	returnTab: string;
+}
+
+export interface FeatureDiscoveryState {
+	features: Record< string, Feature >;
+	pendingSetup: PendingSetup | null;
+	setupInProgress: Record< string, boolean >;
+}

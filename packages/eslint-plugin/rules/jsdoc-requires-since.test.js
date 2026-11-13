@@ -24,8 +24,8 @@ import { RuleTester } from 'eslint';
 /**
  * Internal dependencies
  */
-import rule from './jsdoc-requires-since';
 import { NEXT_VERSION } from './constants';
+import rule from './jsdoc-requires-since';
 
 const ruleTester = new RuleTester( {
 	parserOptions: {
@@ -215,8 +215,7 @@ ruleTester.run( 'jsdoc-requires-since', rule, {
       `,
 			errors: [
 				{
-					message:
-						'Each version should have only one @since tag.',
+					message: 'Each version should have only one @since tag.',
 				},
 			],
 		},
@@ -233,6 +232,20 @@ ruleTester.run( 'jsdoc-requires-since', rule, {
 				{
 					message:
 						'All @since tags should have a description that ends with a period/full-stop.',
+				},
+			],
+		},
+		{
+			code: `
+/**
+ * Invalid because the @since tag has extra whitespace before the version.
+ *
+ * @since     1.23.0
+ */
+			`,
+			errors: [
+				{
+					message: `The @since tag requires a valid semVer value or the "${ NEXT_VERSION }" label.`,
 				},
 			],
 		},

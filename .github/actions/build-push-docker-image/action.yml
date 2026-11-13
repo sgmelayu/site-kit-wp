@@ -1,0 +1,72 @@
+name: Build and Push Docker Image
+description: Sets up QEMU and Docker Buildx, logs in to a container registry, and builds and (optionally) pushes a Docker image.
+
+inputs:
+  registry-username:
+    description: Username for the container registry
+    required: true
+  registry-password:
+    description: Password or token for the container registry
+    required: true
+  context:
+    description: Docker build context path
+    required: true
+  tags:
+    description: Image tags (one per line)
+    required: true
+  build-args:
+    description: Build-time variables (one per line, KEY=VALUE)
+    required: false
+    default: ''
+  labels:
+    description: Metadata labels for the image (one per line, KEY=VALUE)
+    required: false
+    default: ''
+  skip-if-exists-tag:
+    description: If provided, skip the build when this image tag already exists in the registry. Ignored when not pushing.
+    required: false
+    default: ''
+  push:
+    description: Whether to push the built image to the registry. Pushing is opt-in; unless set to 'true', the image is only built (no registry login or push).
+    required: false
+    default: 'false'
+
+runs:
+  using: composite
+  steps:
+    - name: Set up QEMU
+      uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # ratchet:docker/setup-qemu-action@v4
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # ratchet:docker/setup-buildx-action@v4
+
+    - name: Log in to container registry
+      if: inputs.push == 'true'
+      uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # ratchet:docker/login-action@v4
+      with:
+        registry: ghcr.io
+        username: ${{ inputs.registry-username }}
+        password: ${{ inputs.registry-password }}
+
+    - name: Check if image already exists in registry
+      id: image_check
+      if: inputs.push == 'true' && inputs.skip-if-exists-tag != ''
+      shell: bash
+      run: |
+        if docker buildx imagetools inspect ${{ inputs.skip-if-exists-tag }} > /dev/null 2>&1; then
+          echo "exists=true" >> "$GITHUB_OUTPUT"
+          echo "Image ${{ inputs.skip-if-exists-tag }} already exists, skipping build."
+        else
+          echo "exists=false" >> "$GITHUB_OUTPUT"
+        fi
+
+    - name: Build and push Docker image
+      if: steps.image_check.outputs.exists != 'true'
+      uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # ratchet:docker/build-push-action@v7
+      with:
+        context: ${{ inputs.context }}
+        tags: ${{ inputs.tags }}
+        build-args: ${{ inputs.build-args }}
+        labels: ${{ inputs.labels }}
+        push: ${{ inputs.push == 'true' }}
+        platforms: linux/amd64,linux/arm64

@@ -19,25 +19,20 @@
 /**
  * Internal dependencies
  */
-import Data from 'googlesitekit-data';
-import Modules from 'googlesitekit-modules';
-import { STORE_NAME } from './constants';
+import { combineStores } from 'googlesitekit-data';
+import baseModuleStore from './base';
+import { MODULES_SEARCH_CONSOLE } from './constants';
+import properties from './properties';
 import report from './report';
 import service from './service';
+import settings from './settings';
 
-const baseModuleStore = Modules.createModuleStore( 'search-console', {
-	storeName: STORE_NAME,
-	settingSlugs: [
-		'propertyID',
-	],
-	adminPage: 'googlesitekit-module-search-console',
-	requiresSetup: false,
-} );
-
-const store = Data.combineStores(
+const store = combineStores(
 	baseModuleStore,
 	report,
-	service
+	service,
+	settings,
+	properties
 );
 
 export const initialState = store.initialState;
@@ -47,8 +42,8 @@ export const reducer = store.reducer;
 export const resolvers = store.resolvers;
 export const selectors = store.selectors;
 
-export const registerStore = ( registry ) => {
-	registry.registerStore( STORE_NAME, store );
-};
+export function registerStore( registry ) {
+	registry.registerStore( MODULES_SEARCH_CONSOLE, store );
+}
 
 export default store;

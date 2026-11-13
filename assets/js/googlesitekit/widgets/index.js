@@ -19,10 +19,26 @@
 /**
  * Internal dependencies
  */
-import { STORE_NAME, WIDGET_WIDTHS, WIDGET_AREA_STYLES } from './datastore/constants';
+import {
+	CORE_WIDGETS,
+	WIDGET_AREA_STYLES,
+	WIDGET_WIDTHS,
+} from './datastore/constants';
 
 export { registerStore } from './datastore';
 export { registerDefaults as registerWidgets } from './register-defaults';
+
+/**
+ * PDF export configuration for a widget.
+ *
+ * @since 1.180.0
+ *
+ * @typedef {Object} WidgetPDFConfig
+ * @property {WPComponent} Component   React component used to render this widget in the PDF. Receives `{ data, chartImages }` props. May be a `React.lazy()` reference whose chunk loads `@react-pdf/renderer` on first mount; consumers must wrap renders in `<Suspense>`.
+ * @property {Function}    getData     Async function `( { registry, dates, signal } ) => ( { data, chartImages? } )`. Loads all reports the widget needs and optionally rasterizes charts to data URIs. `data` is a widget-shaped object the `Component` knows how to render. `chartImages` is an optional `Record<string, string>` of JPEG data URIs keyed by chart name.
+ * @property {string}      [label]     Optional. The widget's sub-section heading within its area, also used as the child checkbox label in the sidesheet. Required when an area contains more than one PDF widget; may be omitted when the widget is the sole PDF widget in its area (the `PDFSubSection` heading is suppressed in that case regardless).
+ * @property {Function}    [isActive]  Optional. Predicate `( select ) => boolean` that gates this widget's PDF inclusion independently of its dashboard visibility. When omitted the widget is always included. Receives the registry `select` function so it can read any store.
+ */
 
 /**
  * Creates a new instance of Widgets.
@@ -34,9 +50,10 @@ export { registerDefaults as registerWidgets } from './register-defaults';
  * @param {Function} registry.dispatch Registry dispatch function.
  * @return {Object} Widgets instance.
  */
-export function createWidgets( { dispatch, select } ) {
-	const Widgets = {
+export function createWidgets( registry ) {
+	const { dispatch, select } = registry;
 
+	const Widgets = {
 		/**
 		 * Supported styles for Site Kit widget areas.
 		 *
@@ -66,7 +83,7 @@ export function createWidgets( { dispatch, select } ) {
 		 * @param {(string|Array)} [contextSlugs]      Optional. Widget context slug(s).
 		 */
 		registerWidgetArea( slug, settings, contextSlugs ) {
-			dispatch( STORE_NAME ).registerWidgetArea( slug, settings );
+			dispatch( CORE_WIDGETS ).registerWidgetArea( slug, settings );
 			if ( contextSlugs ) {
 				Widgets.assignWidgetArea( slug, contextSlugs );
 			}
@@ -76,17 +93,21 @@ export function createWidgets( { dispatch, select } ) {
 		 * Registers a widget.
 		 *
 		 * @since 1.9.0
+		 * @since 1.180.0 Added pdf setting.
 		 *
-		 * @param {string}         slug                Widget's slug.
-		 * @param {Object}         settings            Widget's settings.
-		 * @param {WPComponent}    settings.Component  React component used to display the contents of this widget.
-		 * @param {number}         settings.priority   Optional. Widget's priority for ordering (lower number is higher priority, like WordPress hooks). Default is: 10.
-		 * @param {string}         settings.width      Optional. Widget's maximum width to occupy. Default is: "quarter". One of: "quarter", "half", "full".
-		 * @param {boolean}        settings.wrapWidget Optional. Whether to wrap the component with the <Widget> wrapper. Default is: true.
-		 * @param {(string|Array)} [widgetAreaSlugs]   Optional. Widget area slug(s).
+		 * @param {string}                slug                         Widget's slug.
+		 * @param {Object}                settings                     Widget's settings.
+		 * @param {WPComponent}           settings.Component           React component used to display the contents of this widget.
+		 * @param {number}                [settings.priority]          Optional. Widget's priority for ordering (lower number is higher priority, like WordPress hooks). Default is: 10.
+		 * @param {string|Array.<string>} [settings.width]             Optional. Widget's maximum width to occupy. Default is: "quarter". One of: "quarter", "half", "full".
+		 * @param {boolean}               [settings.wrapWidget]        Optional. Whether to wrap the component with the <Widget> wrapper. Default is: true.
+		 * @param {string|Array.<string>} [settings.modules]           Optional. Widget's associated moduels.
+		 * @param {Array.<string>}        [settings.hideOnBreakpoints] Optional. Hide widget on selected breakpoints. Array with any of: `BREAKPOINT_SMALL`, `BREAKPOINT_TABLET`, `BREAKPOINT_DESKTOP`, `BREAKPOINT_XLARGE`.
+		 * @param {WidgetPDFConfig}       [settings.pdf]               Optional. PDF export configuration for this widget.
+		 * @param {(string|Array)}        [widgetAreaSlugs]            Optional. Widget area slug(s).
 		 */
 		registerWidget( slug, settings, widgetAreaSlugs ) {
-			dispatch( STORE_NAME ).registerWidget( slug, settings );
+			dispatch( CORE_WIDGETS ).registerWidget( slug, settings );
 			if ( widgetAreaSlugs ) {
 				Widgets.assignWidget( slug, widgetAreaSlugs );
 			}
@@ -105,7 +126,7 @@ export function createWidgets( { dispatch, select } ) {
 		 * @param {(string|string[])} contextSlugs Widget context slug(s).
 		 */
 		assignWidgetArea( slug, contextSlugs ) {
-			dispatch( STORE_NAME ).assignWidgetArea( slug, contextSlugs );
+			dispatch( CORE_WIDGETS ).assignWidgetArea( slug, contextSlugs );
 		},
 
 		/**
@@ -117,7 +138,7 @@ export function createWidgets( { dispatch, select } ) {
 		 * @param {(string|string[])} widgetAreaSlugs Widget area slug(s).
 		 */
 		assignWidget( slug, widgetAreaSlugs ) {
-			dispatch( STORE_NAME ).assignWidget( slug, widgetAreaSlugs );
+			dispatch( CORE_WIDGETS ).assignWidget( slug, widgetAreaSlugs );
 		},
 
 		/**
@@ -132,7 +153,7 @@ export function createWidgets( { dispatch, select } ) {
 		 * @return {boolean} `true`/`false` based on whether widget area has been registered.
 		 */
 		isWidgetAreaRegistered( slug ) {
-			return select( STORE_NAME ).isWidgetAreaRegistered( slug );
+			return select( CORE_WIDGETS ).isWidgetAreaRegistered( slug );
 		},
 
 		/**
@@ -147,9 +168,8 @@ export function createWidgets( { dispatch, select } ) {
 		 * @return {boolean} `true`/`false` based on whether widget has been registered.
 		 */
 		isWidgetRegistered( slug ) {
-			return select( STORE_NAME ).isWidgetRegistered( slug );
+			return select( CORE_WIDGETS ).isWidgetRegistered( slug );
 		},
 	};
 	return Widgets;
 }
-

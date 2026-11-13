@@ -29,26 +29,31 @@ import { isURL } from '@wordpress/url';
 /**
  * Internal dependencies
  */
-import API from 'googlesitekit-api';
-import Data from 'googlesitekit-data';
-import { STORE_NAME } from './constants';
-import { createFetchStore } from '../../../googlesitekit/data/create-fetch-store';
-const { combineStores, createRegistrySelector } = Data;
+import { get } from 'googlesitekit-api';
+import {
+	combineStores,
+	createReducer,
+	createRegistrySelector,
+} from 'googlesitekit-data';
+import { createFetchStore } from '@/js/googlesitekit/data/create-fetch-store';
+import { MODULE_SLUG_PAGESPEED_INSIGHTS } from '@/js/modules/pagespeed-insights/constants';
+import { MODULES_PAGESPEED_INSIGHTS } from './constants';
 
 const fetchGetReportStore = createFetchStore( {
 	baseName: 'getReport',
-	controlCallback: ( { strategy, url } ) => {
-		return API.get( 'modules', 'pagespeed-insights', 'pagespeed', { strategy, url } );
+	controlCallback: ( { strategy, url }, fetchOptions ) => {
+		return get(
+			'modules',
+			MODULE_SLUG_PAGESPEED_INSIGHTS,
+			'pagespeed',
+			{ strategy, url },
+			fetchOptions
+		);
 	},
-	reducerCallback: ( state, report, { strategy, url } ) => {
-		return {
-			...state,
-			reports: {
-				...state.reports,
-				[ `${ strategy }::${ url }` ]: { ...report },
-			},
-		};
-	},
+	reducerCallback: createReducer( ( state, report, { strategy, url } ) => {
+		state.reports = state.reports || {};
+		state.reports[ `${ strategy }::${ url }` ] = report;
+	} ),
 	argsToParams: ( url, strategy ) => {
 		return {
 			strategy,
@@ -57,7 +62,10 @@ const fetchGetReportStore = createFetchStore( {
 	},
 	validateParams: ( { strategy, url } = {} ) => {
 		invariant( isURL( url ), 'a valid url is required to fetch a report.' );
-		invariant( typeof strategy === 'string', 'a valid strategy is required to fetch a report.' );
+		invariant(
+			typeof strategy === 'string',
+			'a valid strategy is required to fetch a report.'
+		);
 	},
 } );
 
@@ -66,12 +74,23 @@ const baseInitialState = {
 };
 
 const baseResolvers = {
-	*getReport( url, strategy ) {
+	// This resolver and the `getReport` selector share one signature,
+	// with no default values. When a request fails, the store saves
+	// the error under the exact arguments of the call, so
+	// `fetchGetReport` below must get the arguments the caller sent.
+	// A default like `fetchOptions = {}` would add an argument the
+	// caller did not send, and an error lookup with only the URL and
+	// strategy would not find the saved error.
+	*getReport( url, strategy, fetchOptions ) {
 		if ( ! url || ! strategy ) {
 			return;
 		}
 
-		yield fetchGetReportStore.actions.fetchGetReport( url, strategy );
+		yield fetchGetReportStore.actions.fetchGetReport(
+			url,
+			strategy,
+			fetchOptions
+		);
 	},
 };
 
@@ -80,13 +99,17 @@ const baseSelectors = {
 	 * Gets a PageSpeed Insights report for the given strategy and URL.
 	 *
 	 * @since 1.10.0
+	 * @since 1.182.0 Accept optional fetch options as a third argument, such as `{ signal }` to cancel the report request.
+	 * @since 1.190.0 Accept an optional `cacheTTL` fetch option, such as `{ cacheTTL }` to change how long the report response is cached.
 	 *
-	 * @param {Object} state    Data store's state.
-	 * @param {string} url      URL used for generating the report.
-	 * @param {string} strategy Strategy used for generating the report.
+	 * @param {Object} state          Data store's state.
+	 * @param {string} url            URL used for generating the report.
+	 * @param {string} strategy       Strategy used for generating the report.
+	 * @param {Object} [fetchOptions] Optional. Fetch options that change how the request runs, such as `{ signal }` to cancel it or `{ cacheTTL }` to change how long the response is cached, in seconds.
 	 * @return {(Object|undefined)} A PageSpeed Insights report; `undefined` if not loaded.
 	 */
-	getReport( state, url, strategy ) {
+	// eslint-disable-next-line no-unused-vars -- The fetch options only change how the request runs, so the selector does not read them.
+	getReport( state, url, strategy, fetchOptions ) {
 		const { reports } = state;
 
 		return reports[ `${ strategy }::${ url }` ];
@@ -100,20 +123,25 @@ const baseSelectors = {
 	 * @param {Object} state Data store's state.
 	 * @return {(Object|undefined)} Report audits.
 	 */
-	getAudits: createRegistrySelector( ( select ) => ( state, url, strategy ) => {
-		const report = select( STORE_NAME ).getReport( url, strategy );
-		if ( report === undefined ) {
-			return undefined;
-		}
+	getAudits: createRegistrySelector(
+		( select ) => ( state, url, strategy ) => {
+			const report = select( MODULES_PAGESPEED_INSIGHTS ).getReport(
+				url,
+				strategy
+			);
+			if ( report === undefined ) {
+				return undefined;
+			}
 
-		const { lighthouseResult } = report || {};
-		const { audits } = lighthouseResult || {};
-		if ( ! audits ) {
-			return {};
-		}
+			const { lighthouseResult } = report || {};
+			const { audits } = lighthouseResult || {};
+			if ( ! audits ) {
+				return {};
+			}
 
-		return audits;
-	} ),
+			return audits;
+		}
+	),
 
 	/**
 	 * Gets report audits for the given strategy and URL and stack pack.
@@ -126,22 +154,34 @@ const baseSelectors = {
 	 * @param {Object} state Data store's state.
 	 * @return {(Object|undefined)} Report audits.
 	 */
-	getAuditsWithStackPack: createRegistrySelector( ( select ) => ( state, url, strategy, stackPackID ) => {
-		const audits = select( STORE_NAME ).getAudits( url, strategy );
-		if ( ! audits ) {
-			return {};
-		}
-
-		const filteredAudits = {};
-		Object.keys( audits ).forEach( ( auditID ) => {
-			const stackPack = select( STORE_NAME ).getStackPackDescription( url, strategy, auditID, stackPackID );
-			if ( stackPack ) {
-				filteredAudits[ auditID ] = audits[ auditID ];
+	getAuditsWithStackPack: createRegistrySelector(
+		( select ) => ( state, url, strategy, stackPackID ) => {
+			const audits = select( MODULES_PAGESPEED_INSIGHTS ).getAudits(
+				url,
+				strategy
+			);
+			if ( ! audits ) {
+				return {};
 			}
-		} );
 
-		return filteredAudits;
-	} ),
+			const filteredAudits = {};
+			Object.keys( audits ).forEach( ( auditID ) => {
+				const stackPack = select(
+					MODULES_PAGESPEED_INSIGHTS
+				).getStackPackDescription(
+					url,
+					strategy,
+					auditID,
+					stackPackID
+				);
+				if ( stackPack ) {
+					filteredAudits[ auditID ] = audits[ auditID ];
+				}
+			} );
+
+			return filteredAudits;
+		}
+	),
 
 	/**
 	 * Gets stack pack descriptions for a sepcific report audit.
@@ -154,40 +194,45 @@ const baseSelectors = {
 	 *                                   not available for the audit, undefined
 	 *                                   if not loaded yet.
 	 */
-	getStackPackDescription: createRegistrySelector( ( select ) => ( state, url, strategy, auditID, stackPackID ) => {
-		const report = select( STORE_NAME ).getReport( url, strategy );
-		if ( report === undefined ) {
-			return undefined;
-		}
+	getStackPackDescription: createRegistrySelector(
+		( select ) => ( state, url, strategy, auditID, stackPackID ) => {
+			const report = select( MODULES_PAGESPEED_INSIGHTS ).getReport(
+				url,
+				strategy
+			);
+			if ( report === undefined ) {
+				return undefined;
+			}
 
-		const { lighthouseResult } = report || {};
-		const { stackPacks } = lighthouseResult || [];
-		if ( ! Array.isArray( stackPacks ) ) {
-			return null;
-		}
+			const { lighthouseResult } = report || {};
+			const { stackPacks } = lighthouseResult || [];
+			if ( ! Array.isArray( stackPacks ) ) {
+				return null;
+			}
 
-		const stackPack = stackPacks.find( ( { id, descriptions } ) => id === stackPackID && !! descriptions[ auditID ] );
-		if ( ! stackPack ) {
-			return null;
-		}
+			const stackPack = stackPacks.find(
+				( { id, descriptions } ) =>
+					id === stackPackID && !! descriptions[ auditID ]
+			);
+			if ( ! stackPack ) {
+				return null;
+			}
 
-		return {
-			id: stackPack.id,
-			icon: stackPack.iconDataURL,
-			title: stackPack.title,
-			description: stackPack.descriptions[ auditID ],
-		};
-	} ),
+			return {
+				id: stackPack.id,
+				icon: stackPack.iconDataURL,
+				title: stackPack.title,
+				description: stackPack.descriptions[ auditID ],
+			};
+		}
+	),
 };
 
-const store = combineStores(
-	fetchGetReportStore,
-	{
-		initialState: baseInitialState,
-		resolvers: baseResolvers,
-		selectors: baseSelectors,
-	}
-);
+const store = combineStores( fetchGetReportStore, {
+	initialState: baseInitialState,
+	resolvers: baseResolvers,
+	selectors: baseSelectors,
+} );
 
 export const initialState = store.initialState;
 export const actions = store.actions;

@@ -20,42 +20,59 @@
  * External dependencies
  */
 import PropTypes from 'prop-types';
+import { useUpdateEffect } from 'react-use';
 
 /**
  * WordPress dependencies
  */
-import { useCallback, Fragment } from '@wordpress/element';
+import { Fragment, useCallback } from '@wordpress/element';
 import { __ } from '@wordpress/i18n';
 
 /**
  * Internal dependencies
  */
-import Data from 'googlesitekit-data';
-import Switch from '../../../../components/Switch';
-import SettingsNotice from '../../../../components/SettingsNotice';
-import { trackEvent } from '../../../../util';
-import { STORE_NAME } from '../../datastore/constants';
-const { useSelect, useDispatch } = Data;
+import { Switch } from 'googlesitekit-components';
+import { useDispatch, useSelect } from 'googlesitekit-data';
+import Badge from '@/js/components/Badge';
+import { BADGE_VARIANTS } from '@/js/components/Badge/constants';
+import Notice from '@/js/components/Notice';
+import { NOTICE_TYPES } from '@/js/components/Notice/constants';
+import useViewContext from '@/js/hooks/useViewContext';
+import { MODULES_ADSENSE } from '@/js/modules/adsense/datastore/constants';
+import { trackEvent } from '@/js/util';
 
 export default function UseSnippetSwitch( props ) {
 	const {
-		label = __( 'Let Site Kit place AdSense code on your site', 'google-site-kit' ),
+		label = __(
+			'Let Site Kit place AdSense code on your site',
+			'google-site-kit'
+		),
 		checkedMessage,
 		uncheckedMessage,
 		saveOnChange,
 	} = props;
 
-	const useSnippet = useSelect( ( select ) => select( STORE_NAME ).getUseSnippet() );
-	const isDoingSaveUseSnippet = useSelect( ( select ) => select( STORE_NAME ).isDoingSubmitChanges() );
+	const viewContext = useViewContext();
+	const eventCategory = `${ viewContext }_adsense`;
 
-	const { setUseSnippet, saveSettings } = useDispatch( STORE_NAME );
+	const useSnippet = useSelect( ( select ) =>
+		select( MODULES_ADSENSE ).getUseSnippet()
+	);
+	const isDoingSaveUseSnippet = useSelect( ( select ) =>
+		select( MODULES_ADSENSE ).isDoingSubmitChanges()
+	);
+
+	const { setUseSnippet, saveSettings } = useDispatch( MODULES_ADSENSE );
 	const onChange = useCallback( async () => {
 		setUseSnippet( ! useSnippet );
-		trackEvent( 'adsense_setup', useSnippet ? 'adsense_tag_enabled' : 'adsense_tag_disabled' );
 		if ( saveOnChange ) {
 			await saveSettings();
 		}
-	}, [ useSnippet ] );
+	}, [ useSnippet, saveOnChange, setUseSnippet, saveSettings ] );
+
+	useUpdateEffect( () => {
+		trackEvent( eventCategory, useSnippet ? 'enable_tag' : 'disable_tag' );
+	}, [ eventCategory, useSnippet ] );
 
 	if ( undefined === useSnippet ) {
 		return null;
@@ -70,18 +87,26 @@ export default function UseSnippetSwitch( props ) {
 					checked={ useSnippet }
 					disabled={ isDoingSaveUseSnippet }
 					hideLabel={ false }
-				/> <span className="googlesitekit-recommended">{ __( 'Recommended', 'google-site-kit' ) }</span>
+				/>{ ' ' }
+				<Badge
+					label={ __( 'Recommended', 'google-site-kit' ) }
+					variant={ BADGE_VARIANTS.RECOMMENDATION }
+				/>
 			</div>
-			{ useSnippet && checkedMessage &&
-				<SettingsNotice>
-					{ checkedMessage }
-				</SettingsNotice>
-			}
-			{ ! useSnippet && uncheckedMessage &&
-				<SettingsNotice>
-					{ uncheckedMessage }
-				</SettingsNotice>
-			}
+			{ useSnippet && checkedMessage && (
+				<Notice
+					className="googlesitekit-notice--bottom-margin"
+					type={ NOTICE_TYPES.INFO }
+					description={ checkedMessage }
+				/>
+			) }
+			{ ! useSnippet && uncheckedMessage && (
+				<Notice
+					className="googlesitekit-notice--bottom-margin"
+					type={ NOTICE_TYPES.INFO }
+					description={ uncheckedMessage }
+				/>
+			) }
 		</Fragment>
 	);
 }

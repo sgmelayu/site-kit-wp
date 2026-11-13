@@ -19,8 +19,8 @@
 /**
  * External dependencies
  */
-import PropTypes from 'prop-types';
 import classnames from 'classnames';
+import PropTypes from 'prop-types';
 
 /**
  * WordPress dependencies
@@ -31,51 +31,61 @@ import { __ } from '@wordpress/i18n';
 /**
  * Internal dependencies
  */
-import Data from 'googlesitekit-data';
-import { STORE_NAME, FORM_SETUP } from '../../datastore/constants';
-import { CORE_FORMS } from '../../../../googlesitekit/datastore/forms/constants';
-import { TextField, HelperText, Input } from '../../../../material-components';
-import { isUniqueContainerName } from '../../util';
-const { useSelect, useDispatch } = Data;
+import { TextField } from 'googlesitekit-components';
+import { useSelect } from 'googlesitekit-data';
+import useFormValue from '@/js/hooks/useFormValue';
+import {
+	FORM_SETUP,
+	MODULES_TAGMANAGER,
+} from '@/js/modules/tagmanager/datastore/constants';
+import { isUniqueContainerName } from '@/js/modules/tagmanager/util';
 
 export default function ContainerNameTextField( { label, name } ) {
 	const containers = useSelect( ( select ) => {
-		const accountID = select( STORE_NAME ).getAccountID();
-		return select( STORE_NAME ).getContainers( accountID );
+		const accountID = select( MODULES_TAGMANAGER ).getAccountID();
+		return select( MODULES_TAGMANAGER ).getContainers( accountID );
 	} );
-	const containerName = useSelect( ( select ) => select( CORE_FORMS ).getValue( FORM_SETUP, name ) );
+	const [ containerName, setContainerName ] = useFormValue(
+		FORM_SETUP,
+		name
+	);
 
-	const { setValues } = useDispatch( CORE_FORMS );
-	const onChange = useCallback( ( { currentTarget } ) => {
-		setValues( FORM_SETUP, { [ name ]: currentTarget.value } );
-	}, [ name ] );
+	const onChange = useCallback(
+		( { currentTarget } ) => {
+			setContainerName( currentTarget.value );
+		},
+		[ setContainerName ]
+	);
 
 	const isUniqueName = isUniqueContainerName( containerName, containers );
 
-	const helperText = containerName && ! isUniqueName
-		? <HelperText persistent>{ __( 'A container with this name already exists.', 'google-site-kit' ) }</HelperText>
-		: undefined;
-
-	const trailingIcon = helperText
-		? <span className="googlesitekit-text-field-icon--error" />
-		: undefined;
+	let errorMessage;
+	if ( ! containerName ) {
+		errorMessage = __( 'A container name is required.', 'google-site-kit' );
+	} else if ( ! isUniqueName ) {
+		errorMessage = __(
+			'A container with this name already exists',
+			'google-site-kit'
+		);
+	}
 
 	return (
-		<div className={ classnames( 'googlesitekit-tagmanager-containername', `googlesitekit-tagmanager-${ name }` ) }>
+		<div
+			className={ classnames(
+				'googlesitekit-tagmanager-containername',
+				`googlesitekit-tagmanager-${ name }`
+			) }
+		>
 			<TextField
-				className={ classnames( { 'mdc-text-field--error': ! containerName || ! isUniqueName } ) }
 				label={ label }
+				errorMessage={ errorMessage }
+				hasError={ ! containerName }
+				id={ name }
+				name={ name }
+				value={ containerName }
+				onChange={ onChange }
 				outlined
-				helperText={ helperText }
-				trailingIcon={ trailingIcon }
-			>
-				<Input
-					id={ name }
-					name={ name }
-					value={ containerName }
-					onChange={ onChange }
-				/>
-			</TextField>
+			/>
 		</div>
 	);
 }

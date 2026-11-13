@@ -17,44 +17,62 @@
  */
 
 /**
- * WordPress dependencies
- */
-import { deactivatePlugin, createURL } from '@wordpress/e2e-test-utils';
-
-/**
  * Internal dependencies
  */
 import {
 	activateAMPWithMode,
+	createURL,
+	deactivatePlugin,
 	deactivateUtilityPlugins,
 	setupSiteKit,
-	useRequestInterception,
+	useSharedRequestInterception,
 } from '../../utils';
 import * as adminBarMockResponses from '../modules/analytics/fixtures/admin-bar';
 
 let mockBatchResponse;
 
 describe( 'AMP Admin Bar compatibility', () => {
-	beforeAll( async () => {
-		await setupSiteKit();
-		await activateAMPWithMode( 'primary' );
+	let sharedRequestInterception;
 
+	beforeAll( async () => {
 		await page.setRequestInterception( true );
-		useRequestInterception( ( request ) => {
-			if ( request.url().match( 'google-site-kit/v1/modules/search-console/data/searchanalytics?' ) ) {
-				request.respond( {
+		sharedRequestInterception = useSharedRequestInterception( [
+			{
+				isMatch: ( request ) =>
+					request
+						.url()
+						.match(
+							'google-site-kit/v1/modules/search-console/data/searchanalytics?'
+						),
+				getResponse: () => ( {
 					status: 200,
-					body: JSON.stringify( mockBatchResponse[ 'modules::search-console::searchanalytics::e74216dd17533dcb67fa2d433c23467c' ] ),
-				} );
-			} else if ( request.url().match( 'google-site-kit/v1/modules/analytics/data/report?' ) ) {
-				request.respond( {
+					body: JSON.stringify(
+						mockBatchResponse[
+							'modules::search-console::searchanalytics::e74216dd17533dcb67fa2d433c23467c'
+						]
+					),
+				} ),
+			},
+			{
+				isMatch: ( request ) =>
+					request
+						.url()
+						.match(
+							'google-site-kit/v1/modules/analytics/data/report?'
+						),
+				getResponse: () => ( {
 					status: 200,
-					body: JSON.stringify( mockBatchResponse[ 'modules::analytics::report::db20ba9afa3000cd79e2888048a1700c' ] ),
-				} );
-			} else {
-				request.continue();
-			}
-		} );
+					body: JSON.stringify(
+						mockBatchResponse[
+							'modules::analytics::report::db20ba9afa3000cd79e2888048a1700c'
+						]
+					),
+				} ),
+			},
+		] );
+
+		await setupSiteKit();
+		await activateAMPWithMode( 'primary', sharedRequestInterception );
 	} );
 
 	beforeEach( async () => {
@@ -77,16 +95,39 @@ describe( 'AMP Admin Bar compatibility', () => {
 
 		await Promise.all( [
 			page.hover( '#wp-admin-bar-google-site-kit' ),
-			page.waitForResponse( ( res ) => res.url().match( 'google-site-kit/v1/modules/search-console/data/searchanalytics?' ) ),
+			page.waitForResponse( ( res ) =>
+				res
+					.url()
+					.match(
+						'google-site-kit/v1/modules/search-console/data/searchanalytics?'
+					)
+			),
 		] );
 
 		const adminBarApp = await page.$( '#js-googlesitekit-adminbar' );
-		await expect( adminBarApp ).toMatchElement( '.googlesitekit-data-block__title', { text: /total clicks/i } );
-		await expect( adminBarApp ).toMatchElement( '.googlesitekit-data-block__title', { text: /total impressions/i } );
+		await expect( adminBarApp ).toMatchElement(
+			'.googlesitekit-data-block__title',
+			{
+				text: /total clicks/i,
+			}
+		);
+		await expect( adminBarApp ).toMatchElement(
+			'.googlesitekit-data-block__title',
+			{
+				text: /total impressions/i,
+			}
+		);
 		// Ensure Analytics CTA is displayed
-		await expect( adminBarApp ).toMatchElement( '.googlesitekit-cta-link', { text: /Set up analytics/i } );
+		await expect( adminBarApp ).toMatchElement(
+			'.googlesitekit-activate-analytics-cta button',
+			{
+				text: /Set up analytics/i,
+			}
+		);
 		// More details link
-		await expect( adminBarApp ).toMatchElement( '.googlesitekit-cta-link', { text: /More details/i } );
+		await expect( adminBarApp ).toMatchElement( '.googlesitekit-cta-link', {
+			text: /More details/i,
+		} );
 		await adminBarApp.dispose();
 	} );
 } );

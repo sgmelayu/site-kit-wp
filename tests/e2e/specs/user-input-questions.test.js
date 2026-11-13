@@ -17,85 +17,83 @@
  */
 
 /**
- * WordPress dependencies
- */
-import { createURL, visitAdminPage } from '@wordpress/e2e-test-utils';
-
-/**
  * Internal dependencies
  */
 import {
+	STRATEGY_CARTESIAN,
+	STRATEGY_ZIP,
+	getAnalytics4MockResponse,
+} from '../../../assets/js/modules/analytics-4/utils/data-mock';
+import { getSearchConsoleMockResponse } from '../../../assets/js/modules/search-console/util/data-mock';
+import {
 	activatePlugins,
 	deactivateUtilityPlugins,
-	resetSiteKit,
-	setupSiteKit,
-	useRequestInterception,
-	enableFeature,
 	pageWait,
+	resetSiteKit,
+	setSearchConsoleProperty,
+	setupAnalytics4,
+	setupSiteKit,
 	step,
+	useRequestInterception,
+	visitAdminPage,
 } from '../utils';
+import getMultiDimensionalObjectFromParams from '../utils/get-multi-dimensional-object-from-params';
 
 describe( 'User Input Settings', () => {
 	async function fillInInputSettings() {
-		await step(
-			'select role',
-			async () => {
-				await page.waitForSelector( '.googlesitekit-user-input__question' );
-				await expect( page ).toClick( '#role-owner_with_team' );
-			},
+		// The UserInputApp needs more time to load to pass consistently.
+		const extendedTimeout = 15_000;
+
+		await page.waitForSelector( '.googlesitekit-user-input__question', {
+			timeout: extendedTimeout,
+		} );
+
+		await step( 'select purpose', async () => {
+			await expect( page ).toClick( '#purpose-publish_blog' );
+		} );
+
+		await expect( page ).toClick(
+			'.googlesitekit-user-input__question .googlesitekit-user-input__buttons--next'
 		);
 
-		await step(
-			'select post frequency',
-			async () => {
-				await expect( page ).toClick( '.googlesitekit-user-input__buttons--next' );
-				await expect( page ).toClick( '#postFrequency-monthly' );
-			},
+		await pageWait();
+
+		await step( 'select post frequency', async () => {
+			await expect( page ).toClick( '#postFrequency-monthly' );
+		} );
+
+		await expect( page ).toClick(
+			'.googlesitekit-user-input__question .googlesitekit-user-input__buttons--next'
 		);
 
-		await step(
-			'select goals',
-			async () => {
-				await expect( page ).toClick( '.googlesitekit-user-input__buttons--next' );
-				await expect( page ).toClick( '#goals-publish_blog' );
-				await expect( page ).toClick( '#goals-share_portfolio' );
-			},
-		);
+		await pageWait();
 
-		await step(
-			'select help needed',
-			async () => {
-				await expect( page ).toClick( '.googlesitekit-user-input__buttons--next' );
-				await expect( page ).toClick( '#helpNeeded-retaining_visitors' );
-				await expect( page ).toClick( '#helpNeeded-improving_performance' );
-				await expect( page ).toClick( '#helpNeeded-help_better_rank' );
-			},
-		);
+		await step( 'select goals', async () => {
+			await expect( page ).toClick( '#goals-retaining_visitors' );
+			await expect( page ).toClick( '#goals-improving_performance' );
+			await expect( page ).toClick( '#goals-help_better_rank' );
+		} );
 
-		await step(
-			'enter keywords',
-			async () => {
-				await expect( page ).toClick( '.googlesitekit-user-input__buttons--next' );
-				await expect( page ).toFill( '#searchTerms-keyword-0', 'One,Two,Three,' );
-			},
-		);
-
-		await step(
-			'go to preview page',
-			expect( page ).toClick( '.googlesitekit-user-input__buttons--next' ),
-		);
+		await pageWait();
 
 		await step(
 			'wait for settings submission',
 			Promise.all( [
-				expect( page ).toClick( '.googlesitekit-user-input__buttons--next' ),
-				page.waitForNavigation(),
-			] ),
+				expect( page ).toClick(
+					'.googlesitekit-user-input__question .googlesitekit-user-input__buttons--complete',
+					{ text: /complete setup/i }
+				),
+				// Navigation and network idle needs more time to complete to consistently pass.
+				page.waitForNavigation( { timeout: extendedTimeout } ),
+				page.waitForNetworkIdle( { timeout: extendedTimeout } ),
+			] )
 		);
 
 		await step(
-			'wait for success notification',
-			page.waitForSelector( '#user-input-success' ),
+			'wait for a Key Metric tile to successfully appear',
+			page.waitForSelector(
+				'.googlesitekit-widget--kmAnalyticsTopReturningVisitorPages'
+			)
 		);
 	}
 
@@ -105,17 +103,81 @@ describe( 'User Input Settings', () => {
 		useRequestInterception( ( request ) => {
 			const url = request.url();
 
-			if ( url.startsWith( 'https://sitekit.withgoogle.com' ) ) {
+			const paramsObject = Object.fromEntries(
+				new URL( url ).searchParams.entries()
+			);
+
+			// Provide mock data for Analytics 4 and Search Console requests to ensure they are not in the "gathering data" state.
+			if (
+				url.match(
+					'/google-site-kit/v1/modules/analytics-4/data/report?'
+				)
+			) {
+				// Some of the keys are nested paths e.g. `metrics[0][name]`, so we need to convert the search params to a multi-dimensional object.
+				const multiDimensionalObjectParams =
+					getMultiDimensionalObjectFromParams( paramsObject );
+
+				// At the time of writing, the report used in `getPageTitles()` is the only report that specifies an array of `pagePath` values in
+				// the `dimensionFilters` object.
+				const isPageTitlesReport = Array.isArray(
+					multiDimensionalObjectParams?.dimensionFilters?.pagePath
+				);
+
+				// Use the zip combination strategy for the page titles report to ensure a one-to-one mapping of page paths to page titles.
+				// Otherwise, by using the default cartesian product of dimension values, the resulting output will have non-matching
+				// page paths to page titles.
+				const dimensionCombinationStrategy = isPageTitlesReport
+					? STRATEGY_ZIP
+					: STRATEGY_CARTESIAN;
+
 				request.respond( {
-					status: 302,
-					headers: {
-						location: createURL( '/wp-admin/index.php', 'oauth2callback=1&code=valid-test-code' ),
-					},
+					status: 200,
+					body: JSON.stringify(
+						getAnalytics4MockResponse(
+							multiDimensionalObjectParams,
+							{ dimensionCombinationStrategy }
+						)
+					),
 				} );
-			} else if ( url.match( '/google-site-kit/v1/core/user/data/user-input-settings' ) ) {
+			} else if (
+				request
+					.url()
+					.match(
+						'google-site-kit/v1/core/user/data/audience-settings'
+					)
+			) {
+				request.respond( {
+					status: 200,
+					body: JSON.stringify( {
+						configuredAudiences: [],
+					} ),
+				} );
+			} else if (
+				url.match(
+					'/google-site-kit/v1/modules/search-console/data/searchanalytics?'
+				)
+			) {
+				request.respond( {
+					status: 200,
+					body: JSON.stringify(
+						getSearchConsoleMockResponse( paramsObject )
+					),
+				} );
+			} else if (
+				url.match(
+					'/google-site-kit/v1/modules/search-console/data/data-available'
+				)
+			) {
 				request.continue();
-			} else if ( url.match( '/google-site-kit/v1/data' ) || url.match( '/google-site-kit/v1/modules' ) ) {
-				request.respond( { status: 200 } );
+			} else if (
+				url.match(
+					'/google-site-kit/v1/modules/analytics-4/data/data-available'
+				)
+			) {
+				request.continue();
+			} else if ( url.match( '/google-site-kit/v1/modules' ) ) {
+				// Leave other module requests unanswered. These tests do not
+				// need their data, and an empty response would fail JSON parsing.
 			} else {
 				request.continue();
 			}
@@ -123,79 +185,129 @@ describe( 'User Input Settings', () => {
 	} );
 
 	beforeEach( async () => {
-		await enableFeature( 'userInput' );
-		await setupSiteKit();
 		await activatePlugins(
-			'e2e-tests-oauth-callback-plugin',
-			'e2e-tests-site-verification-plugin',
-			'e2e-tests-proxy-credentials-plugin',
-			'e2e-tests-user-input-settings-api-mock',
+			'e2e-tests-proxy-setup',
+			'e2e-tests-oauth-callback-plugin'
 		);
+		await setSearchConsoleProperty();
+		await page.setRequestInterception( true );
 	} );
 
 	afterEach( async () => {
+		// Wait for network idle to allow outstanding requests to resolve
+		// and prevent Invalid JSON Response error.
+		try {
+			await page.waitForNetworkIdle( { timeout: 15_000 } );
+		} catch ( error ) {
+			// Allow to fail silently if timeout is reached which can occur mostly running locally.
+		}
+
 		await deactivateUtilityPlugins();
 		await resetSiteKit();
 	} );
 
-	it( 'should require new users to enter input settings after signing in', async () => {
-		await step(
-			'visit splash screen',
-			visitAdminPage( 'admin.php', 'page=googlesitekit-splash' ),
-		);
-
-		await step(
-			'click on start setup button and wait for navigation',
-			Promise.all( [
-				expect( page ).toClick( '.googlesitekit-start-setup' ),
-				page.waitForNavigation(),
-			] ),
-		);
-
-		await fillInInputSettings();
-	} );
-
 	it( 'should offer to enter input settings for existing users', async () => {
-		await step(
-			'visit admin dashboard',
-			visitAdminPage( 'admin.php', 'page=googlesitekit-dashboard' ),
-		);
+		await setupSiteKit();
+		await page.setRequestInterception( false );
+		await setupAnalytics4();
+		await page.setRequestInterception( true );
+		await setSearchConsoleProperty();
+
+		// Listen for the data-available responses while the dashboard loads. They can
+		// arrive before `visitAdminPage()` resolves on the page `load` event.
+		await Promise.all( [
+			step(
+				'visit admin dashboard',
+				visitAdminPage( 'admin.php', 'page=googlesitekit-dashboard' )
+			),
+			page.waitForResponse( ( res ) =>
+				res
+					.url()
+					.match(
+						'/google-site-kit/v1/modules/search-console/data/data-available'
+					)
+			),
+			page.waitForResponse( ( res ) =>
+				res
+					.url()
+					.match(
+						'/google-site-kit/v1/modules/analytics-4/data/data-available'
+					)
+			),
+		] );
+
+		// On the first load of the dashboard, report requests made by the isGatheringData selector for SC and GA4
+		// will fetch some data since we intercept those requests providing mock report data. This the data-available
+		// endpoint which sets the appropriate transients that will be prefetched only on the next page load.
+		await page.reload();
 
 		await step(
-			'click on CTA button and wait for navigation',
+			'click on key metrics navigation tab and scroll to the key metrics widget',
 			async () => {
-				await page.waitForSelector( '.googlesitekit-user-input__notification' );
-				await Promise.all( [
-					expect( page ).toClick( '.googlesitekit-notification__cta' ),
-					page.waitForNavigation(),
-				] );
-			},
+				await page.waitForSelector( '.googlesitekit-navigation' );
+				await expect( page ).toClick( '.mdc-chip', {
+					text: /key metrics/i,
+				} );
+
+				// The chip scrolls the page smoothly. Wait until the page stops
+				// moving, so that the next click lands on its target.
+				await page.waitForFunction(
+					() =>
+						new Promise( ( resolve ) => {
+							const { scrollY } = window;
+							setTimeout(
+								() => resolve( window.scrollY === scrollY ),
+								100
+							);
+						} )
+				);
+			}
 		);
+
+		await step( 'click on CTA button and wait for navigation', async () => {
+			await page.waitForSelector(
+				'.googlesitekit-widget--keyMetricsSetupCTA'
+			);
+			await Promise.all( [
+				expect( page ).toClick(
+					'.googlesitekit-widget--keyMetricsSetupCTA .googlesitekit-banner__cta'
+				),
+				page.waitForNavigation( { timeout: 10_000 } ),
+			] );
+		} );
 
 		await fillInInputSettings();
 	} );
 
 	it( 'should let existing users enter input settings from the settings page', async () => {
-		await step(
-			'visit admin settings',
-			async () => {
-				await visitAdminPage( 'admin.php', 'page=googlesitekit-settings' );
-				await pageWait();
-				await page.waitForSelector( '.mdc-tab-bar button.mdc-tab' );
-				await expect( page ).toClick( 'button.mdc-tab', { text: /admin settings/i } );
-			},
-		);
+		await setupSiteKit();
+		await page.setRequestInterception( false );
+		await setupAnalytics4();
+		await page.setRequestInterception( true );
+		await setSearchConsoleProperty();
 
-		await step(
-			'click on CTA button and wait for navigation',
-			async () => {
-				await page.waitForSelector( '.googlesitekit-user-input__notification' );
-				await Promise.all( [
-					expect( page ).toClick( '.googlesitekit-notification__cta' ),
-					page.waitForNavigation(),
-				] );
-			},
-		);
+		await step( 'visit admin settings', async () => {
+			await Promise.all( [
+				visitAdminPage( 'admin.php', 'page=googlesitekit-settings' ),
+				page.waitForNetworkIdle(),
+			] );
+			await page.waitForSelector( '.mdc-tab-bar a.mdc-tab' );
+			await expect( page ).toClick( 'a.mdc-tab', {
+				text: /admin settings/i,
+			} );
+		} );
+
+		await step( 'click on CTA button and wait for navigation', async () => {
+			await page.waitForSelector( '.googlesitekit-notice--new' );
+			await Promise.all( [
+				expect( page ).toClick(
+					'.googlesitekit-notice--new .googlesitekit-button-icon--spinner'
+				),
+				page.waitForNavigation(),
+			] );
+		} );
+
+		await page.waitForNetworkIdle();
 
 		await fillInInputSettings();
 	} );

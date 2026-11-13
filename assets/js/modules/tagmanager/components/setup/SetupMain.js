@@ -29,44 +29,41 @@ import { _x } from '@wordpress/i18n';
 /**
  * Internal dependencies
  */
-import Data from 'googlesitekit-data';
-import TagManagerIcon from '../../../../../svg/tagmanager.svg';
-import SetupForm from './SetupForm';
-import ProgressBar from '../../../../components/ProgressBar';
-import { STORE_NAME, ACCOUNT_CREATE, FORM_SETUP } from '../../datastore/constants';
-import { CORE_FORMS } from '../../../../googlesitekit/datastore/forms/constants';
-import { CORE_LOCATION } from '../../../../googlesitekit/datastore/location/constants';
-import { useExistingTagEffect } from '../../hooks';
+import { ProgressBar } from 'googlesitekit-components';
+import { useSelect } from 'googlesitekit-data';
+import Typography from '@/js/components/Typography';
+import { AccountCreate } from '@/js/modules/tagmanager/components/common';
 import {
-	AccountCreate,
-	ExistingTagError,
-} from '../common';
-import useGAPropertyIDEffect from '../../hooks/useGAPropertyIDEffect';
-const { useSelect } = Data;
+	ACCOUNT_CREATE,
+	MODULES_TAGMANAGER,
+} from '@/js/modules/tagmanager/datastore/constants';
+import useExistingTagEffect from '@/js/modules/tagmanager/hooks/useExistingTagEffect';
+import TagManagerIcon from '@/svg/graphics/tagmanager.svg';
+import SetupForm from './SetupForm';
 
 export default function SetupMain( { finishSetup } ) {
-	const accounts = useSelect( ( select ) => select( STORE_NAME ).getAccounts() );
-	const accountID = useSelect( ( select ) => select( STORE_NAME ).getAccountID() );
-	const hasExistingTag = useSelect( ( select ) => select( STORE_NAME ).hasExistingTag() );
-	const hasExistingTagPermission = useSelect( ( select ) => select( STORE_NAME ).hasExistingTagPermission() );
-	const isDoingSubmitChanges = useSelect( ( select ) => select( STORE_NAME ).isDoingSubmitChanges() );
-	const hasResolvedAccounts = useSelect( ( select ) => select( STORE_NAME ).hasFinishedResolution( 'getAccounts' ) );
-	const submitInProgress = useSelect( ( select ) => select( CORE_FORMS ).getValue( FORM_SETUP, 'submitInProgress' ) );
-	const isNavigating = useSelect( ( select ) => select( CORE_LOCATION ).isNavigating() );
+	const accounts = useSelect( ( select ) =>
+		select( MODULES_TAGMANAGER ).getAccounts()
+	);
+	const accountID = useSelect( ( select ) =>
+		select( MODULES_TAGMANAGER ).getAccountID()
+	);
+	const hasExistingTag = useSelect( ( select ) =>
+		select( MODULES_TAGMANAGER ).hasExistingTag()
+	);
+	const hasResolvedAccounts = useSelect( ( select ) =>
+		select( MODULES_TAGMANAGER ).hasFinishedResolution( 'getAccounts' )
+	);
 	const isCreateAccount = ACCOUNT_CREATE === accountID;
 
-	// Set the accountID and containerID if there is an existing tag.
+	// Set useSnippet to `false` if there is an existing tag and it is the same as the selected container ID.
 	useExistingTagEffect();
-	// Synchronize the gaPropertyID setting with the singular GA property ID in selected containers.
-	useGAPropertyIDEffect();
 
 	let viewComponent;
 	// Here we also check for `hasResolvedAccounts` to prevent showing a different case below
 	// when the component initially loads and has yet to start fetching accounts.
-	if ( isDoingSubmitChanges || ! hasResolvedAccounts || isNavigating || submitInProgress ) {
+	if ( ! hasResolvedAccounts || hasExistingTag === undefined ) {
 		viewComponent = <ProgressBar />;
-	} else if ( hasExistingTag && hasExistingTagPermission === false ) {
-		viewComponent = <ExistingTagError />;
 	} else if ( isCreateAccount || ! accounts?.length ) {
 		viewComponent = <AccountCreate />;
 	} else {
@@ -75,16 +72,23 @@ export default function SetupMain( { finishSetup } ) {
 
 	return (
 		<div className="googlesitekit-setup-module googlesitekit-setup-module--tagmanager">
+			<div className="googlesitekit-setup-module__step">
+				<div className="googlesitekit-setup-module__logo">
+					<TagManagerIcon width="40" height="40" />
+				</div>
 
-			<div className="googlesitekit-setup-module__logo">
-				<TagManagerIcon width="33" height="33" />
+				<Typography
+					as="h3"
+					className="googlesitekit-setup-module__title"
+					size="small"
+					type="headline"
+				>
+					{ _x( 'Tag Manager', 'Service name', 'google-site-kit' ) }
+				</Typography>
 			</div>
-
-			<h2 className="googlesitekit-heading-3 googlesitekit-setup-module__title">
-				{ _x( 'Tag Manager', 'Service name', 'google-site-kit' ) }
-			</h2>
-
-			{ viewComponent }
+			<div className="googlesitekit-setup-module__step">
+				{ viewComponent }
+			</div>
 		</div>
 	);
 }

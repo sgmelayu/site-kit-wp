@@ -24,75 +24,156 @@ import PropTypes from 'prop-types';
 /**
  * WordPress dependencies
  */
-import { useCallback, useState, useRef } from '@wordpress/element';
-import { __ } from '@wordpress/i18n';
+import { useCallback, useEffect, useRef } from '@wordpress/element';
+import { _n, sprintf } from '@wordpress/i18n';
+import { ENTER } from '@wordpress/keycodes';
 
 /**
  * Internal dependencies
  */
-import Data from 'googlesitekit-data';
-import { CORE_USER } from '../../googlesitekit/datastore/user/constants';
-import Radio from '../Radio';
-import Checkbox from '../Checkbox';
-import { Cell, Input, TextField } from '../../material-components';
-const { useSelect, useDispatch } = Data;
+import { Checkbox, Radio } from 'googlesitekit-components';
+import { useDispatch, useSelect } from 'googlesitekit-data';
+import {
+	SIZE_LARGE,
+	SIZE_SMALL,
+	TYPE_BODY,
+	TYPE_TITLE,
+} from '@/js/components/Typography/constants';
+import P from '@/js/components/Typography/P';
+import { CORE_FORMS } from '@/js/googlesitekit/datastore/forms/constants';
+import { CORE_LOCATION } from '@/js/googlesitekit/datastore/location/constants';
+import { CORE_USER } from '@/js/googlesitekit/datastore/user/constants';
+import { BREAKPOINT_SMALL, useBreakpoint } from '@/js/hooks/useBreakpoint';
+import useViewContext from '@/js/hooks/useViewContext';
+import { Cell } from '@/js/material-components';
+import { trackEvent } from '@/js/util';
+import {
+	FORM_USER_INPUT_QUESTION_SNAPSHOT,
+	USER_INPUT_QUESTIONS_PURPOSE,
+	USER_INPUT_QUESTION_POST_FREQUENCY,
+} from './util/constants';
 
-export default function UserInputSelectOptions( { slug, options, max } ) {
-	const values = useSelect( ( select ) => select( CORE_USER ).getUserInputSetting( slug ) || [] );
-	const [ other, setOther ] = useState( values.filter( ( value ) => ! options[ value ] )[ 0 ] || '' );
+export default function UserInputSelectOptions( {
+	slug,
+	descriptions,
+	options,
+	max,
+	next,
+	showInstructions,
+	alignLeftOptions,
+	gaTrackingEventArgs,
+} ) {
+	const breakpoint = useBreakpoint();
+
+	const viewContext = useViewContext();
+	const values = useSelect(
+		( select ) => select( CORE_USER ).getUserInputSetting( slug ) || []
+	);
+
+	const isSavingSettings = useSelect( ( select ) =>
+		select( CORE_USER ).isSavingUserInputSettings( values )
+	);
+	const isNavigating = useSelect( ( select ) =>
+		select( CORE_LOCATION ).isNavigating()
+	);
 	const { setUserInputSetting } = useDispatch( CORE_USER );
-	const inputRef = useRef();
-	const [ disabled, setDisabled ] = useState( false );
+	const optionsRef = useRef();
 
-	// Need to make sure that dependencies list always has the same number of elements.
-	const dependencies = values.concat( Array( max ) ).slice( 0, max );
-
-	const onClick = useCallback( ( event ) => {
-		const { target } = event;
-		const { value, checked, name, type, id } = target;
-
-		const newValues = new Set( [ value, ...values ] );
-		if ( ! checked ) {
-			newValues.delete( value );
+	useEffect( () => {
+		if ( ! optionsRef?.current ) {
+			return;
 		}
 
-		if ( name === `${ slug }-other` && checked === true ) {
-			if ( inputRef.current ) {
-				inputRef.current.inputElement.focus();
+		function focusOption( element ) {
+			if ( element ) {
+				setTimeout( () => {
+					element.focus();
+				}, 50 );
 			}
-			setDisabled( false );
 		}
 
-		if ( type === 'radio' && id === `${ slug }-other` ) {
-			if ( inputRef.current ) {
-				inputRef.current.inputElement.focus();
-			}
-			setDisabled( false );
-		}
+		const optionType = max === 1 ? 'radio' : 'checkbox';
+		const checkedElement = optionsRef.current.querySelector(
+			`input[type="${ optionType }"]:checked`
+		);
 
-		if (
-			type !== 'radio' &&
-			newValues.size === max &&
-			! newValues.has( '' ) &&
-			! newValues.has( other )
-		) {
-			setDisabled( true );
+		if ( checkedElement ) {
+			focusOption( checkedElement );
 		} else {
-			setDisabled( false );
+			const element = optionsRef.current.querySelector(
+				`input[type="${ optionType }"]`
+			);
+			focusOption( element );
 		}
+	}, [ max ] );
 
-		setUserInputSetting( slug, Array.from( newValues ).slice( 0, max ) );
-	}, dependencies );
+	const { setValues } = useDispatch( CORE_FORMS );
 
-	const onOtherChange = useCallback( ( { target } ) => {
-		const newValues = [
-			target.value,
-			...values.filter( ( value ) => !! options[ value ] ),
-		];
+	const onClick = useCallback(
+		( event ) => {
+			const { target } = event;
+			const { value, checked } = target;
 
-		setOther( target.value );
-		setUserInputSetting( slug, newValues.slice( 0, max ) );
-	}, dependencies );
+			const newValues = new Set( [ value, ...values ] );
+			if ( ! checked ) {
+				newValues.delete( value );
+			}
+
+			const checkedValues = Array.from( newValues ).slice( 0, max );
+
+			if ( gaTrackingEventArgs ) {
+				trackEvent(
+					gaTrackingEventArgs.category,
+					gaTrackingEventArgs.action,
+					checkedValues.join()
+				);
+			} else {
+				const gaEventName =
+					slug === USER_INPUT_QUESTION_POST_FREQUENCY
+						? 'content_frequency_question_answer'
+						: `site_${ slug }_question_answer`;
+
+				trackEvent(
+					`${ viewContext }_kmw`,
+					gaEventName,
+					checkedValues.join()
+				);
+			}
+
+			if ( slug === USER_INPUT_QUESTIONS_PURPOSE ) {
+				setValues( FORM_USER_INPUT_QUESTION_SNAPSHOT, {
+					[ slug ]: values,
+				} );
+			}
+
+			setUserInputSetting( slug, checkedValues );
+		},
+		[
+			values,
+			max,
+			gaTrackingEventArgs,
+			slug,
+			setUserInputSetting,
+			viewContext,
+			setValues,
+		]
+	);
+
+	const onKeyDown = useCallback(
+		( event ) => {
+			if (
+				event.keyCode === ENTER &&
+				values.length > 0 &&
+				values.length <= max &&
+				! values.includes( '' ) &&
+				next &&
+				typeof next === 'function'
+			) {
+				next();
+			}
+		},
+		[ values, next, max ]
+	);
 
 	const onClickProps = {
 		[ max > 1 ? 'onChange' : 'onClick' ]: onClick,
@@ -101,22 +182,37 @@ export default function UserInputSelectOptions( { slug, options, max } ) {
 	const ListComponent = max === 1 ? Radio : Checkbox;
 
 	const items = Object.keys( options ).map( ( optionSlug ) => {
+		if ( 'sell_products_or_service' === optionSlug ) {
+			return false;
+		}
+
 		const props = {
 			id: `${ slug }-${ optionSlug }`,
 			value: optionSlug,
+			description: descriptions?.[ optionSlug ],
 			checked: values.includes( optionSlug ),
+			onKeyDown,
+			alignLeft: alignLeftOptions,
 			...onClickProps,
 		};
 
 		if ( max > 1 ) {
-			props.disabled = values.length >= max && ! values.includes( optionSlug );
+			props.disabled =
+				values.length >= max && ! values.includes( optionSlug );
 			props.name = `${ slug }-${ optionSlug }`;
 		} else {
 			props.name = slug;
 		}
 
+		if ( isSavingSettings || isNavigating ) {
+			props.disabled = true;
+		}
+
 		return (
-			<div key={ optionSlug } className="googlesitekit-user-input__select-option">
+			<div
+				key={ optionSlug }
+				className="googlesitekit-user-input__select-option"
+			>
 				<ListComponent { ...props }>
 					{ options[ optionSlug ] }
 				</ListComponent>
@@ -124,53 +220,62 @@ export default function UserInputSelectOptions( { slug, options, max } ) {
 		);
 	} );
 
+	const instructionsSize =
+		breakpoint === BREAKPOINT_SMALL ? SIZE_SMALL : SIZE_LARGE;
+	const instructionsType =
+		breakpoint === BREAKPOINT_SMALL ? TYPE_BODY : TYPE_TITLE;
+
 	return (
-		<Cell lgStart={ 6 } lgSize={ 6 } mdSize={ 8 } smSize={ 4 }>
-			<div className="googlesitekit-user-input__select-options">
+		<Cell
+			className="googlesitekit-user-input__select-options-wrapper"
+			lgStart={ 6 }
+			lgSize={ 6 }
+			mdSize={ 8 }
+			smSize={ 4 }
+		>
+			{ showInstructions && (
+				<P
+					className="googlesitekit-user-input__select-instruction"
+					size={ instructionsSize }
+					type={ instructionsType }
+				>
+					<span>
+						{ sprintf(
+							/* translators: %s: number of answers allowed. */
+							_n(
+								'Select only %d answer',
+								'Select up to %d answers',
+								max,
+								'google-site-kit'
+							),
+							max
+						) }
+					</span>
+				</P>
+			) }
+			<div
+				className="googlesitekit-user-input__select-options"
+				ref={ optionsRef }
+			>
 				{ items }
-
-				<div className="googlesitekit-user-input__select-option">
-					<ListComponent
-						id={ `${ slug }-other` }
-						name={ max === 1 ? slug : `${ slug }-other` }
-						value={ other }
-						checked={ values.includes( other.trim() ) }
-						disabled={ max > 1 && values.length >= max && ! values.includes( other.trim() ) }
-						{ ...onClickProps }
-					>
-						{ __( 'Other:', 'google-site-kit' ) }
-					</ListComponent>
-
-					<TextField
-						label={ __( 'Type your own answer', 'google-site-kit' ) }
-						floatingLabelClassName="screen-reader-text"
-					>
-						<Input
-							id={ `${ slug }-select-options` }
-							value={ other }
-							onChange={ onOtherChange }
-							ref={ inputRef }
-							disabled={ disabled }
-						/>
-					</TextField>
-				</div>
 			</div>
-
-			<p className="googlesitekit-user-input__note">
-				{ max === 1 && __( 'Choose up to one (1) answer', 'google-site-kit' ) }
-				{ max === 2 && __( 'Choose up to two (2) answers', 'google-site-kit' ) }
-				{ max === 3 && __( 'Choose up to three (3) answers', 'google-site-kit' ) }
-			</p>
 		</Cell>
 	);
 }
 
 UserInputSelectOptions.propTypes = {
 	slug: PropTypes.string.isRequired,
+	descriptions: PropTypes.shape( {} ),
 	options: PropTypes.shape( {} ).isRequired,
 	max: PropTypes.number,
+	next: PropTypes.func,
+	showInstructions: PropTypes.bool,
+	alignLeftOptions: PropTypes.bool,
+	gaTrackingEventArgs: PropTypes.object,
 };
 
 UserInputSelectOptions.defaultProps = {
 	max: 1,
+	showInstructions: false,
+	alignLeftOptions: false,
 };

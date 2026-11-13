@@ -21,7 +21,7 @@ use Google\Site_Kit\Plugin;
  * Intercept test oAuth request before Site Kit, enable auth plugin, and redirect to auth success URL.
  */
 add_action(
-	'init',
+	'admin_init',
 	function () {
 		if ( ! defined( 'GOOGLESITEKIT_PLUGIN_MAIN_FILE' ) ) {
 			return;
@@ -30,11 +30,6 @@ add_action(
 		$context      = Plugin::instance()->context();
 		$user_options = new User_Options( $context );
 		$auth         = new Authentication( $context );
-
-		if ( filter_input( INPUT_GET, 'googlesitekit_connect', FILTER_VALIDATE_BOOLEAN ) ) {
-			// Allow this case to be handled by default implementation.
-			return;
-		}
 
 		if (
 			empty( $_GET['oauth2callback'] )

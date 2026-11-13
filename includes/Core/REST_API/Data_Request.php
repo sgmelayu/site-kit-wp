@@ -6,12 +6,14 @@
  * @copyright 2021 Google LLC
  * @license   https://www.apache.org/licenses/LICENSE-2.0 Apache License 2.0
  * @link      https://sitekit.withgoogle.com
+ *
+ * phpcs:disable PHPCS.Commenting.RequireDocTagDescription -- Pre-existing violations; tracked for follow-up cleanup.
  */
 
 namespace Google\Site_Kit\Core\REST_API;
 
 /**
- * Class Data_Request
+ * Class Data_Request.
  *
  * @since 1.0.0
  *
@@ -121,6 +123,7 @@ class Data_Request implements \ArrayAccess {
 	 *
 	 * @return bool
 	 */
+	#[\ReturnTypeWillChange]
 	public function offsetExists( $key ) {
 		return array_key_exists( $key, $this->data );
 	}
@@ -132,6 +135,7 @@ class Data_Request implements \ArrayAccess {
 	 *
 	 * @return mixed
 	 */
+	#[\ReturnTypeWillChange]
 	public function offsetGet( $key ) {
 		if ( $this->offsetExists( $key ) ) {
 			return $this->data[ $key ];
@@ -146,6 +150,7 @@ class Data_Request implements \ArrayAccess {
 	 * @param string|int $key Key to set the value for.
 	 * @param mixed      $value New value for the given key.
 	 */
+	#[\ReturnTypeWillChange]
 	public function offsetSet( $key, $value ) {
 		// Data is immutable.
 	}
@@ -155,7 +160,8 @@ class Data_Request implements \ArrayAccess {
 	 *
 	 * @param string|int $key Key to unset.
 	 */
-	public function offsetUnset( $key ) {
+	#[\ReturnTypeWillChange]
+	public function offsetUnset( $key ) { // phpcs:ignore Squiz.Commenting.FunctionComment
 		// Data is immutable.
 	}
 }

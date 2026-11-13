@@ -16,27 +16,68 @@
  * limitations under the License.
  */
 
-.googlesitekit-widget-area--composite .googlesitekit-widget-area-widgets {
+@use "sass:map";
 
-	@include shadow;
+.googlesitekit-widget-area--composite .googlesitekit-widget-area-widgets {
 	background: $c-base;
 }
 
 .googlesitekit-widget-area-header {
-	margin: 0 0 1rem 0;
+	// Use the existing MDC grid margins (--mdc-layout-grid-margin-phone,
+	// --mdc-layout-grid-margin-desktop, etc.) for the margins between the
+	// widget header and body.
+	@each $size in map.keys($mdc-layout-grid-columns) {
+
+		@include mdc-layout-grid-media-query_($size) {
+			$margin: map.get($mdc-layout-grid-default-margin, $size);
+
+			margin-bottom: $margin;
+			margin-bottom: var(--mdc-layout-grid-margin-#{$size}, #{$margin});
+		}
+	}
 
 	.googlesitekit-widget-area-header__title {
-		color: $c-tertiary;
-		font-weight: 400;
-		margin: 0;
+		color: $c-surfaces-on-background;
+		font-weight: $fw-medium;
+		margin: 0 0 0.125rem;
 	}
 
 	.googlesitekit-widget-area-header__subtitle {
-		color: $c-boulder;
-		font-family: $f-primary;
-		font-size: 0.75rem;
-		font-weight: 400;
-		line-height: 1.2;
+		color: $c-surfaces-on-background;
+		display: flex;
+		flex-grow: 1;
+		justify-content: space-between;
 		margin: 0;
+
+		@media (min-width: $bp-tablet) {
+			display: block;
+		}
+
+		.googlesitekit-new-badge {
+			height: 24px;
+			margin-left: 14px;
+		}
 	}
+
+	.googlesitekit-widget-area-header__details {
+		align-items: flex-start;
+		display: flex;
+		justify-content: space-between;
+	}
+
+	.googlesitekit-widget-area__cta-link {
+		align-items: center;
+		display: flex;
+		font-size: $fs-label-md;
+		font-weight: $fw-medium;
+		line-height: $lh-label-md;
+		padding-left: 6px; // Tweak the padding to ensure the link is aligned in its focus state.
+		white-space: nowrap;
+	}
+}
+
+.googlesitekit-widget-area-footer__cta {
+	font-size: $fs-label-md;
+	font-weight: $fw-medium;
+	margin: 12px 0;
 }

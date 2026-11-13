@@ -24,75 +24,118 @@ import PropTypes from 'prop-types';
 /**
  * WordPress dependencies
  */
-import { __ } from '@wordpress/i18n';
 import { Component } from '@wordpress/element';
+import { __, _x } from '@wordpress/i18n';
 
 /**
  * Internal dependencies
  */
-import { trackEvent } from '../../util';
-import Button from '../Button';
-import Link from '../Link';
-import OptIn from '../OptIn';
-import HelpLink from '../HelpLink';
+import { Button } from 'googlesitekit-components';
+import OptIn from '@/js/components/OptIn';
+import Typography from '@/js/components/Typography';
+import { SIZE_MEDIUM } from '@/js/components/Typography/constants';
+import P from '@/js/components/Typography/P';
+import { setItem } from '@/js/googlesitekit/api/cache';
+import { VIEW_CONTEXT_SPLASH } from '@/js/googlesitekit/constants';
+import { Cell, Grid, Row } from '@/js/material-components';
+import { trackEvent } from '@/js/util';
 
 class WizardStepAuthentication extends Component {
+	constructor( props ) {
+		super( props );
+		this.onButtonClick = this.onButtonClick.bind( this );
+	}
+
+	async onButtonClick() {
+		const { connectURL, isSiteKitConnected } = this.props;
+
+		await Promise.all( [
+			// Cache the start of the user setup journey.
+			// This will be used for event tracking logic after successful setup.
+			setItem( 'start_user_setup', true ),
+			trackEvent(
+				`${ VIEW_CONTEXT_SPLASH }_setup`,
+				'start_user_setup',
+				'custom-oauth'
+			),
+		] );
+
+		if ( ! isSiteKitConnected ) {
+			await Promise.all( [
+				// Cache the start of the site setup journey.
+				// This will be used for event tracking logic after successful setup.
+				setItem( 'start_site_setup', true ),
+				trackEvent(
+					`${ VIEW_CONTEXT_SPLASH }_setup`,
+					'start_site_setup',
+					'custom-oauth'
+				),
+			] );
+		}
+
+		document.location = connectURL;
+	}
+
 	render() {
-		const {
-			connectURL,
-			needReauthenticate,
-			resetAndRestart,
-		} = this.props;
+		const { needReauthenticate, resetAndRestart } = this.props;
 
 		return (
 			<section className="googlesitekit-wizard-step googlesitekit-wizard-step--two">
-				<div className="mdc-layout-grid">
-					<div className="mdc-layout-grid__inner">
-						<div className="
-							mdc-layout-grid__cell
-							mdc-layout-grid__cell--span-12
-						">
-							<h2 className="
-								googlesitekit-heading-3
-								googlesitekit-wizard-step__title
-							">
-								{ __( 'Authenticate with Google', 'google-site-kit' ) }
-							</h2>
-							<p>
-								{ __( 'Please sign into your Google account to begin.', 'google-site-kit' ) }
-							</p>
-							{
-								needReauthenticate &&
-								<p className="googlesitekit-error-text">
-									{ __( 'You did not grant access to one or more of the requested scopes. Please grant all scopes that you are prompted for.', 'google-site-kit' ) }
-								</p>
-							}
-							<p>
-								<Button
-									onClick={ async () => {
-										await trackEvent( 'plugin_setup', 'signin_with_google' );
-										document.location = connectURL;
-									} }
+				<Grid>
+					<Row>
+						<Cell size={ 12 }>
+							<Typography
+								as="h3"
+								className="googlesitekit-wizard-step__title"
+								size="small"
+								type="headline"
+							>
+								{ __(
+									'Authenticate with Google',
+									'google-site-kit'
+								) }
+							</Typography>
+							<P>
+								{ __(
+									'Please sign into your Google account to begin.',
+									'google-site-kit'
+								) }
+							</P>
+							{ needReauthenticate && (
+								<P
+									className="googlesitekit-error-text"
+									size={ SIZE_MEDIUM }
 								>
-									{ __( 'Sign in with Google', 'google-site-kit' ) }
+									{ __(
+										'You did not grant access to one or more of the requested scopes. Please grant all scopes that you are prompted for.',
+										'google-site-kit'
+									) }
+								</P>
+							) }
+							<P>
+								<Button onClick={ this.onButtonClick }>
+									{ _x(
+										'Sign in with Google',
+										'Service name',
+										'google-site-kit'
+									) }
 								</Button>
-								{ resetAndRestart &&
-									<Link
+								{ resetAndRestart && (
+									<Button
 										className="googlesitekit-wizard-step__back"
 										onClick={ resetAndRestart }
+										tertiary
 									>
 										{ __( 'Back', 'google-site-kit' ) }
-									</Link>
-								}
-							</p>
+									</Button>
+								) }
+							</P>
 							<div className="googlesitekit-wizard-step__action googlesitekit-wizard-step__action--justify">
-								<OptIn optinAction="analytics_optin_setup_fallback" />
-
-								<HelpLink />
+								<OptIn />
 							</div>
-						</div>
-					</div>
-				</div>
+						</Cell>
+					</Row>
+				</Grid>
 			</section>
 		);
 	}

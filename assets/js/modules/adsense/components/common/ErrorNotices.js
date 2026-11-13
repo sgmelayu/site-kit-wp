@@ -17,25 +17,26 @@
  */
 
 /**
- * WordPress dependencies
+ * External dependencies
  */
-import { useCallback } from '@wordpress/element';
+import PropTypes from 'prop-types';
 
 /**
  * Internal dependencies
  */
-import { STORE_NAME } from '../../datastore/constants';
-import { errorToStatus } from '../../util/status';
-import StoreErrorNotices from '../../../../components/StoreErrorNotices';
+import StoreErrorNotices from '@/js/components/StoreErrorNotices';
+import { MODULES_ADSENSE } from '@/js/modules/adsense/datastore/constants';
 
-export default function ErrorNotices() {
-	const shouldDisplayError = useCallback( ( error ) => undefined === errorToStatus( error ), [] );
-
+export default function ErrorNotices( { hasButton = false } ) {
 	return (
 		<StoreErrorNotices
+			hasButton={ hasButton }
 			moduleSlug="adsense"
-			storeName={ STORE_NAME }
-			shouldDisplayError={ shouldDisplayError }
+			storeName={ MODULES_ADSENSE }
 		/>
 	);
 }
+
+ErrorNotices.propTypes = {
+	hasButton: PropTypes.bool,
+};

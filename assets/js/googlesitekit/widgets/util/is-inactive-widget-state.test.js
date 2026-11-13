@@ -19,9 +19,9 @@
 /**
  * Internal dependencies
  */
+import ActivateAnalyticsCTA from '@/js/components/ActivateAnalyticsCTA';
+import Null from '@/js/components/Null';
 import { isInactiveWidgetState } from './is-inactive-widget-state';
-import Null from '../../../components/Null';
-import ActivateModuleCTA from '../../../components/ActivateModuleCTA';
 
 describe( 'isInactiveWidgetState', () => {
 	it( 'returns true for an inactive widget', () => {
@@ -36,7 +36,7 @@ describe( 'isInactiveWidgetState', () => {
 	it( 'returns false for an active widget', () => {
 		const widgetState1 = {
 			metadata: {},
-			Component: ActivateModuleCTA,
+			Component: ActivateAnalyticsCTA,
 		};
 
 		const widgetState2 = null;

@@ -24,19 +24,31 @@ import { delay } from 'lodash';
 /**
  * WordPress dependencies
  */
-import { __ } from '@wordpress/i18n';
+import { compose } from '@wordpress/compose';
 import { Component, Fragment } from '@wordpress/element';
+import { __, _x } from '@wordpress/i18n';
 
 /**
  * Internal dependencies
  */
-import Header from '../Header';
-import Button from '../Button';
-import Layout from '../layout/Layout';
-import data, { TYPE_CORE } from '../data';
-import { trackEvent, clearWebStorage, getSiteKitAdminURL } from '../../util';
-import STEPS from './wizard-steps';
+import { set } from 'googlesitekit-api';
+import { Button } from 'googlesitekit-components';
+import { withSelect } from 'googlesitekit-data';
+import Header from '@/js/components/Header';
+import HelpMenu from '@/js/components/help/HelpMenu';
+import Layout from '@/js/components/layout/Layout';
+import Typography from '@/js/components/Typography';
+import { SIZE_MEDIUM } from '@/js/components/Typography/constants';
+import P from '@/js/components/Typography/P';
+import { clearCache } from '@/js/googlesitekit/api/cache';
+import { CORE_SITE } from '@/js/googlesitekit/datastore/site/constants';
+import {
+	CORE_USER,
+	PERMISSION_SETUP,
+} from '@/js/googlesitekit/datastore/user/constants';
+import { Cell, Grid, Row } from '@/js/material-components';
 import WizardProgressStep from './wizard-progress-step';
+import STEPS from './wizard-steps';
 
 class SetupUsingGCP extends Component {
 	constructor( props ) {
@@ -52,10 +64,7 @@ class SetupUsingGCP extends Component {
 			needReauthenticate,
 		} = global._googlesitekitLegacyData.setup;
 
-		const { canSetup } = global._googlesitekitLegacyData.permissions;
-
 		this.state = {
-			canSetup,
 			isAuthenticated,
 			isVerified,
 			needReauthenticate,
@@ -73,11 +82,12 @@ class SetupUsingGCP extends Component {
 		this.resetAndRestart = this.resetAndRestart.bind( this );
 		this.completeSetup = this.completeSetup.bind( this );
 		this.setErrorMessage = this.setErrorMessage.bind( this );
+		this.onButtonClick = this.onButtonClick.bind( this );
 	}
 
 	async resetAndRestart() {
-		await data.set( TYPE_CORE, 'site', 'reset' );
-		clearWebStorage();
+		await set( 'core', 'site', 'reset' );
+		await clearCache();
 
 		this.setState( {
 			isSiteKitConnected: false,
@@ -122,7 +132,13 @@ class SetupUsingGCP extends Component {
 			completeSetup,
 		} = this.state;
 
-		return isSiteKitConnected && isAuthenticated && isVerified && hasSearchConsoleProperty && completeSetup;
+		return (
+			isSiteKitConnected &&
+			isAuthenticated &&
+			isVerified &&
+			hasSearchConsoleProperty &&
+			completeSetup
+		);
 	}
 
 	setErrorMessage( errorMsg ) {
@@ -135,10 +151,12 @@ class SetupUsingGCP extends Component {
 		const applicableSteps = STEPS;
 		const slugs = Object.keys( applicableSteps );
 
-		let i;
-		for ( i = 0; i < slugs.length; i++ ) {
-			if ( ! applicableSteps[ slugs[ i ] ].isApplicable( this.state ) ) {
-				delete applicableSteps[ slugs[ i ] ];
+		let index;
+		for ( index = 0; index < slugs.length; index++ ) {
+			if (
+				! applicableSteps[ slugs[ index ] ].isApplicable( this.state )
+			) {
+				delete applicableSteps[ slugs[ index ] ];
 			}
 		}
 
@@ -149,15 +167,17 @@ class SetupUsingGCP extends Component {
 		const slugs = Object.keys( applicableSteps );
 
 		// Iterate through all steps (except the last one) and return the first one that is not completed.
-		let i;
-		for ( i = 0; i < slugs.length - 1; i++ ) {
-			if ( ! applicableSteps[ slugs[ i ] ].isCompleted( this.state ) ) {
-				return slugs[ i ];
+		let index;
+		for ( index = 0; index < slugs.length - 1; index++ ) {
+			if (
+				! applicableSteps[ slugs[ index ] ].isCompleted( this.state )
+			) {
+				return slugs[ index ];
 			}
 		}
 
 		// Return the last step only if all other steps are completed.
-		return slugs[ i ];
+		return slugs[ index ];
 	}
 
 	stepStatus( applicableSteps, step ) {
@@ -174,9 +194,14 @@ class SetupUsingGCP extends Component {
 		return '';
 	}
 
+	onButtonClick() {
+		const { connectURL } = this.state;
+
+		document.location = connectURL;
+	}
+
 	render() {
 		const {
-			canSetup,
 			isAuthenticated,
 			isVerified,
 			needReauthenticate,
@@ -185,118 +210,188 @@ class SetupUsingGCP extends Component {
 			isSiteKitConnected,
 		} = this.state;
 
-		if ( this.isSetupFinished() ) {
-			const redirectURL = getSiteKitAdminURL(
-				'googlesitekit-dashboard',
-				{
-					notification: 'authentication_success',
-				},
-			);
+		const { canSetup, redirectURL } = this.props;
 
-			delay( function() {
-				global.location.replace( redirectURL );
-			}, 500, 'later' );
+		if ( this.isSetupFinished() ) {
+			delay(
+				() => {
+					global.location.replace( redirectURL );
+				},
+				500,
+				'later'
+			);
 		}
 
 		const progressSteps = this.getApplicableSteps();
 		const currentStep = this.currentStep( progressSteps );
 
 		const WizardStepComponent = progressSteps[ currentStep ].Component;
-		const wizardStepComponent = <WizardStepComponent
-			siteConnectedSetup={ this.siteConnectedSetup }
-			connectURL={ connectURL }
-			siteVerificationSetup={ this.siteVerificationSetup }
-			searchConsoleSetup={ this.searchConsoleSetup }
-			completeSetup={ this.completeSetup }
-			isSiteKitConnected={ isSiteKitConnected }
-			isAuthenticated={ isAuthenticated }
-			isVerified={ isVerified }
-			needReauthenticate={ needReauthenticate }
-			hasSearchConsoleProperty={ hasSearchConsoleProperty }
-			setErrorMessage={ this.setErrorMessage }
-			resetAndRestart={ progressSteps.clientCredentials ? this.resetAndRestart : undefined }
-		/>;
+		const wizardStepComponent = (
+			<WizardStepComponent
+				siteConnectedSetup={ this.siteConnectedSetup }
+				connectURL={ connectURL }
+				siteVerificationSetup={ this.siteVerificationSetup }
+				searchConsoleSetup={ this.searchConsoleSetup }
+				completeSetup={ this.completeSetup }
+				isSiteKitConnected={ isSiteKitConnected }
+				isAuthenticated={ isAuthenticated }
+				isVerified={ isVerified }
+				needReauthenticate={ needReauthenticate }
+				hasSearchConsoleProperty={ hasSearchConsoleProperty }
+				setErrorMessage={ this.setErrorMessage }
+				resetAndRestart={
+					progressSteps.clientCredentials
+						? this.resetAndRestart
+						: undefined
+				}
+			/>
+		);
 
 		const showVerificationSteps = canSetup;
-		const showAuthenticateButton = ! showVerificationSteps && ! isAuthenticated;
+		const showAuthenticateButton =
+			! showVerificationSteps && ! isAuthenticated;
 
 		return (
 			<Fragment>
-				<Header />
+				<Header>
+					<HelpMenu />
+				</Header>
 				<div className="googlesitekit-wizard">
-					<div className="mdc-layout-grid">
-						<div className="mdc-layout-grid__inner">
-							<div className="
-								mdc-layout-grid__cell
-								mdc-layout-grid__cell--span-12
-							">
+					<Grid>
+						<Row>
+							<Cell size={ 12 }>
 								<Layout>
 									<section className="googlesitekit-wizard-progress">
-										<div className="mdc-layout-grid">
-											<div className="mdc-layout-grid__inner">
-												{ showVerificationSteps &&
-													<div className="
-														mdc-layout-grid__cell
-														mdc-layout-grid__cell--span-12
-													">
+										<Grid>
+											<Row>
+												{ showVerificationSteps && (
+													<Cell size={ 12 }>
 														<div className="googlesitekit-wizard-progress__steps">
-															{ Object.keys( progressSteps ).map( ( step, stepIndex ) => {
-																return (
-																	<WizardProgressStep
-																		key={ progressSteps[ step ].title }
-																		currentStep={ currentStep === step }
-																		title={ progressSteps[ step ].title }
-																		step={ stepIndex + 1 }
-																		status={ this.stepStatus( progressSteps, step ) }
-																		warning={ progressSteps[ step ].warning }
-																		error={ progressSteps[ step ].error }
-																		stepKey={ step }
-																	/>
-																);
-															} ) }
+															{ Object.keys(
+																progressSteps
+															).map(
+																(
+																	step,
+																	stepIndex
+																) => {
+																	return (
+																		<WizardProgressStep
+																			key={
+																				progressSteps[
+																					step
+																				]
+																					.title
+																			}
+																			currentStep={
+																				currentStep ===
+																				step
+																			}
+																			title={
+																				progressSteps[
+																					step
+																				]
+																					.title
+																			}
+																			step={
+																				stepIndex +
+																				1
+																			}
+																			status={ this.stepStatus(
+																				progressSteps,
+																				step
+																			) }
+																			warning={
+																				progressSteps[
+																					step
+																				]
+																					.warning
+																			}
+																			error={
+																				progressSteps[
+																					step
+																				]
+																					.error
+																			}
+																			stepKey={
+																				step
+																			}
+																		/>
+																	);
+																}
+															) }
 														</div>
-													</div>
-												}
-											</div>
-										</div>
-										{ showAuthenticateButton &&
+													</Cell>
+												) }
+											</Row>
+										</Grid>
+										{ showAuthenticateButton && (
 											<div className="googlesitekit-setup__footer">
-												<div className="mdc-layout-grid">
-													<div className="mdc-layout-grid__inner">
-														<div className="
-															mdc-layout-grid__cell
-															mdc-layout-grid__cell--span-12
-														">
-															<h1 className="googlesitekit-setup__title">
-																{ __( 'Authenticate Site Kit', 'google-site-kit' ) }
-															</h1>
-															<p className="googlesitekit-setup__description">
-																{ __( 'Please sign into your Google account to begin.', 'google-site-kit' ) }
-															</p>
+												<Grid>
+													<Row>
+														<Cell size={ 12 }>
+															<Typography
+																as="h1"
+																className="googlesitekit-setup__title"
+																size="large"
+																type="headline"
+															>
+																{ __(
+																	'Authenticate Site Kit',
+																	'google-site-kit'
+																) }
+															</Typography>
+															<P
+																className="googlesitekit-setup__description"
+																size={
+																	SIZE_MEDIUM
+																}
+															>
+																{ __(
+																	'Please sign into your Google account to begin.',
+																	'google-site-kit'
+																) }
+															</P>
 															<Button
 																href="#"
-																onClick={ async () => {
-																	await trackEvent( 'plugin_setup', 'signin_with_google' );
-																	document.location = connectURL;
-																} }
-															>{ __( 'Sign in with Google', 'google-site-kit' ) }</Button>
-														</div>
-													</div>
-												</div>
+																onClick={
+																	this
+																		.onButtonClick
+																}
+															>
+																{ _x(
+																	'Sign in with Google',
+																	'Service name',
+																	'google-site-kit'
+																) }
+															</Button>
+														</Cell>
+													</Row>
+												</Grid>
 											</div>
-										}
+										) }
 									</section>
 									{ showVerificationSteps &&
-										wizardStepComponent
-									}
+										wizardStepComponent }
 								</Layout>
-							</div>
-						</div>
-					</div>
+							</Cell>
+						</Row>
+					</Grid>
 				</div>
 			</Fragment>
 		);
 	}
 }
 
-export default SetupUsingGCP;
+export default compose(
+	withSelect( ( select ) => {
+		return {
+			canSetup: select( CORE_USER ).hasCapability( PERMISSION_SETUP ),
+			redirectURL: select( CORE_SITE ).getAdminURL(
+				'googlesitekit-dashboard',
+				{
+					notification: 'authentication_success',
+				}
+			),
+		};
+	} )
+)( SetupUsingGCP );

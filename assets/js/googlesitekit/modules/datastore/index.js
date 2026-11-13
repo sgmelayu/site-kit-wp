@@ -19,19 +19,21 @@
 /**
  * Internal dependencies
  */
-import Data from 'googlesitekit-data';
-import settingsPanel from './settings-panel';
-import settings from './settings';
+import { combineStores, commonStore } from 'googlesitekit-data';
+import { createErrorStore } from '@/js/googlesitekit/data/create-error-store';
+import { CORE_MODULES } from './constants';
 import modules from './modules';
-import { createErrorStore } from '../../data/create-error-store';
-import { STORE_NAME } from './constants';
+import settings from './settings';
+import settingsPanel from './settings-panel';
+import sharingSettings from './sharing-settings';
 
-const store = Data.combineStores(
-	Data.commonStore,
+const store = combineStores(
+	commonStore,
 	modules,
-	createErrorStore(),
+	createErrorStore( CORE_MODULES ),
 	settingsPanel,
 	settings,
+	sharingSettings
 );
 
 export const initialState = store.initialState;
@@ -41,8 +43,8 @@ export const reducer = store.reducer;
 export const resolvers = store.resolvers;
 export const selectors = store.selectors;
 
-export const registerStore = ( registry ) => {
-	registry.registerStore( STORE_NAME, store );
-};
+export function registerStore( registry ) {
+	registry.registerStore( CORE_MODULES, store );
+}
 
 export default store;

@@ -1,0 +1,64 @@
+// Jest Snapshot v1, https://goo.gl/fbAQLP
+
+exports[`GoogleTagGatewaySetupSuccessSubtleNotification should render correctly 1`] = `
+<div>
+  <section
+    id="setup-success-notification-gtg"
+  >
+    <div
+      class="mdc-layout-grid"
+    >
+      <div
+        class="mdc-layout-grid__inner"
+      >
+        <div
+          class="mdc-layout-grid__cell mdc-layout-grid__cell--align-middle mdc-layout-grid__cell--span-12"
+        >
+          <div
+            class="googlesitekit-notice-container"
+          >
+            <div
+              class="googlesitekit-notice googlesitekit-notice--success googlesitekit-notice--default"
+              role="status"
+            >
+              <div
+                class="googlesitekit-notice__icon"
+              >
+                <svg />
+              </div>
+              <div
+                class="googlesitekit-typography googlesitekit-notice__content googlesitekit-typography--body googlesitekit-typography--medium"
+              >
+                <p
+                  class="googlesitekit-typography googlesitekit-notice__title googlesitekit-typography--label googlesitekit-typography--medium"
+                >
+                  You successfully enabled Google tag gateway for advertisers!
+                </p>
+                <p
+                  class="googlesitekit-typography googlesitekit-notice__description googlesitekit-typography--body googlesitekit-typography--medium"
+                >
+                  You can always disable it in Analytics or Ads settings
+                </p>
+              </div>
+              <div
+                class="googlesitekit-notice__action"
+              >
+                <button
+                  class="mdc-button mdc-button--tertiary"
+                  target="_self"
+                >
+                  <span
+                    class="mdc-button__label"
+                  >
+                    Got it
+                  </span>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+</div>
+`;

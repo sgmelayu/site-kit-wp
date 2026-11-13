@@ -1,0 +1,274 @@
+/**
+ * LeastEngagingPagesWidget component.
+ *
+ * Site Kit by Google, Copyright 2023 Google LLC
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     https://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+/**
+ * External dependencies
+ */
+import PropTypes from 'prop-types';
+
+/**
+ * Internal dependencies
+ */
+import { useInViewSelect, useSelect } from 'googlesitekit-data';
+import {
+	MetricTileTable,
+	MetricTileTablePlainText,
+} from '@/js/components/KeyMetrics';
+import Link from '@/js/components/Link';
+import {
+	CORE_USER,
+	KM_ANALYTICS_LEAST_ENGAGING_PAGES,
+} from '@/js/googlesitekit/datastore/user/constants';
+import useViewOnly from '@/js/hooks/useViewOnly';
+import { ZeroDataMessage } from '@/js/modules/analytics-4/components/common';
+import { MODULE_SLUG_ANALYTICS_4 } from '@/js/modules/analytics-4/constants';
+import { MODULES_ANALYTICS_4 } from '@/js/modules/analytics-4/datastore/constants';
+import { decodeAmpersand } from '@/js/modules/analytics-4/utils';
+import { numFmt } from '@/js/util';
+import whenActive from '@/js/util/when-active';
+import ConnectGA4CTATileWidget from './ConnectGA4CTATileWidget';
+
+/**
+ * Builds the GA4 `getReport` options for the Least engaging pages widget.
+ *
+ * Returns both reports the widget needs: the `pageViews` report that ranks every
+ * page by views so the caller can derive the median views, and the `report` that
+ * lists the least engaging pages by bounce rate, filtered to pages with at least
+ * the median views. The `report` filter depends on that median, so callers pass
+ * it once known.
+ *
+ * @since 1.186.0
+ *
+ * @param {Object} dates             The date range for the reports.
+ * @param {number} [medianPageViews] The median page views the `report` filters against. Defaults to `0`.
+ * @return {Object} The `pageViews` and `report` report options.
+ */
+export function getLeastEngagingPagesReportOptions(
+	dates,
+	medianPageViews = 0
+) {
+	const pageViews = {
+		...dates,
+		dimensions: [ 'pagePath' ],
+		metrics: [ { name: 'screenPageViews' } ],
+		orderby: [
+			{
+				metric: { metricName: 'screenPageViews' },
+				desc: true,
+			},
+		],
+		reportID:
+			'analytics-4_least-engaging-pages-widget_widget_pageViewsReportOptions',
+	};
+
+	const report = {
+		...dates,
+		dimensions: [ 'pagePath' ],
+		metrics: [ 'bounceRate', 'screenPageViews' ],
+		orderby: [
+			{
+				metric: { metricName: 'bounceRate' },
+				desc: true,
+			},
+			{
+				metric: { metricName: 'screenPageViews' },
+				desc: true,
+			},
+		],
+		metricFilters: {
+			screenPageViews: {
+				operation: 'GREATER_THAN_OR_EQUAL',
+				value: { int64Value: medianPageViews },
+			},
+		},
+		limit: 3,
+		reportID:
+			'analytics-4_least-engaging-pages-widget_widget_reportOptions',
+	};
+
+	return { pageViews, report };
+}
+
+function LeastEngagingPagesWidget( props ) {
+	const { Widget } = props;
+
+	const viewOnlyDashboard = useViewOnly();
+
+	const dates = useSelect( ( select ) =>
+		select( CORE_USER ).getDateRangeDates()
+	);
+
+	const { pageViews: pageViewsReportOptions } =
+		getLeastEngagingPagesReportOptions( dates );
+
+	const pageViewsReport = useInViewSelect(
+		( select ) =>
+			select( MODULES_ANALYTICS_4 ).getReport( pageViewsReportOptions ),
+		[ pageViewsReportOptions ]
+	);
+
+	const medianIndex = parseInt( pageViewsReport?.rowCount / 2, 10 );
+	const medianPageViews =
+		parseInt(
+			pageViewsReport?.rows?.[ medianIndex ]?.metricValues?.[ 0 ]?.value,
+			10
+		) || 0;
+
+	const { report: reportOptions } = getLeastEngagingPagesReportOptions(
+		dates,
+		medianPageViews
+	);
+
+	const loadedPageViewsReport = useSelect( ( select ) =>
+		select( MODULES_ANALYTICS_4 ).hasFinishedResolution( 'getReport', [
+			pageViewsReportOptions,
+		] )
+	);
+
+	const pageViewsReportError = useSelect( ( select ) =>
+		select( MODULES_ANALYTICS_4 ).getErrorForSelector( 'getReport', [
+			pageViewsReportOptions,
+		] )
+	);
+
+	const report = useInViewSelect(
+		( select ) => {
+			if ( ! loadedPageViewsReport ) {
+				return undefined;
+			}
+			if ( pageViewsReportError ) {
+				return null;
+			}
+			return select( MODULES_ANALYTICS_4 ).getReport( reportOptions );
+		},
+		[ loadedPageViewsReport, pageViewsReportError, reportOptions ]
+	);
+
+	const error = useSelect( ( select ) => {
+		const reportError = select( MODULES_ANALYTICS_4 ).getErrorForSelector(
+			'getReport',
+			[ reportOptions ]
+		);
+
+		if ( pageViewsReportError && reportError ) {
+			return [ pageViewsReportError, reportError ];
+		}
+
+		return pageViewsReportError || reportError || undefined;
+	} );
+
+	const titles = useInViewSelect(
+		( select ) =>
+			! error
+				? select( MODULES_ANALYTICS_4 ).getPageTitles(
+						report,
+						reportOptions
+				  )
+				: undefined,
+		[ error, report, reportOptions ]
+	);
+
+	const loading = useSelect(
+		( select ) =>
+			! select( MODULES_ANALYTICS_4 ).hasFinishedResolution(
+				'getReport',
+				[ reportOptions ]
+			) ||
+			titles === undefined ||
+			! loadedPageViewsReport
+	);
+
+	const format = {
+		style: 'percent',
+		signDisplay: 'never',
+		maximumFractionDigits: 1,
+	};
+
+	const { rows = [] } = report || {};
+
+	const columns = [
+		{
+			field: 'dimensionValues.0.value',
+			Component( { fieldValue } ) {
+				const url = fieldValue;
+				const title = decodeAmpersand( titles[ url ] );
+				// Utilizing `useSelect` inside the component rather than
+				// returning its direct value to the `columns` array.
+				// This pattern ensures that the component re-renders correctly based on changes in state,
+				// preventing potential issues with stale or out-of-sync data.
+				// Note: This pattern is replicated in a few other spots within our codebase.
+				const serviceURL = useSelect( ( select ) => {
+					return ! viewOnlyDashboard
+						? select( MODULES_ANALYTICS_4 ).getServiceReportURL(
+								'all-pages-and-screens',
+								{
+									filters: {
+										unifiedPagePathScreen: url,
+									},
+									dates,
+								}
+						  )
+						: null;
+				} );
+
+				if ( viewOnlyDashboard ) {
+					return <MetricTileTablePlainText content={ title } />;
+				}
+
+				return (
+					<Link
+						href={ serviceURL }
+						title={ title }
+						external
+						hideExternalIndicator
+					>
+						{ title }
+					</Link>
+				);
+			},
+		},
+		{
+			field: 'metricValues.0.value',
+			Component( { fieldValue } ) {
+				return <strong>{ numFmt( fieldValue, format ) }</strong>;
+			},
+		},
+	];
+
+	return (
+		<MetricTileTable
+			Widget={ Widget }
+			widgetSlug={ KM_ANALYTICS_LEAST_ENGAGING_PAGES }
+			loading={ loading }
+			rows={ rows }
+			columns={ columns }
+			ZeroState={ ZeroDataMessage }
+			error={ error }
+			moduleSlug="analytics-4"
+		/>
+	);
+}
+
+LeastEngagingPagesWidget.propTypes = {
+	Widget: PropTypes.elementType.isRequired,
+};
+
+export default whenActive( {
+	moduleName: MODULE_SLUG_ANALYTICS_4,
+	FallbackComponent: ConnectGA4CTATileWidget,
+} )( LeastEngagingPagesWidget );

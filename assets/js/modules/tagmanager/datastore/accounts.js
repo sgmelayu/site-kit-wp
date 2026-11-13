@@ -24,28 +24,33 @@ import invariant from 'invariant';
 /**
  * Internal dependencies
  */
-import API from 'googlesitekit-api';
-import Data from 'googlesitekit-data';
-import { CORE_SITE } from '../../../googlesitekit/datastore/site/constants';
-import { STORE_NAME, CONTAINER_CREATE } from './constants';
-import { actions as containerActions } from './containers';
-import { isValidAccountSelection } from '../util/validation';
-import { createFetchStore } from '../../../googlesitekit/data/create-fetch-store';
-import { ACCOUNT_CREATE } from '../../analytics/datastore/constants';
-const { createRegistrySelector } = Data;
+import { get } from 'googlesitekit-api';
+import {
+	combineStores,
+	commonActions,
+	createReducer,
+	createRegistrySelector,
+} from 'googlesitekit-data';
+import { createFetchStore } from '@/js/googlesitekit/data/create-fetch-store';
+import { createValidatedAction } from '@/js/googlesitekit/data/utils';
+import { CORE_SITE } from '@/js/googlesitekit/datastore/site/constants';
+import { ACCOUNT_CREATE } from '@/js/modules/analytics-4/datastore/constants';
+import { MODULE_SLUG_TAGMANAGER } from '@/js/modules/tagmanager/constants';
+import { isValidAccountSelection } from '@/js/modules/tagmanager/util/validation';
+import { CONTAINER_CREATE, MODULES_TAGMANAGER } from './constants';
 
 // Actions
 const RESET_ACCOUNTS = 'RESET_ACCOUNTS';
 
 const fetchGetAccountsStore = createFetchStore( {
 	baseName: 'getAccounts',
-	controlCallback: () => API.get( 'modules', 'tagmanager', 'accounts', null, { useCache: false } ),
-	reducerCallback: ( state, accounts ) => {
-		return {
-			...state,
-			accounts,
-		};
-	},
+	controlCallback: () =>
+		get( 'modules', MODULE_SLUG_TAGMANAGER, 'accounts', null, {
+			useCache: false,
+		} ),
+	reducerCallback: createReducer( ( state, accounts ) => {
+		state.accounts = accounts;
+	} ),
 } );
 
 export const baseInitialState = {
@@ -62,14 +67,16 @@ export const baseActions = {
 	 * @private
 	 */
 	*resetAccounts() {
-		const { dispatch } = yield Data.commonActions.getRegistry();
+		const { dispatch } = yield commonActions.getRegistry();
 
 		yield {
 			payload: {},
 			type: RESET_ACCOUNTS,
 		};
 
-		dispatch( STORE_NAME ).invalidateResolutionForStoreSelector( 'getAccounts' );
+		dispatch( MODULES_TAGMANAGER ).invalidateResolutionForStoreSelector(
+			'getAccounts'
+		);
 	},
 
 	/**
@@ -80,91 +87,129 @@ export const baseActions = {
 	 *
 	 * @param {string} accountID Tag Manager account ID to select.
 	 */
-	*selectAccount( accountID ) {
-		invariant( isValidAccountSelection( accountID ), 'A valid accountID selection is required to select.' );
+	selectAccount: createValidatedAction(
+		( accountID ) => {
+			invariant(
+				isValidAccountSelection( accountID ),
+				'A valid accountID selection is required to select.'
+			);
+		},
+		function* ( accountID ) {
+			const { dispatch, select, resolveSelect } =
+				yield commonActions.getRegistry();
 
-		const { select, dispatch } = yield Data.commonActions.getRegistry();
+			// Do nothing if the accountID to select is the same as the current.
+			if ( accountID === select( MODULES_TAGMANAGER ).getAccountID() ) {
+				return;
+			}
 
-		// Do nothing if the accountID to select is the same as the current.
-		if ( accountID === select( STORE_NAME ).getAccountID() ) {
-			return;
+			dispatch( MODULES_TAGMANAGER ).setSettings( {
+				accountID,
+				containerID: '',
+				internalContainerID: '',
+				ampContainerID: '',
+				internalAMPContainerID: '',
+			} );
+
+			if (
+				ACCOUNT_CREATE === accountID ||
+				select( MODULES_TAGMANAGER ).hasExistingTag()
+			) {
+				return;
+			}
+
+			// Trigger cascading selections.
+			const { isAMP, isSecondaryAMP } = select( CORE_SITE );
+			if ( ! isAMP() || isSecondaryAMP() ) {
+				const webContainers = yield commonActions.await(
+					resolveSelect( MODULES_TAGMANAGER ).getWebContainers(
+						accountID
+					)
+				);
+
+				if ( ! webContainers.length ) {
+					dispatch( MODULES_TAGMANAGER ).setContainerID(
+						CONTAINER_CREATE
+					);
+					dispatch( MODULES_TAGMANAGER ).setInternalContainerID( '' );
+				} else if ( webContainers.length === 1 ) {
+					dispatch( MODULES_TAGMANAGER ).setContainerID(
+						// eslint-disable-next-line sitekit/acronym-case
+						webContainers[ 0 ].publicId
+					);
+					dispatch( MODULES_TAGMANAGER ).setInternalContainerID(
+						// eslint-disable-next-line sitekit/acronym-case
+						webContainers[ 0 ].containerId
+					);
+				}
+			}
+
+			if ( isAMP() ) {
+				const ampContainers = yield commonActions.await(
+					resolveSelect( MODULES_TAGMANAGER ).getAMPContainers(
+						accountID
+					)
+				);
+
+				if ( ! ampContainers.length ) {
+					dispatch( MODULES_TAGMANAGER ).setAMPContainerID(
+						CONTAINER_CREATE
+					);
+					dispatch( MODULES_TAGMANAGER ).setInternalAMPContainerID(
+						''
+					);
+				} else if ( ampContainers.length === 1 ) {
+					dispatch( MODULES_TAGMANAGER ).setAMPContainerID(
+						// eslint-disable-next-line sitekit/acronym-case
+						ampContainers[ 0 ].publicId
+					);
+					dispatch( MODULES_TAGMANAGER ).setInternalAMPContainerID(
+						// eslint-disable-next-line sitekit/acronym-case
+						ampContainers[ 0 ].containerId
+					);
+				}
+			}
 		}
-
-		dispatch( STORE_NAME ).setAccountID( accountID );
-		dispatch( STORE_NAME ).setContainerID( '' );
-		dispatch( STORE_NAME ).setInternalContainerID( '' );
-		dispatch( STORE_NAME ).setAMPContainerID( '' );
-		dispatch( STORE_NAME ).setInternalAMPContainerID( '' );
-
-		if ( ACCOUNT_CREATE === accountID || select( STORE_NAME ).hasExistingTag() ) {
-			return;
-		}
-
-		// Containers may not be loaded yet for this account,
-		// and no selections are done in the getContainers resolver, so we wait here.
-		// This will not guarantee that containers exist, as an account may also have no containers
-		// it will simply wait for `getContainers` to be resolved for this account ID.
-		yield containerActions.waitForContainers( accountID );
-		// Trigger cascading selections.
-		const { isAMP, isSecondaryAMP } = select( CORE_SITE );
-		if ( ! isAMP() || isSecondaryAMP() ) {
-			const webContainers = select( STORE_NAME ).getWebContainers( accountID );
-			// eslint-disable-next-line sitekit/acronym-case
-			const webContainer = webContainers[ 0 ] || { publicId: CONTAINER_CREATE, containerId: '' };
-			// eslint-disable-next-line sitekit/acronym-case
-			dispatch( STORE_NAME ).setContainerID( webContainer.publicId );
-			// eslint-disable-next-line sitekit/acronym-case
-			dispatch( STORE_NAME ).setInternalContainerID( webContainer.containerId );
-		}
-
-		if ( isAMP() ) {
-			const ampContainers = select( STORE_NAME ).getAMPContainers( accountID );
-			// eslint-disable-next-line sitekit/acronym-case
-			const ampContainer = ampContainers[ 0 ] || { publicId: CONTAINER_CREATE, containerId: '' };
-			// eslint-disable-next-line sitekit/acronym-case
-			dispatch( STORE_NAME ).setAMPContainerID( ampContainer.publicId );
-			// eslint-disable-next-line sitekit/acronym-case
-			dispatch( STORE_NAME ).setInternalAMPContainerID( ampContainer.containerId );
-		}
-	},
+	),
 };
 
-export const baseReducer = ( state, { type } ) => {
+export const baseReducer = createReducer( ( state, { type } ) => {
 	switch ( type ) {
 		case RESET_ACCOUNTS: {
-			return {
-				...state,
-				accounts: undefined,
-				settings: {
-					...state.settings,
-					accountID: undefined,
-					ampContainerID: undefined,
-					containerID: undefined,
-					internalAMPContainerID: undefined,
-					internalContainerID: undefined,
-				},
-			};
+			state.accounts = undefined;
+			state.settings.accountID = undefined;
+			state.settings.ampContainerID = undefined;
+			state.settings.containerID = undefined;
+			state.settings.internalAMPContainerID = undefined;
+			state.settings.internalContainerID = undefined;
+
+			break;
 		}
 
-		default: {
-			return state;
-		}
+		default:
+			break;
 	}
-};
+} );
 
 export const baseResolvers = {
 	*getAccounts() {
-		const { select, dispatch } = yield Data.commonActions.getRegistry();
-		let accounts = select( STORE_NAME ).getAccounts();
+		const { select, dispatch } = yield commonActions.getRegistry();
+		let accounts = select( MODULES_TAGMANAGER ).getAccounts();
 
 		// Only fetch accounts if they have not been received yet.
 		if ( ! accounts ) {
-			( { response: accounts } = yield fetchGetAccountsStore.actions.fetchGetAccounts() );
+			( { response: accounts } =
+				yield fetchGetAccountsStore.actions.fetchGetAccounts() );
 		}
 
-		if ( accounts?.length && ! select( STORE_NAME ).getAccountID() ) {
-			// eslint-disable-next-line sitekit/acronym-case
-			dispatch( STORE_NAME ).selectAccount( accounts[ 0 ].accountId );
+		if (
+			accounts?.length === 1 &&
+			! select( MODULES_TAGMANAGER ).getAccountID()
+		) {
+			dispatch( MODULES_TAGMANAGER ).selectAccount(
+				// eslint-disable-next-line sitekit/acronym-case
+				accounts[ 0 ].accountId
+			);
 		}
 	},
 };
@@ -193,20 +238,17 @@ export const baseSelectors = {
 	 * @return {boolean} Whether accounts are currently being fetched or not.
 	 */
 	isDoingGetAccounts: createRegistrySelector( ( select ) => () => {
-		return select( STORE_NAME ).isFetchingGetAccounts();
+		return select( MODULES_TAGMANAGER ).isFetchingGetAccounts();
 	} ),
 };
 
-const store = Data.combineStores(
-	fetchGetAccountsStore,
-	{
-		initialState: baseInitialState,
-		actions: baseActions,
-		reducer: baseReducer,
-		resolvers: baseResolvers,
-		selectors: baseSelectors,
-	}
-);
+const store = combineStores( fetchGetAccountsStore, {
+	initialState: baseInitialState,
+	actions: baseActions,
+	reducer: baseReducer,
+	resolvers: baseResolvers,
+	selectors: baseSelectors,
+} );
 
 export const {
 	initialState,

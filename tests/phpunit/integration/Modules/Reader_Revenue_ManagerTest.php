@@ -1,0 +1,1389 @@
+<?php
+/**
+ * Reader_Revenue_ManagerTest
+ *
+ * @package   Google\Site_Kit\Tests\Modules
+ * @copyright 2024 Google LLC
+ * @license   https://www.apache.org/licenses/LICENSE-2.0 Apache License 2.0
+ * @link      https://sitekit.withgoogle.com
+ *
+ * phpcs:disable PHPCS.Commenting.RequireDocTagDescription -- Pre-existing violations; tracked for follow-up cleanup.
+ */
+
+namespace Google\Site_Kit\Tests\Modules;
+
+use Google\Site_Kit\Context;
+use Google\Site_Kit\Core\Authentication\Authentication;
+use Google\Site_Kit\Core\Dismissals\Dismissed_Items;
+use Google\Site_Kit\Core\Modules\Module;
+use Google\Site_Kit\Core\Modules\Module_With_Service_Entity;
+use Google\Site_Kit\Core\Modules\Module_With_Settings;
+use Google\Site_Kit\Core\Modules\Modules;
+use Google\Site_Kit\Core\REST_API\Data_Request;
+use Google\Site_Kit\Core\Site_Health\Debug_Data;
+use Google\Site_Kit\Core\Storage\Options;
+use Google\Site_Kit\Core\Storage\User_Options;
+use Google\Site_Kit\Modules\Reader_Revenue_Manager;
+use Google\Site_Kit\Modules\Reader_Revenue_Manager\Settings;
+use Google\Site_Kit\Modules\Reader_Revenue_Manager\Synchronization\CTA;
+use Google\Site_Kit\Modules\Search_Console\Settings as Search_Console_Settings;
+use Google\Site_Kit\Tests\Core\Modules\Module_With_Owner_ContractTests;
+use Google\Site_Kit\Tests\Core\Modules\Module_With_Scopes_ContractTests;
+use Google\Site_Kit\Tests\Core\Modules\Module_With_Service_Entity_ContractTests;
+use Google\Site_Kit\Tests\Core\Modules\Module_With_Settings_ContractTests;
+use Google\Site_Kit\Tests\FakeHttp;
+use Google\Site_Kit\Tests\TestCase;
+use Google\Site_Kit_Dependencies\Google\Service\SubscribewithGoogle\ListPublicationsResponse;
+use Google\Site_Kit_Dependencies\Google\Service\SubscribewithGoogle\Publication;
+use Google\Site_Kit_Dependencies\GuzzleHttp\Promise\FulfilledPromise;
+use Google\Site_Kit_Dependencies\GuzzleHttp\Psr7\Request;
+use Google\Site_Kit_Dependencies\GuzzleHttp\Psr7\Response;
+
+/**
+ * @group Modules
+ * @group Reader_Revenue_Manager
+ */
+class Reader_Revenue_ManagerTest extends TestCase {
+
+	use Module_With_Owner_ContractTests;
+	use Module_With_Scopes_ContractTests;
+	use Module_With_Service_Entity_ContractTests;
+	use Module_With_Settings_ContractTests;
+
+	/**
+	 * Context object.
+	 *
+	 * @var Context
+	 */
+	private $context;
+
+	/**
+	 * Authentication object.
+	 *
+	 * @var Authentication
+	 */
+	private $authentication;
+
+	/**
+	 * Options object.
+	 *
+	 * @var Options
+	 */
+	private $options;
+
+	/**
+	 * User_Options object.
+	 *
+	 * @var User_Options
+	 */
+	private $user_options;
+
+	/**
+	 * Reader_Revenue_Manager object.
+	 *
+	 * @var Reader_Revenue_Manager
+	 */
+	private $reader_revenue_manager;
+
+	public function set_up() {
+		parent::set_up();
+
+		$this->context                = new Context( GOOGLESITEKIT_PLUGIN_MAIN_FILE );
+		$this->options                = new Options( $this->context );
+		$user                         = $this->factory()->user->create_and_get( array( 'role' => 'administrator' ) );
+		$this->user_options           = new User_Options( $this->context, $user->ID );
+		$this->authentication         = new Authentication( $this->context, $this->options, $this->user_options );
+		$this->reader_revenue_manager = new Reader_Revenue_Manager( $this->context, $this->options, $this->user_options, $this->authentication );
+	}
+
+	public function test_register() {
+		remove_all_filters( 'googlesitekit_auth_scopes' );
+		remove_all_filters( 'googlesitekit_feature_metrics' );
+
+		$this->assertFalse( has_filter( 'googlesitekit_feature_metrics' ), 'There should be no filter for features metrics initially.' );
+
+		$this->reader_revenue_manager->register();
+
+		$this->assertEquals(
+			$this->reader_revenue_manager->get_scopes(),
+			apply_filters( 'googlesitekit_auth_scopes', array() ),
+			'Reader Revenue Manager scopes should be properly registered and available through the auth scopes filter.'
+		);
+		$this->assertTrue( has_filter( 'googlesitekit_feature_metrics' ), 'The filter for features metrics should be registered.' );
+	}
+
+	/**
+	 * @dataProvider data_auth_scopes
+	 */
+	public function test_auth_scopes( $enabled, $authenticated, $connected, $granted_scopes, $expected_scopes ) {
+		if ( $enabled ) {
+			$this->enable_feature( 'rrmExpressSetup' );
+		}
+		remove_all_filters( 'googlesitekit_auth_scopes' );
+		$this->reader_revenue_manager->register();
+		if ( $authenticated ) {
+			$this->authentication->token()->set( array( 'access_token' => 'test-access-token' ) );
+		}
+		if ( $connected ) {
+			$this->reader_revenue_manager->get_settings()->merge( array( 'publicationID' => 'test-publication' ) );
+		}
+		$base_scopes = array( 'https://www.googleapis.com/auth/subscribewithgoogle.publications.readonly' );
+		$this->authentication->get_oauth_client()->set_granted_scopes( array_merge( $base_scopes, $granted_scopes ) );
+		$this->assertEqualSets(
+			array_merge( $base_scopes, $expected_scopes ),
+			apply_filters( 'googlesitekit_auth_scopes', array() ),
+			'Only new setups and previously granted scopes should require the new RRM scopes.'
+		);
+	}
+
+	public function data_auth_scopes() {
+		$readonly = Reader_Revenue_Manager::READONLY_SCOPE;
+		$manage   = Reader_Revenue_Manager::MANAGE_SCOPE;
+		return array(
+			'unauthenticated'       => array( true, false, false, array(), array( $readonly ) ),
+			'new setup'             => array( true, true, false, array(), array( $readonly ) ),
+			'legacy connected user' => array( true, true, true, array(), array() ),
+			'readonly granted'      => array( true, true, true, array( $readonly ), array( $readonly ) ),
+			'manage granted'        => array( true, true, true, array( $manage ), array( $manage ) ),
+			'both granted'          => array( true, true, true, array( $readonly, $manage ), array( $readonly, $manage ) ),
+			'flag off during setup' => array( false, false, false, array(), array() ),
+			'flag off with grants'  => array( false, true, true, array( $readonly, $manage ), array() ),
+		);
+	}
+
+	/**
+	 * @dataProvider data_express_write_datapoints
+	 */
+	public function test_express_write_datapoints_require_manage_scope( $datapoint ) {
+		$this->enable_feature( 'rrmExpressSetup' );
+		$this->authentication->get_oauth_client()->set_granted_scopes( $this->reader_revenue_manager->get_scopes() );
+		$result = $this->reader_revenue_manager->set_data( $datapoint, array() );
+		$this->assertWPError( $result, 'Write requests without the manage scope should fail.' );
+		$this->assertSame( 'missing_required_scopes', $result->get_error_code(), 'The error should identify insufficient scopes.' );
+		$this->assertSame( array( Reader_Revenue_Manager::MANAGE_SCOPE ), $result->get_error_data()['scopes'], 'The error should request the manage scope.' );
+	}
+
+	public function data_express_write_datapoints() {
+		return array(
+			'create publication' => array( 'create-publication' ),
+			'update publication' => array( 'publication' ),
+			'create CTA'         => array( 'create-cta' ),
+		);
+	}
+
+	public function test_register__reset_product_id_dismissals_on_publication_change() {
+		$this->reader_revenue_manager->register();
+		$this->reader_revenue_manager->get_settings()->register();
+
+		$dismissed_items = new Dismissed_Items( $this->user_options );
+
+		// Set dismissals for product ID notifications.
+		foreach ( Reader_Revenue_Manager::PRODUCT_ID_NOTIFICATIONS as $notification ) {
+			$dismissed_items->add( $notification );
+
+			$this->assertTrue( $dismissed_items->is_dismissed( $notification ), 'Product ID notification should be dismissed after adding it to dismissed items.' );
+		}
+
+		$this->reader_revenue_manager->get_settings()->merge(
+			array(
+				'publicationID' => 'A1A2C4D5E6',
+			)
+		);
+
+		// Verify that the product ID notification dismissals are reset.
+		foreach ( Reader_Revenue_Manager::PRODUCT_ID_NOTIFICATIONS as $notification ) {
+			$this->assertFalse( $dismissed_items->is_dismissed( $notification ), 'Product ID notification dismissals should be reset when publication ID changes.' );
+		}
+	}
+
+	public function test_register__reset_policy_violation_notification_dismissals_on_publication_change() {
+		$this->reader_revenue_manager->register();
+		$this->reader_revenue_manager->get_settings()->register();
+
+		$dismissed_items = new Dismissed_Items( $this->user_options );
+
+		// Set dismissals for policy violation notifications.
+		foreach ( Reader_Revenue_Manager::POLICY_VIOLATION_NOTIFICATIONS as $notification ) {
+			$dismissed_items->add( $notification );
+
+			$this->assertTrue( $dismissed_items->is_dismissed( $notification ), 'Policy violation notification should be dismissed after adding it to dismissed items.' );
+		}
+
+		$this->reader_revenue_manager->get_settings()->merge(
+			array(
+				'publicationID' => 'A1A2C4D5E6',
+			)
+		);
+
+		// Verify that the product ID notification dismissals are reset.
+		foreach ( Reader_Revenue_Manager::PRODUCT_ID_NOTIFICATIONS as $notification ) {
+			$this->assertFalse( $dismissed_items->is_dismissed( $notification ), 'Product ID notification dismissals should be reset when publication ID changes.' );
+		}
+	}
+
+	/**
+	 * @dataProvider data_triggers_cta_sync_on_publication_change
+	 */
+	public function test_register__triggers_cta_sync_on_publication_change( $new_publication_id, $new_organization_id, $expected_sync_count ) {
+		$this->enable_feature( 'rrmExpressSetup' );
+
+		// Establish the existing settings before the on_change listener is registered,
+		// so setting up this initial state does not itself trigger the reset below.
+		$this->reader_revenue_manager->get_settings()->set(
+			array(
+				'publicationID'  => 'OLD_PUBLICATION',
+				'organizationID' => 'test-organization-id',
+				'configuredCTAs' => array(
+					'old-cta-id' => array(
+						'type'        => 'newsletter-signup',
+						'state'       => 'ACTIVE',
+						'displayName' => 'Newsletter sign-up',
+					),
+				),
+			)
+		);
+
+		$this->reader_revenue_manager->register();
+		$this->reader_revenue_manager->get_settings()->register();
+
+		// Prevent the real CTA synchronization callback from running (and making an HTTP request).
+		remove_all_actions( CTA::CRON_SYNCHRONIZE_PUBLICATION_CTAS );
+
+		$this->reader_revenue_manager->get_settings()->merge(
+			array(
+				'publicationID'  => $new_publication_id,
+				'organizationID' => $new_organization_id,
+			)
+		);
+
+		$this->assertSame(
+			$expected_sync_count,
+			did_action( CTA::CRON_SYNCHRONIZE_PUBLICATION_CTAS ),
+			'CTA synchronization should only be triggered when both the publication and organization IDs are set.'
+		);
+
+		$this->assertEquals(
+			(object) array(),
+			$this->reader_revenue_manager->get_settings()->get()['configuredCTAs'],
+			'configuredCTAs should be cleared immediately when the publication ID changes, regardless of whether the sync runs.'
+		);
+	}
+
+	public function data_triggers_cta_sync_on_publication_change() {
+		return array(
+			'both publication and organization IDs set' => array( 'NEW_PUBLICATION', 'test-organization-id', 1 ),
+			'organization ID cleared'                   => array( 'NEW_PUBLICATION', '', 0 ),
+			'publication ID cleared'                    => array( '', 'test-organization-id', 0 ),
+		);
+	}
+
+	public function test_register__triggers_cta_sync_on_fresh_setup() {
+		$this->enable_feature( 'rrmExpressSetup' );
+
+		// Register before any settings exist, so the first write below goes through
+		// the `add_option_{option}` hook rather than `update_option_{option}`. This is
+		// the path taken when connecting Reader Revenue Manager for the first time,
+		// e.g. after disconnecting and setting up again from "Connect More Services".
+		$this->reader_revenue_manager->register();
+		$this->reader_revenue_manager->get_settings()->register();
+
+		$this->assertFalse( $this->reader_revenue_manager->get_settings()->has(), 'Settings should not exist yet for a fresh setup.' );
+
+		// Prevent the real CTA synchronization callback from running (and making an HTTP request).
+		remove_all_actions( CTA::CRON_SYNCHRONIZE_PUBLICATION_CTAS );
+
+		$this->reader_revenue_manager->get_settings()->merge(
+			array(
+				'publicationID'  => 'NEW_PUBLICATION',
+				'organizationID' => 'test-organization-id',
+			)
+		);
+
+		$this->assertSame(
+			1,
+			did_action( CTA::CRON_SYNCHRONIZE_PUBLICATION_CTAS ),
+			'CTA synchronization should be triggered immediately when connecting to a publication for the first time.'
+		);
+	}
+
+	public function test_register__does_not_trigger_cta_sync_when_publication_unchanged() {
+		$this->enable_feature( 'rrmExpressSetup' );
+
+		$this->reader_revenue_manager->get_settings()->set(
+			array(
+				'publicationID'  => 'SAME_PUBLICATION',
+				'organizationID' => 'test-organization-id',
+				'configuredCTAs' => array(
+					'existing-cta-id' => array(
+						'type'        => 'newsletter-signup',
+						'state'       => 'ACTIVE',
+						'displayName' => 'Newsletter sign-up',
+					),
+				),
+			)
+		);
+
+		$this->reader_revenue_manager->register();
+		$this->reader_revenue_manager->get_settings()->register();
+
+		// Prevent the real CTA synchronization callback from running (and making an HTTP request).
+		remove_all_actions( CTA::CRON_SYNCHRONIZE_PUBLICATION_CTAS );
+
+		$this->reader_revenue_manager->get_settings()->merge(
+			array(
+				'publicationID' => 'SAME_PUBLICATION',
+			)
+		);
+
+		$this->assertSame(
+			0,
+			did_action( CTA::CRON_SYNCHRONIZE_PUBLICATION_CTAS ),
+			'CTA synchronization should not be triggered when the publication ID is unchanged.'
+		);
+
+		$this->assertSame(
+			array(
+				'existing-cta-id' => array(
+					'type'        => 'newsletter-signup',
+					'state'       => 'ACTIVE',
+					'displayName' => 'Newsletter sign-up',
+				),
+			),
+			$this->reader_revenue_manager->get_settings()->get()['configuredCTAs'],
+			'configuredCTAs should be unchanged when confirming settings without changing the publication.'
+		);
+	}
+
+	public function test_magic_methods() {
+		$this->assertEquals( 'reader-revenue-manager', $this->reader_revenue_manager->slug, 'Reader Revenue Manager module slug should be correct.' );
+		$this->assertEquals( 'Reader Revenue Manager', $this->reader_revenue_manager->name, 'Reader Revenue Manager module name should be correct.' );
+		$this->assertEquals( 'https://publishercenter.google.com', $this->reader_revenue_manager->homepage, 'Reader Revenue Manager module homepage should be correct.' );
+		$this->assertEquals( 'Add simple CTAs to your pages that ask readers to sign up for your newsletter, complete a survey, make a contribution, or subscribe', $this->reader_revenue_manager->description, 'Reader Revenue Manager module description should be correct.' );
+		$this->assertEquals( 10, $this->reader_revenue_manager->order, 'Reader Revenue Manager module order should be correct.' ); // Since order is not set, it uses the default value.
+	}
+
+	public function test_get_scopes() {
+		$this->assertEqualSets(
+			array(
+				'https://www.googleapis.com/auth/subscribewithgoogle.publications.readonly',
+			),
+			$this->reader_revenue_manager->get_scopes(),
+			'Reader Revenue Manager module should have correct scopes.'
+		);
+	}
+
+	public function test_service_classes_exist() {
+		$this->assertTrue(
+			class_exists( 'Google\Site_Kit_Dependencies\Google\Service\SubscribewithGoogle' ),
+			'SubscribewithGoogle service class should exist.'
+		);
+		$this->assertTrue(
+			class_exists( 'Google\Site_Kit_Dependencies\Google\Service\WebContentPublisher' ),
+			'WebContentPublisher service class should exist.'
+		);
+	}
+
+	public function test_get_datapoints() {
+		$this->assertEqualSets(
+			array(
+				'publications',
+				'sync-publication-onboarding-state',
+			),
+			$this->reader_revenue_manager->get_datapoints(),
+			'Reader Revenue Manager module should have correct datapoints.'
+		);
+	}
+
+	public function test_get_datapoints__with_express_setup_flag() {
+		$this->enable_feature( 'rrmExpressSetup' );
+
+		$this->assertEqualSets(
+			array(
+				'create-publication',
+				'publication',
+				'publications',
+				'sync-publication-onboarding-state',
+				'terms-of-service',
+				'user-settings',
+				'ctas',
+				'create-cta',
+			),
+			$this->reader_revenue_manager->get_datapoints(),
+			'Reader Revenue Manager module should include the express setup datapoints when the express setup flag is enabled.'
+		);
+	}
+
+
+	public function test_sync_publication_onboarding_state_onboarding_state_unchanged() {
+		// Set the Search Console option.
+		$this->options->set( Search_Console_Settings::OPTION, array( 'propertyID' => 'http://test.com' ) );
+
+		FakeHttp::fake_google_http_handler(
+			$this->reader_revenue_manager->get_client(),
+			function ( Request $request ) use ( &$filter ) {
+				$url    = parse_url( $request->getUri() );
+				$filter = $url['query'];
+
+				switch ( $url['path'] ) {
+					case '/v1/publications':
+						return new FulfilledPromise(
+							new Response(
+								200,
+								array(),
+								json_encode( $this->get_publications_list_response() )
+							)
+						);
+				}
+			}
+		);
+
+		$this->reader_revenue_manager->register();
+
+		$this->authentication->get_oauth_client()->set_granted_scopes(
+			$this->authentication->get_oauth_client()->get_required_scopes()
+		);
+
+		$result = $this->reader_revenue_manager->set_data(
+			'sync-publication-onboarding-state',
+			array(
+				'publicationID'              => 'ABCDEFGH',
+				'publicationOnboardingState' => 'PENDING_VERIFICATION',
+			)
+		);
+
+		$this->assertNotWPError( $result, 'Synchronizing an unchanged publication onboarding state should not return a WP_Error.' );
+		$this->assertEquals( (object) array(), $result, 'Sync result should be empty object when onboarding state is unchanged.' );
+	}
+
+	public function test_sync_publication_onboarding_state_onboarding_state_changed() {
+		// Set the Search Console option.
+		$this->options->set( Search_Console_Settings::OPTION, array( 'propertyID' => 'http://test.com' ) );
+
+		FakeHttp::fake_google_http_handler(
+			$this->reader_revenue_manager->get_client(),
+			function ( Request $request ) use ( &$filter ) {
+				$url    = parse_url( $request->getUri() );
+				$filter = $url['query'];
+
+				switch ( $url['path'] ) {
+					case '/v1/publications':
+						return new FulfilledPromise(
+							new Response(
+								200,
+								array(),
+								json_encode( $this->get_publications_list_response( 'ABCDEFGH', 'ONBOARDING_COMPLETE' ) )
+							)
+						);
+				}
+			}
+		);
+
+		$this->reader_revenue_manager->register();
+
+		$this->authentication->get_oauth_client()->set_granted_scopes(
+			$this->authentication->get_oauth_client()->get_required_scopes()
+		);
+
+		$this->reader_revenue_manager->get_settings()->set(
+			array(
+				'publicationID'              => 'ABCDEFGH',
+				'publicationOnboardingState' => 'ONBOARDING_ACTION_REQUIRED',
+			)
+		);
+
+		$result = $this->reader_revenue_manager->set_data(
+			'sync-publication-onboarding-state',
+			array(
+				'publicationID'              => 'ABCDEFGH',
+				'publicationOnboardingState' => 'ONBOARDING_ACTION_REQUIRED',
+			)
+		);
+
+		$this->assertNotWPError( $result, 'Synchronizing a changed publication onboarding state should not return a WP_Error.' );
+		$this->assertEquals( 'ONBOARDING_COMPLETE', $result->publicationOnboardingState, 'Publication onboarding state should be updated to complete.' );
+		$this->assertEquals( 'ABCDEFGH', $result->publicationID, 'Publication ID should be correct in sync result.' );
+	}
+
+	public function test_sync_publication_onboarding_state_publication_not_found() {
+		// Set the Search Console option.
+		$this->options->set( Search_Console_Settings::OPTION, array( 'propertyID' => 'http://test.com' ) );
+
+		FakeHttp::fake_google_http_handler(
+			$this->reader_revenue_manager->get_client(),
+			function ( Request $request ) use ( &$filter ) {
+				$url    = parse_url( $request->getUri() );
+				$filter = $url['query'];
+
+				switch ( $url['path'] ) {
+					case '/v1/publications':
+						return new FulfilledPromise(
+							new Response(
+								200,
+								array(),
+								json_encode( array() )
+							)
+						);
+				}
+			}
+		);
+
+		$this->reader_revenue_manager->register();
+
+		$this->authentication->get_oauth_client()->set_granted_scopes(
+			$this->authentication->get_oauth_client()->get_required_scopes()
+		);
+
+		$result = $this->reader_revenue_manager->set_data(
+			'sync-publication-onboarding-state',
+			array(
+				'publicationID'              => 'IJKLMNOP',
+				'publicationOnboardingState' => 'PENDING_VERIFICATION',
+			)
+		);
+
+		$this->assertWPError( $result, 'Synchronizing an unavailable publication should return a WP_Error.' );
+		$this->assertEquals( 'publication_not_found', $result->get_error_code(), 'Error code should indicate publication not found.' );
+	}
+
+	public function test_sync_publication_onboarding_state_no_publication_id() {
+		$this->reader_revenue_manager->register();
+
+		$this->authentication->get_oauth_client()->set_granted_scopes(
+			$this->authentication->get_oauth_client()->get_required_scopes()
+		);
+
+		$result = $this->reader_revenue_manager->set_data(
+			'sync-publication-onboarding-state',
+			array(
+				'publicationOnboardingState' => 'PENDING_VERIFICATION',
+			)
+		);
+
+		$this->assertWPError( $result, 'Synchronization without a publication ID should return a WP_Error.' );
+		$this->assertEquals( 'missing_required_param', $result->get_error_code(), 'Error code should indicate missing required parameter.' );
+		$this->assertEquals( 'Request parameter is empty: publicationID.', $result->get_error_message(), 'Error message should indicate missing publication ID.' );
+	}
+
+	public function test_sync_publication_onboarding_state_no_publication_onboarding_state() {
+		$this->reader_revenue_manager->register();
+
+		$this->authentication->get_oauth_client()->set_granted_scopes(
+			$this->authentication->get_oauth_client()->get_required_scopes()
+		);
+
+		$result = $this->reader_revenue_manager->set_data(
+			'sync-publication-onboarding-state',
+			array(
+				'publicationID' => 'ABCDEFGH',
+			)
+		);
+
+		$this->assertWPError( $result, 'Synchronization without an onboarding state should return a WP_Error.' );
+		$this->assertEquals( 'missing_required_param', $result->get_error_code(), 'Error code should indicate missing required parameter for onboarding state.' );
+		$this->assertEquals( 'Request parameter is empty: publicationOnboardingState.', $result->get_error_message(), 'Error message should indicate missing publication onboarding state.' );
+	}
+
+	public function test_is_connected() {
+		$options                = new Options( $this->context );
+		$reader_revenue_manager = new Reader_Revenue_Manager( $this->context, $options );
+
+		$this->assertFalse( $reader_revenue_manager->is_connected(), 'Reader Revenue Manager should not be connected without publication ID.' );
+
+		$options->set(
+			Settings::OPTION,
+			array(
+				'publicationID' => 'ABCDEFGH',
+			)
+		);
+
+		$this->assertTrue( $reader_revenue_manager->is_connected(), 'Reader Revenue Manager should be connected with publication ID.' );
+	}
+
+	public function test_on_deactivation() {
+		$options = new Options( $this->context );
+		$options->set( Settings::OPTION, 'test-value' );
+
+		$reader_revenue_manager = new Reader_Revenue_Manager( $this->context, $options );
+		$reader_revenue_manager->on_deactivation();
+
+		$this->assertOptionNotExists( Settings::OPTION, 'Settings option should not exist after deactivation.' );
+	}
+
+	public function data_product_ids__singular() {
+		return array(
+			'with no product ID configured'            => array(
+				array(),
+				'',
+				'openaccess',
+			),
+			'with product ID set in settings'          => array(
+				array(
+					'productID' => 'ABDCEFGH:advanced',
+				),
+				'',
+				'advanced',
+			),
+			'with product ID set in settings and post' => array(
+				array(
+					'productID' => 'ABDCEFGH:advanced',
+				),
+				'openaccess',
+				'openaccess',
+			),
+			'with product ID set in post to none'      => array(
+				array(
+					'productID' => 'ABDCEFGH:advanced',
+				),
+				'none',
+				'',
+			),
+		);
+	}
+
+	/**
+	 * @dataProvider data_product_ids__singular
+	 */
+	public function test_template_redirect__singular( $settings, $post_product_id, $expected_product_id ) {
+		$publication_id = 'ABCDEFGH';
+
+		// Prevent test from failing in CI with deprecation notice.
+		remove_action( 'wp_print_styles', 'print_emoji_styles' );
+
+		remove_all_actions( 'template_redirect' );
+
+		$this->reader_revenue_manager->register();
+		$this->reader_revenue_manager->get_settings()->register();
+		$this->reader_revenue_manager->get_settings()->merge(
+			array_merge(
+				array( 'publicationID' => $publication_id ),
+				$settings
+			)
+		);
+
+		// Navigate to a singular post.
+		$post_ID = $this->factory()->post->create();
+		$this->go_to( get_permalink( $post_ID ) );
+
+		// Set post product ID.
+		if ( $post_product_id ) {
+			update_post_meta(
+				$post_ID,
+				'googlesitekit_rrm_' . $publication_id . ':productID',
+				$post_product_id
+			);
+		}
+
+		do_action( 'template_redirect' );
+		do_action( 'wp_enqueue_scripts' );
+
+		$footer_html = $this->capture_action( 'wp_footer' );
+
+		if ( $expected_product_id ) {
+			$this->assertStringContainsString( 'Google Reader Revenue Manager snippet added by Site Kit', $footer_html, 'Footer HTML should contain the Google Reader Revenue Manager snippet comment when product ID is expected.' );
+			$this->assertStringContainsString( 'https://news.google.com/swg/js/v1/swg-basic.js', $footer_html, 'Footer HTML should contain the SWG basic JavaScript URL when product ID is expected.' ); // phpcs:ignore WordPress.WP.EnqueuedResources.NonEnqueuedScript
+			$this->assertStringContainsString( '(self.SWG_BASIC=self.SWG_BASIC||[]).push(basicSubscriptions=>{basicSubscriptions.init({"type":"NewsArticle","isPartOfType":["Product"],"isPartOfProductId":"' . $publication_id . ':' . $expected_product_id . '","clientOptions":{"theme":"light","lang":"en-US"}});});', $footer_html, 'Footer HTML should contain the SWG basic subscriptions initialization script with correct product ID when product ID is expected.' );
+		} else {
+			$this->assertStringNotContainsString( 'Google Reader Revenue Manager snippet added by Site Kit', $footer_html, 'Footer HTML should not contain the Google Reader Revenue Manager snippet comment when no product ID is expected.' );
+		}
+	}
+
+	public function data_product_ids__non_singular() {
+		return array(
+			'with no product ID configured' => array(
+				array(),
+				'',
+			),
+			'with no product ID configured and snippet mode of site wide' => array(
+				array(
+					'snippetMode' => 'sitewide',
+				),
+				'openaccess',
+			),
+			'with product ID set in settings and snippet mode of post_types' => array(
+				array(
+					'productID' => 'ABDCEFGH:advanced',
+				),
+				'',
+			),
+			'with product ID set in settings and snippet mode of site wide' => array(
+				array(
+					'productID'   => 'ABDCEFGH:advanced',
+					'snippetMode' => 'sitewide',
+				),
+				'advanced',
+			),
+		);
+	}
+
+	/**
+	 * @dataProvider data_product_ids__non_singular
+	 */
+	public function test_template_redirect__non_singular( $settings, $expected_product_id ) {
+		$publication_id = 'ABCDEFGH';
+
+		// Prevent test from failing in CI with deprecation notice.
+		remove_action( 'wp_print_styles', 'print_emoji_styles' );
+
+		remove_all_actions( 'template_redirect' );
+
+		$this->reader_revenue_manager->register();
+		$this->reader_revenue_manager->get_settings()->register();
+		$this->reader_revenue_manager->get_settings()->merge(
+			array_merge(
+				array( 'publicationID' => $publication_id ),
+				$settings
+			)
+		);
+
+		do_action( 'template_redirect' );
+		do_action( 'wp_enqueue_scripts' );
+
+		$footer_html = $this->capture_action( 'wp_footer' );
+
+		if ( $expected_product_id ) {
+			$this->assertStringContainsString( 'Google Reader Revenue Manager snippet added by Site Kit', $footer_html, 'Footer HTML should contain the Google Reader Revenue Manager snippet comment for non-singular pages when product ID is expected.' );
+			$this->assertStringContainsString( 'https://news.google.com/swg/js/v1/swg-basic.js', $footer_html, 'Footer HTML should contain the SWG basic JavaScript URL for non-singular pages when product ID is expected.' );
+			$this->assertStringContainsString( '(self.SWG_BASIC=self.SWG_BASIC||[]).push(basicSubscriptions=>{basicSubscriptions.init({"type":"NewsArticle","isPartOfType":["Product"],"isPartOfProductId":"' . $publication_id . ':' . $expected_product_id . '","clientOptions":{"theme":"light","lang":"en-US"}});});', $footer_html, 'Footer HTML should contain the SWG basic subscriptions initialization script with correct product ID for non-singular pages when product ID is expected.' );
+		} else {
+			$this->assertStringNotContainsString( 'Google Reader Revenue Manager snippet added by Site Kit', $footer_html, 'Footer HTML should not contain the Google Reader Revenue Manager snippet comment for non-singular pages when no product ID is expected.' );
+		}
+	}
+
+	public function test_get_debug_fields() {
+		$this->enable_feature( 'rrmExpressSetup' );
+
+		$this->reader_revenue_manager->get_settings()->register();
+
+		// Set up product IDs in different formats for testing extraction and redaction.
+		$this->reader_revenue_manager->get_settings()->set(
+			array(
+				'publicationID'  => 'test-publication-id',
+				'productIDs'     => array(
+					'test-publication-id:product1',  // Combined format.
+					'standalone-product',           // Standalone format.
+					'test-publication-id:product2',  // Another combined format.
+				),
+				'productID'      => 'test-publication-id:main-product',  // Main product in combined format.
+				'organizationID' => 'test-organization-id',
+				'configuredCTAs' => array(
+					'9d2418415-ab3a' => array(
+						'type'        => 'newsletter-signup',
+						'state'       => 'ACTIVE',
+						'displayName' => 'Weekly newsletter',
+					),
+					'8j8152411-cd4b' => array(
+						'type'        => 'newsletter-signup',
+						'state'       => 'DRAFT',
+						'displayName' => '',
+					),
+				),
+			)
+		);
+
+		// Verify `postTypes` field appears when the `snippetMode` is `post_types` (default).
+		$this->assertEqualSets(
+			array(
+				'reader_revenue_manager_publication_id',
+				'reader_revenue_manager_organization_id',
+				'reader_revenue_manager_configured_ctas',
+				'reader_revenue_manager_publication_onboarding_state',
+				'reader_revenue_manager_snippet_mode',
+				'reader_revenue_manager_post_types',
+				'reader_revenue_manager_product_id',
+				'reader_revenue_manager_available_product_ids',
+				'reader_revenue_manager_payment_option',
+				'reader_revenue_manager_content_policy_state',
+			),
+			array_keys( $this->reader_revenue_manager->get_debug_fields() ),
+			'Reader Revenue Manager debug fields should include post types in post-types snippet mode.'
+		);
+
+		$debug_fields = $this->reader_revenue_manager->get_debug_fields();
+
+		// Test organization ID is exposed raw, but redacted in debug output.
+		$this->assertEquals(
+			'Reader Revenue Manager: Organization ID',
+			$debug_fields['reader_revenue_manager_organization_id']['label'],
+			'Organization ID field should have correct label'
+		);
+
+		$this->assertEquals(
+			'test-organization-id',
+			$debug_fields['reader_revenue_manager_organization_id']['value'],
+			'Organization ID should be exposed as the raw setting value'
+		);
+
+		$this->assertEquals(
+			Debug_Data::redact_debug_value( 'test-organization-id' ),
+			$debug_fields['reader_revenue_manager_organization_id']['debug'],
+			'Organization ID should be redacted in debug output'
+		);
+
+		// Test configured CTAs are exposed as a comma-separated list of their IDs, types and states.
+		$this->assertEquals(
+			'Reader Revenue Manager: Configured CTAs',
+			$debug_fields['reader_revenue_manager_configured_ctas']['label'],
+			'Configured CTAs field should have correct label'
+		);
+
+		$this->assertEquals(
+			'9d2418415-ab3a (newsletter-signup, ACTIVE), 8j8152411-cd4b (newsletter-signup, DRAFT)',
+			$debug_fields['reader_revenue_manager_configured_ctas']['value'],
+			'Configured CTAs should list the ID, type and state of each CTA, without display names'
+		);
+
+		$this->assertEquals(
+			'9d2418415-ab3a (newsletter-signup, ACTIVE), 8j8152411-cd4b (newsletter-signup, DRAFT)',
+			$debug_fields['reader_revenue_manager_configured_ctas']['debug'],
+			'Configured CTAs debug output should match the value'
+		);
+
+		// Test product IDs extraction - should only show the product ID part.
+		$this->assertEquals(
+			'product1, standalone-product, product2',
+			$debug_fields['reader_revenue_manager_available_product_ids']['value'],
+			'Available product IDs should be extracted correctly'
+		);
+
+		// Test product IDs redaction - should redact publication ID but keep product ID.
+		$this->assertStringContainsString(
+			'test•••••••••••••••:product1',
+			$debug_fields['reader_revenue_manager_available_product_ids']['debug'],
+			'Publication ID should be partially redacted in debug output'
+		);
+
+		$this->assertStringContainsString(
+			'standalone-product',
+			$debug_fields['reader_revenue_manager_available_product_ids']['debug'],
+			'Standalone product ID should not be changed in debug output'
+		);
+
+		$this->assertStringContainsString(
+			'test•••••••••••••••:product2',
+			$debug_fields['reader_revenue_manager_available_product_ids']['debug'],
+			'Second publication ID should be partially redacted in debug output'
+		);
+
+		// Test main product ID extraction.
+		$this->assertEquals(
+			'main-product',
+			$debug_fields['reader_revenue_manager_product_id']['value'],
+			'Main product ID should be extracted correctly'
+		);
+
+		// Test main product ID redaction - should redact publication ID but keep product ID.
+		$this->assertEquals(
+			'test•••••••••••••••:main-product',
+			$debug_fields['reader_revenue_manager_product_id']['debug'],
+			'Publication ID should be partially redacted in main product ID debug output'
+		);
+
+		// Set `snippetMode` to `per_post`.
+		$this->reader_revenue_manager->get_settings()->set(
+			array(
+				'snippetMode' => 'per_post',
+			)
+		);
+
+		// Verify `postTypes` field does not appear when the `snippetMode` is not `post_types`.
+		$this->assertEqualSets(
+			array(
+				'reader_revenue_manager_publication_id',
+				'reader_revenue_manager_organization_id',
+				'reader_revenue_manager_configured_ctas',
+				'reader_revenue_manager_publication_onboarding_state',
+				'reader_revenue_manager_snippet_mode',
+				'reader_revenue_manager_product_id',
+				'reader_revenue_manager_available_product_ids',
+				'reader_revenue_manager_payment_option',
+				'reader_revenue_manager_content_policy_state',
+			),
+			array_keys( $this->reader_revenue_manager->get_debug_fields() ),
+			'Reader Revenue Manager debug fields should omit post types outside post-types snippet mode.'
+		);
+	}
+
+	public function test_get_debug_fields__content_policy_state() {
+		$this->reader_revenue_manager->get_settings()->register();
+
+		// Test that the content policy state debug field is included with default value.
+		$this->reader_revenue_manager->get_settings()->set(
+			array(
+				'publicationID' => 'test-publication-id',
+			)
+		);
+
+		$debug_fields = $this->reader_revenue_manager->get_debug_fields();
+		$this->assertArrayHasKey(
+			'reader_revenue_manager_content_policy_state',
+			$debug_fields,
+			'Content policy state debug field should be included.'
+		);
+
+		// Verify the express setup fields are omitted while the feature flag is off.
+		$this->assertArrayNotHasKey(
+			'reader_revenue_manager_organization_id',
+			$debug_fields,
+			'Organization ID debug field should be omitted when rrmExpressSetup is disabled.'
+		);
+
+		$this->assertArrayNotHasKey(
+			'reader_revenue_manager_configured_ctas',
+			$debug_fields,
+			'Configured CTAs debug field should be omitted when rrmExpressSetup is disabled.'
+		);
+
+		$this->assertEquals(
+			'',
+			$debug_fields['reader_revenue_manager_content_policy_state']['value'],
+			'Content policy state value should be empty when contentPolicyState is default.'
+		);
+
+		// Test that the content policy state debug field has correct values when `contentPolicyState` is set.
+		$this->reader_revenue_manager->get_settings()->set(
+			array(
+				'publicationID'      => 'test-publication-id',
+				'contentPolicyState' => 'CONTENT_POLICY_VIOLATION_GRACE_PERIOD',
+			)
+		);
+
+		$debug_fields = $this->reader_revenue_manager->get_debug_fields();
+		$this->assertArrayHasKey(
+			'reader_revenue_manager_content_policy_state',
+			$debug_fields,
+			'Content policy state debug field should be included when contentPolicyState is set.'
+		);
+
+		$this->assertEquals(
+			'Reader Revenue Manager: Content policy state',
+			$debug_fields['reader_revenue_manager_content_policy_state']['label'],
+			'Content policy state field should have correct label'
+		);
+
+		$this->assertEquals(
+			'CONTENT_POLICY_VIOLATION_GRACE_PERIOD',
+			$debug_fields['reader_revenue_manager_content_policy_state']['value'],
+			'Content policy state field should have correct value'
+		);
+
+		$this->assertEquals(
+			'CONTENT_POLICY_VIOLATION_GRACE_PERIOD',
+			$debug_fields['reader_revenue_manager_content_policy_state']['debug'],
+			'Content policy state field should have correct debug value'
+		);
+	}
+
+	public function test_check_service_entity_access_no_access_unavailable_publication() {
+		$module = $this->get_module_with_service_entity();
+
+		$this->mock_service_entity_access( $module, 200 );
+		$this->set_up_check_service_entity_access( $module );
+
+		// Change saved publication to one that is not available.
+		$module->get_settings()->merge(
+			array(
+				'publicationID' => 'IJKLMNOP',
+			)
+		);
+
+		$access = $module->check_service_entity_access();
+
+		$this->assertNotWPError( $access, 'Unavailable publication access check should return an access result rather than a WP_Error.' );
+		$this->assertEquals( false, $access, 'Service entity access should be false when publication is unavailable.' );
+	}
+
+	public function test_product_id_setting_registered() {
+		$publication_id = 'ABCDEFGH';
+
+		$this->reader_revenue_manager->get_settings()->set(
+			array(
+				'publicationID' => $publication_id,
+			)
+		);
+
+		$this->reader_revenue_manager->register();
+
+		$registered = registered_meta_key_exists( 'post', 'googlesitekit_rrm_' . $publication_id . ':productID' );
+
+		$this->assertTrue( $registered, 'Product ID meta key should be registered when publication ID is set.' );
+	}
+
+	public function test_publication_id_empty_product_id_setting_not_registered() {
+		$publication_id = 'ABCDEFGH';
+
+		$this->reader_revenue_manager->get_settings()->set(
+			array(
+				'publicationID' => '',
+			)
+		);
+
+		$this->reader_revenue_manager->register();
+
+		$registered = registered_meta_key_exists( 'post', 'googlesitekit_rrm_' . $publication_id . ':productID' );
+
+		$this->assertFalse( $registered, 'Product ID meta key should not be registered when publication ID is empty.' );
+	}
+
+	public function test_get_assets() {
+		$script = $this->reader_revenue_manager->get_assets()[0];
+		$script->register( $this->context );
+
+		$dependency = wp_scripts()->registered['googlesitekit-modules-reader-revenue-manager'];
+
+		$this->assertEqualSets(
+			array(
+				'googlesitekit-vendor',
+				'googlesitekit-api',
+				'googlesitekit-data',
+				'googlesitekit-feature-discovery',
+				'googlesitekit-modules',
+				'googlesitekit-notifications',
+				'googlesitekit-datastore-site',
+				'googlesitekit-datastore-user',
+				'googlesitekit-components',
+				// Needed in the block editor too, where nothing else loads it.
+				'googlesitekit-widgets',
+			),
+			$dependency->deps,
+			'Reader Revenue Manager script should have the correct dependencies.'
+		);
+	}
+
+	public function test_block_editor_assets_set_up() {
+		if ( version_compare( get_bloginfo( 'version' ), '5.8', '<' ) ) {
+			$this->markTestSkipped( 'This test only runs on WordPress 5.8 and above.' );
+		}
+
+		// Ensure the module is connected.
+		$this->reader_revenue_manager->get_settings()->set(
+			array(
+				'publicationID' => 'ABCDEFGH',
+			)
+		);
+
+		$registerable_asset_handles = array_map(
+			function ( $asset ) {
+				return $asset->get_handle();
+			},
+			$this->reader_revenue_manager->get_assets()
+		);
+
+		$rrm_block_asset_handles = array(
+			'blocks-reader-revenue-manager-block-editor-plugin',
+			'blocks-reader-revenue-manager-block-editor-plugin-styles',
+			'blocks-contribute-with-google',
+			'blocks-subscribe-with-google',
+			'blocks-reader-revenue-manager-common-editor-styles',
+		);
+
+		$missing_handles = array_diff( $rrm_block_asset_handles, $registerable_asset_handles );
+
+		$this->assertEmpty(
+			$missing_handles,
+			'The following expected asset handles are missing: ' . implode( ', ', $missing_handles )
+		);
+	}
+
+	public function test_block_editor_assets_not_set_up() {
+		if ( version_compare( get_bloginfo( 'version' ), '5.8', '<' ) === false ) {
+			$this->markTestSkipped( 'This test only runs on WordPress 5.8 <.' );
+		}
+
+		// Ensure the module is connected.
+		$this->reader_revenue_manager->get_settings()->set(
+			array(
+				'publicationID' => 'ABCDEFGH',
+			)
+		);
+
+		$registerable_asset_handles = array_map(
+			function ( $asset ) {
+				return $asset->get_handle();
+			},
+			$this->reader_revenue_manager->get_assets()
+		);
+
+		$rrm_block_asset_handles = array(
+			'blocks-reader-revenue-manager-block-editor-plugin',
+			'blocks-reader-revenue-manager-block-editor-plugin-styles',
+			'blocks-contribute-with-google',
+			'blocks-subscribe-with-google',
+		);
+
+		$present_handles = array_intersect( $rrm_block_asset_handles, $registerable_asset_handles );
+
+		$this->assertEmpty(
+			$present_handles,
+			'The following block editor handles should not be present: ' . implode( ', ', $present_handles )
+		);
+	}
+
+	public function test_non_sk_user_scripts_not_enqueued_for_sk_users() {
+		// Create a user.
+		$user = $this->factory()->user->create_and_get( array( 'role' => 'editor' ) );
+		wp_set_current_user( $user->ID );
+
+		// Simulate view-only access to Site Kit for the user.
+		$module_sharing_settings = new \Google\Site_Kit\Core\Modules\Module_Sharing_Settings( $this->options );
+		$module_sharing_settings->set(
+			array(
+				'analytics-4' => array(
+					'sharedRoles' => array( 'editor' ),
+					'management'  => 'owner',
+				),
+			)
+		);
+
+		remove_all_actions( 'googlesitekit_assets' );
+		remove_all_actions( 'enqueue_block_editor_assets' );
+
+		$modules = new Modules( $this->context, $this->options, $this->user_options );
+		$modules->register();
+
+		// Ensure the module is connected.
+		$this->reader_revenue_manager->get_settings()->set(
+			array(
+				'publicationID' => 'ABCDEFGH',
+			)
+		);
+
+		$this->reader_revenue_manager->register();
+
+		do_action( 'enqueue_block_editor_assets' );
+
+		$this->assertFalse( wp_script_is( 'blocks-contribute-with-google-non-sitekit-user', 'enqueued' ), 'blocks-contribute-with-google-non-sitekit-user should not be enqueued' );
+		$this->assertFalse( wp_script_is( 'blocks-subscribe-with-google-non-sitekit-user', 'enqueued' ), 'blocks-subscribe-with-google-non-sitekit-user should not be enqueued' );
+	}
+
+	public function test_non_sk_user_scripts_enqueued() {
+		if ( version_compare( get_bloginfo( 'version' ), '5.8', '<' ) ) {
+			$this->markTestSkipped( 'This test only runs on WordPress 5.8 and above.' );
+		}
+
+		remove_all_actions( 'googlesitekit_assets' );
+		remove_all_actions( 'enqueue_block_editor_assets' );
+		$modules = new Modules( $this->context, $this->options, $this->user_options );
+		$modules->register();
+
+		// Ensure the module is connected.
+		$this->reader_revenue_manager->get_settings()->set(
+			array(
+				'publicationID' => 'ABCDEFGH',
+			)
+		);
+
+		$this->reader_revenue_manager->register();
+
+		do_action( 'enqueue_block_editor_assets' );
+
+		$this->assertTrue( wp_script_is( 'blocks-contribute-with-google-non-sitekit-user', 'enqueued' ), 'blocks-contribute-with-google-non-sitekit-user should be enqueued' );
+		$this->assertTrue( wp_script_is( 'blocks-subscribe-with-google-non-sitekit-user', 'enqueued' ), 'blocks-subscribe-with-google-non-sitekit-user should be enqueued' );
+	}
+
+	public function test_non_sk_user_has_styles_enqueued() {
+		if ( version_compare( get_bloginfo( 'version' ), '5.8', '<' ) ) {
+			$this->markTestSkipped( 'This test only runs on WordPress 5.8 and above.' );
+		}
+
+		remove_all_actions( 'googlesitekit_assets' );
+		remove_all_actions( 'enqueue_block_assets' );
+
+		// Set admin context.
+		set_current_screen( 'dashboard' );
+
+		$modules = new Modules( $this->context, $this->options, $this->user_options );
+		$modules->register();
+
+		// Ensure the module is connected.
+		$this->reader_revenue_manager->get_settings()->set(
+			array(
+				'publicationID' => 'ABCDEFGH',
+			)
+		);
+
+		$this->reader_revenue_manager->register();
+
+		do_action( 'enqueue_block_assets' );
+
+		$this->assertTrue( wp_style_is( 'blocks-reader-revenue-manager-common-editor-styles', 'enqueued' ), 'blocks-reader-revenue-manager-common-editor-styles should be enqueued' );
+	}
+
+	/**
+	 * @dataProvider data_feature_metrics_settings
+	 *
+	 * @param array $settings               Settings to set.
+	 * @param array $expected_feature_metrics Expected feature metrics.
+	 * @param string $message                Message for the assertion.
+	 * @param bool $enable_feature_flag      Optional. Whether to enable the rrmExpressSetup feature flag. Default false.
+	 */
+	public function test_get_feature_metrics( $settings, $expected_feature_metrics, $message, $enable_feature_flag = false ) {
+		if ( $enable_feature_flag ) {
+			$this->enable_feature( 'rrmExpressSetup' );
+		}
+
+		$this->reader_revenue_manager->get_settings()->set( $settings );
+
+		$feature_metrics = $this->reader_revenue_manager->get_feature_metrics();
+
+		$this->assertEquals( $expected_feature_metrics, $feature_metrics, $message );
+	}
+
+	public function data_feature_metrics_settings() {
+		return array(
+			'default values when RRM is active but not fully setup'                                     => array(
+				array(),
+				array(
+					'rrm_publication_onboarding_state' => '',
+				),
+				'When settings are not set, the `rrm_publication_onboarding_state` feature metric should be empty.',
+			),
+			'publication onboarding state set to PENDING_VERIFICATION'                                   => array(
+				array(
+					'publicationOnboardingState' => 'PENDING_VERIFICATION',
+				),
+				array(
+					'rrm_publication_onboarding_state' => 'PENDING_VERIFICATION',
+				),
+				'When publication onboarding state is set to PENDING_VERIFICATION or some state, the feature metric should reflect that.',
+			),
+			'when feature flag is off, configured CTAs metric is not reported'                          => array(
+				array(
+					'configuredCTAs' => array(
+						'cta-1' => array(
+							'type'        => 'newsletter-signup',
+							'state'       => 'ACTIVE',
+							'displayName' => 'Newsletter sign-up',
+						),
+					),
+				),
+				array(
+					'rrm_publication_onboarding_state' => '',
+				),
+				'When rrmExpressSetup feature flag is off, the `rrm_publication_configured_ctas` metric should not be reported.',
+			),
+			'when configuredCTAs is empty, the metric is an empty array'                                => array(
+				array(
+					'configuredCTAs' => array(),
+				),
+				array(
+					'rrm_publication_onboarding_state' => '',
+					'rrm_publication_configured_ctas'  => array(),
+				),
+				'When configuredCTAs is empty, the metric should be an empty array.',
+				true,
+			),
+			'when configuredCTAs contains one CTA, the metric lists its type and state'                => array(
+				array(
+					'configuredCTAs' => array(
+						'cta-1' => array(
+							'type'        => 'newsletter-signup',
+							'state'       => 'ACTIVE',
+							'displayName' => 'Weekly newsletter',
+						),
+					),
+				),
+				array(
+					'rrm_publication_onboarding_state' => '',
+					'rrm_publication_configured_ctas'  => array( 'newsletter-signup:ACTIVE' ),
+				),
+				'When configuredCTAs contains one CTA, the metric should list its type and state, without its display name.',
+				true, // Enable feature flag.
+			),
+			'when configuredCTAs contains CTAs of the same type, the metric has one entry per CTA'      => array(
+				array(
+					'configuredCTAs' => array(
+						'cta-1' => array(
+							'type'        => 'newsletter-signup',
+							'state'       => 'ACTIVE',
+							'displayName' => 'Newsletter sign-up',
+						),
+						'cta-2' => array(
+							'type'        => 'newsletter-signup',
+							'state'       => 'ACTIVE',
+							'displayName' => 'Newsletter sign-up',
+						),
+						'cta-3' => array(
+							'type'        => 'newsletter-signup',
+							'state'       => 'DRAFT',
+							'displayName' => 'Newsletter sign-up',
+						),
+					),
+				),
+				array(
+					'rrm_publication_onboarding_state' => '',
+					'rrm_publication_configured_ctas'  => array( 'newsletter-signup:ACTIVE', 'newsletter-signup:ACTIVE', 'newsletter-signup:DRAFT' ),
+				),
+				'When configuredCTAs contains several CTAs of the same type, the metric should have one entry per CTA.',
+				true, // Enable feature flag.
+			),
+		);
+	}
+
+	/**
+	 * @return Module_With_Scopes
+	 */
+	protected function get_module_with_scopes() {
+		return $this->reader_revenue_manager;
+	}
+
+	/**
+	 * @return Module_With_Owner
+	 */
+	protected function get_module_with_owner() {
+		return $this->reader_revenue_manager;
+	}
+
+	/**
+	 * @return Module_With_Settings
+	 */
+	public function get_module_with_settings() {
+		return $this->reader_revenue_manager;
+	}
+
+	/**
+	 * @return Module|Module_With_Service_Entity|Module_With_Settings
+	 */
+	protected function get_module_with_service_entity() {
+		return $this->reader_revenue_manager;
+	}
+
+	protected function set_up_check_service_entity_access( Module_With_Settings $module ) {
+		$module->get_settings()->set(
+			array(
+				'publicationID' => 'ABCDEFGH',
+			)
+		);
+	}
+
+	protected function mock_service_entity_access( Module $module, $status_code ) {
+		FakeHttp::fake_google_http_handler(
+			$module->get_client(),
+			function () use ( $status_code ) {
+				if ( 200 === $status_code ) {
+					return new FulfilledPromise(
+						new Response(
+							200,
+							array(),
+							json_encode( $this->get_publications_list_response() )
+						)
+					);
+				}
+
+				return new FulfilledPromise( new Response( $status_code ) );
+			}
+		);
+	}
+
+	protected function get_publications_list_response( $publication_id = 'ABCDEFGH', $onboarding_state = 'PENDING_VERIFICATION' ) {
+		$publication = new Publication();
+
+		$publication->setPublicationId( $publication_id );
+		$publication->setDisplayName( 'Test Property' );
+		$publication->setOnboardingState( $onboarding_state );
+
+		$response = new ListPublicationsResponse();
+		$response->setPublications( array( $publication ) );
+
+		return $response;
+	}
+}

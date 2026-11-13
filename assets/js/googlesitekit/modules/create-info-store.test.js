@@ -24,10 +24,10 @@ import { addQueryArgs } from '@wordpress/url';
 /**
  * Internal dependencies
  */
-import { createTestRegistry, unsubscribeFromAll } from 'tests/js/utils';
+import { CORE_SITE } from '@/js/googlesitekit/datastore/site/constants';
+import { CORE_USER } from '@/js/googlesitekit/datastore/user/constants';
+import { createTestRegistry } from '@tests/js/utils';
 import { createInfoStore } from './create-info-store';
-import { CORE_SITE } from '../datastore/site/constants';
-import { CORE_USER } from '../datastore/user/constants';
 
 const MODULE_SLUG = 'test-slug';
 const TEST_STORE_NAME = `test/${ MODULE_SLUG }`;
@@ -39,12 +39,8 @@ describe( 'createInfoStore store', () => {
 		registry = createTestRegistry();
 	} );
 
-	afterEach( () => {
-		unsubscribeFromAll( registry );
-	} );
-
 	describe( 'storeName', () => {
-		it( 'throws an error if storeName is not passed', async () => {
+		it( 'throws an error if storeName is not passed', () => {
 			expect( () => {
 				createInfoStore( MODULE_SLUG );
 			} ).toThrow();
@@ -63,84 +59,194 @@ describe( 'createInfoStore store', () => {
 		describe( 'getAdminScreenURL', () => {
 			// Uses google dashboard when no `adminPage` is provided.
 			it( 'returns the adminScreenURL page if no `adminPage` is provided', () => {
-				registry.dispatch( CORE_SITE ).receiveSiteInfo( { adminURL: 'http://example.com/wp-admin/' } );
-				const { STORE_NAME, ...store } = createInfoStore( MODULE_SLUG, { storeName: TEST_STORE_NAME } );
+				registry.dispatch( CORE_SITE ).receiveSiteInfo( {
+					adminURL: 'http://example.com/wp-admin/',
+				} );
+				const { STORE_NAME, ...store } = createInfoStore( MODULE_SLUG, {
+					storeName: TEST_STORE_NAME,
+				} );
 				registry.registerStore( STORE_NAME, store );
 
-				const adminSreenURL = registry.select( STORE_NAME ).getAdminScreenURL();
+				const adminSreenURL = registry
+					.select( STORE_NAME )
+					.getAdminScreenURL();
 
 				const { origin, pathname } = new URL( adminSreenURL );
-				expect( origin + pathname ).toEqual( 'http://example.com/wp-admin/admin.php' );
-				expect( adminSreenURL ).toMatchQueryParameters( { page: 'googlesitekit-dashboard' } );
-			} );
-
-			// It uses `adminPage` when provided.
-			it( 'returns adminPage url when `adminPage` is provided', () => {
-				registry.dispatch( CORE_SITE ).receiveSiteInfo( { adminURL: 'http://example.com/wp-admin/' } );
-				const { STORE_NAME, ...store } = createInfoStore( MODULE_SLUG, { storeName: TEST_STORE_NAME, adminPage: 'test-admin-page' } );
-				registry.registerStore( STORE_NAME, store );
-
-				const adminSreenURL = registry.select( STORE_NAME ).getAdminScreenURL();
-
-				const { origin, pathname } = new URL( adminSreenURL );
-				expect( origin + pathname ).toEqual( 'http://example.com/wp-admin/admin.php' );
-				expect( adminSreenURL ).toMatchQueryParameters( { page: 'test-admin-page' } );
+				expect( origin + pathname ).toEqual(
+					'http://example.com/wp-admin/admin.php'
+				);
+				expect( adminSreenURL ).toMatchQueryParameters( {
+					page: 'googlesitekit-dashboard',
+				} );
 			} );
 
 			// It adds extra query parameters if provided.
 			it( 'adds extra query parameters to the adminScreenURL when provided', () => {
-				registry.dispatch( CORE_SITE ).receiveSiteInfo( { adminURL: 'http://example.com/wp-admin/' } );
-				const { STORE_NAME, ...store } = createInfoStore( MODULE_SLUG, { storeName: TEST_STORE_NAME } );
+				registry.dispatch( CORE_SITE ).receiveSiteInfo( {
+					adminURL: 'http://example.com/wp-admin/',
+				} );
+				const { STORE_NAME, ...store } = createInfoStore( MODULE_SLUG, {
+					storeName: TEST_STORE_NAME,
+				} );
 				registry.registerStore( STORE_NAME, store );
 
-				const adminSreenURL = registry.select( STORE_NAME ).getAdminScreenURL( { foo: 'bar' } );
+				const adminSreenURL = registry
+					.select( STORE_NAME )
+					.getAdminScreenURL( { foo: 'bar' } );
 
 				const { origin, pathname } = new URL( adminSreenURL );
-				expect( origin + pathname ).toEqual( 'http://example.com/wp-admin/admin.php' );
-				expect( adminSreenURL ).toMatchQueryParameters( { page: 'googlesitekit-dashboard', foo: 'bar' } );
+				expect( origin + pathname ).toEqual(
+					'http://example.com/wp-admin/admin.php'
+				);
+				expect( adminSreenURL ).toMatchQueryParameters( {
+					page: 'googlesitekit-dashboard',
+					foo: 'bar',
+				} );
 			} );
 		} );
 
 		describe( 'getAdminReauthURL', () => {
+			beforeEach( () => {
+				registry
+					.dispatch( CORE_USER )
+					.receiveConnectURL( 'http://example.com/connect' );
+			} );
+			it.each( [ false, true ] )(
+				'should request only missing additional scopes (reauthentication: %s)',
+				( needsReauthentication ) => {
+					registry.dispatch( CORE_SITE ).receiveSiteInfo( {
+						adminURL: 'http://example.com/wp-admin/',
+					} );
+					registry.dispatch( CORE_USER ).receiveGetAuthentication( {
+						needsReauthentication,
+						grantedScopes: [ 'granted' ],
+					} );
+					const { STORE_NAME, ...store } = createInfoStore(
+						MODULE_SLUG,
+						{ storeName: TEST_STORE_NAME }
+					);
+					registry.registerStore( STORE_NAME, store );
+					const url = registry
+						.select( STORE_NAME )
+						.getAdminReauthURL( {
+							additionalScopes: [ 'granted', 'missing' ],
+							redirectQueryArgs: {
+								expressSetup: true,
+								cta: 'newsletter-signup',
+							},
+						} );
+					expect(
+						url.startsWith( 'http://example.com/connect' )
+					).toBe( true );
+					expect( url ).toMatchQueryParameters( {
+						'additional_scopes[0]': 'missing',
+						status: 'true',
+					} );
+					expect(
+						new URL( url ).searchParams.get( 'redirect' )
+					).toMatchQueryParameters( {
+						expressSetup: 'true',
+						cta: 'newsletter-signup',
+					} );
+				}
+			);
+
+			it( 'should skip OAuth when all additional scopes are granted', () => {
+				registry.dispatch( CORE_SITE ).receiveSiteInfo( {
+					adminURL: 'http://example.com/wp-admin/',
+				} );
+				registry.dispatch( CORE_USER ).receiveGetAuthentication( {
+					needsReauthentication: false,
+					grantedScopes: [ 'granted' ],
+				} );
+				const { STORE_NAME, ...store } = createInfoStore( MODULE_SLUG, {
+					storeName: TEST_STORE_NAME,
+				} );
+				registry.registerStore( STORE_NAME, store );
+				const url = registry
+					.select( STORE_NAME )
+					.getAdminReauthURL( { additionalScopes: [ 'granted' ] } );
+				expect(
+					url.startsWith( 'http://example.com/wp-admin/admin.php' )
+				).toBe( true );
+			} );
+
 			// It generates an adminReauthURL with no slug passed.
 			it( 'works with no slug passed', () => {
-				registry.dispatch( CORE_SITE ).receiveSiteInfo( { adminURL: 'http://example.com/wp-admin/' } );
-				registry.dispatch( CORE_USER ).receiveGetAuthentication( { needsReauthentication: false } );
-				const { STORE_NAME, ...store } = createInfoStore( MODULE_SLUG, { storeName: TEST_STORE_NAME } );
+				registry.dispatch( CORE_SITE ).receiveSiteInfo( {
+					adminURL: 'http://example.com/wp-admin/',
+				} );
+				registry.dispatch( CORE_USER ).receiveGetAuthentication( {
+					needsReauthentication: false,
+				} );
+				const { STORE_NAME, ...store } = createInfoStore( MODULE_SLUG, {
+					storeName: TEST_STORE_NAME,
+				} );
 				registry.registerStore( STORE_NAME, store );
 
-				const adminReauthURL = registry.select( STORE_NAME ).getAdminReauthURL();
+				const adminReauthURL = registry
+					.select( STORE_NAME )
+					.getAdminReauthURL();
 
 				const { origin, pathname } = new URL( adminReauthURL );
-				expect( origin + pathname ).toEqual( 'http://example.com/wp-admin/admin.php' );
-				expect( adminReauthURL ).toMatchQueryParameters( { page: 'googlesitekit-dashboard', reAuth: 'true' } );
+				expect( origin + pathname ).toEqual(
+					'http://example.com/wp-admin/admin.php'
+				);
+				expect( adminReauthURL ).toMatchQueryParameters( {
+					page: 'googlesitekit-dashboard',
+					reAuth: 'true',
+				} );
 			} );
 
 			// It generates an adminReauthURL with reAuth set to false
 			it( 'it generates an adminReauthURL with reAuth set to false', () => {
-				registry.dispatch( CORE_SITE ).receiveSiteInfo( { adminURL: 'http://example.com/wp-admin/' } );
-				registry.dispatch( CORE_USER ).receiveGetAuthentication( { needsReauthentication: false } );
-				const { STORE_NAME, ...store } = createInfoStore( MODULE_SLUG, { storeName: TEST_STORE_NAME } );
+				registry.dispatch( CORE_SITE ).receiveSiteInfo( {
+					adminURL: 'http://example.com/wp-admin/',
+				} );
+				registry.dispatch( CORE_USER ).receiveGetAuthentication( {
+					needsReauthentication: false,
+				} );
+				const { STORE_NAME, ...store } = createInfoStore( MODULE_SLUG, {
+					storeName: TEST_STORE_NAME,
+				} );
 				registry.registerStore( STORE_NAME, store );
 
-				const adminReauthURL = registry.select( STORE_NAME ).getAdminReauthURL( false );
+				const adminReauthURL = registry
+					.select( STORE_NAME )
+					.getAdminReauthURL( { reAuth: false } );
 
 				const { origin, pathname } = new URL( adminReauthURL );
-				expect( origin + pathname ).toEqual( 'http://example.com/wp-admin/admin.php' );
-				expect( adminReauthURL ).toMatchQueryParameters( { page: 'googlesitekit-dashboard', reAuth: 'false' } );
+				expect( origin + pathname ).toEqual(
+					'http://example.com/wp-admin/admin.php'
+				);
+				expect( adminReauthURL ).toMatchQueryParameters( {
+					page: 'googlesitekit-dashboard',
+					reAuth: 'false',
+				} );
 			} );
 
 			// It adds notification_success parameter when needsReautentication is false and requireSetup is false.
 			it( 'adds notification query parameter to the adminReauthURL when needsReautentication is false and requireSetup is false', () => {
-				registry.dispatch( CORE_SITE ).receiveSiteInfo( { adminURL: 'http://example.com/wp-admin/' } );
-				registry.dispatch( CORE_USER ).receiveGetAuthentication( { needsReauthentication: false } );
-				const { STORE_NAME, ...store } = createInfoStore( MODULE_SLUG, { storeName: TEST_STORE_NAME, requiresSetup: false } );
+				registry.dispatch( CORE_SITE ).receiveSiteInfo( {
+					adminURL: 'http://example.com/wp-admin/',
+				} );
+				registry.dispatch( CORE_USER ).receiveGetAuthentication( {
+					needsReauthentication: false,
+				} );
+				const { STORE_NAME, ...store } = createInfoStore( MODULE_SLUG, {
+					storeName: TEST_STORE_NAME,
+					requiresSetup: false,
+				} );
 				registry.registerStore( STORE_NAME, store );
 
-				const adminReauthURL = registry.select( STORE_NAME ).getAdminReauthURL();
+				const adminReauthURL = registry
+					.select( STORE_NAME )
+					.getAdminReauthURL();
 
 				const { origin, pathname } = new URL( adminReauthURL );
-				expect( origin + pathname ).toEqual( 'http://example.com/wp-admin/admin.php' );
+				expect( origin + pathname ).toEqual(
+					'http://example.com/wp-admin/admin.php'
+				);
 				expect( adminReauthURL ).toMatchQueryParameters( {
 					page: 'googlesitekit-dashboard',
 					slug: MODULE_SLUG,
@@ -148,29 +254,131 @@ describe( 'createInfoStore store', () => {
 				} );
 			} );
 
-			// Uses connect URL when needsReautentication is true.
-			it( 'adds connectURL to the adminReauthURL when needsReautentication is true', () => {
-				const connectURLBase = 'http://connect.com/wp-admin/admin.php';
-				const connectURLQueryParams = {
-					page: 'googlesitekit-splash',
-					googlesitekit_connect: '1',
-					nonce: '12345',
-				};
-				const connectURL = addQueryArgs( connectURLBase, connectURLQueryParams );
-				registry.dispatch( CORE_SITE ).receiveSiteInfo( { adminURL: 'http://example.com/wp-admin/' } );
-				registry.dispatch( CORE_USER ).receiveGetAuthentication( { needsReauthentication: true } );
-				registry.dispatch( CORE_USER ).receiveConnectURL( connectURL );
-
-				const { STORE_NAME, ...store } = createInfoStore( MODULE_SLUG, { storeName: TEST_STORE_NAME } );
+			it( 'should not add notification query parameter to the adminReauthURL when reAuth is false', () => {
+				registry.dispatch( CORE_SITE ).receiveSiteInfo( {
+					adminURL: 'http://example.com/wp-admin/',
+				} );
+				registry.dispatch( CORE_USER ).receiveGetAuthentication( {
+					needsReauthentication: false,
+				} );
+				const { STORE_NAME, ...store } = createInfoStore( MODULE_SLUG, {
+					storeName: TEST_STORE_NAME,
+					requiresSetup: false,
+				} );
 				registry.registerStore( STORE_NAME, store );
 
-				const adminReauthURL = registry.select( STORE_NAME ).getAdminReauthURL();
+				const adminReauthURL = registry
+					.select( STORE_NAME )
+					.getAdminReauthURL( { reAuth: false } );
+
+				const url = new URL( adminReauthURL );
+				expect( url.origin + url.pathname ).toEqual(
+					'http://example.com/wp-admin/admin.php'
+				);
+				expect( url.searchParams.has( 'notification' ) ).toBe( false );
+				expect( adminReauthURL ).toMatchQueryParameters( {
+					page: 'googlesitekit-dashboard',
+					slug: MODULE_SLUG,
+					reAuth: 'false',
+				} );
+			} );
+
+			// Uses connect URL when needsReautentication is true.
+			it( 'adds connectURL to the adminReauthURL when needsReautentication is true', () => {
+				const connectURLBase = 'http://example.com/wp-admin/index.php';
+				const connectURLQueryParams = {
+					action: 'googlesitekit_connect',
+					nonce: 'abc123',
+				};
+				const connectURL = addQueryArgs(
+					connectURLBase,
+					connectURLQueryParams
+				);
+				registry.dispatch( CORE_SITE ).receiveSiteInfo( {
+					adminURL: 'http://example.com/wp-admin/',
+				} );
+				registry.dispatch( CORE_USER ).receiveGetAuthentication( {
+					needsReauthentication: true,
+				} );
+				registry.dispatch( CORE_USER ).receiveConnectURL( connectURL );
+
+				const { STORE_NAME, ...store } = createInfoStore( MODULE_SLUG, {
+					storeName: TEST_STORE_NAME,
+				} );
+				registry.registerStore( STORE_NAME, store );
+
+				const adminReauthURL = registry
+					.select( STORE_NAME )
+					.getAdminReauthURL();
 
 				const { origin, pathname } = new URL( adminReauthURL );
 				expect( origin + pathname ).toEqual( connectURLBase );
 				expect( adminReauthURL ).toMatchQueryParameters( {
 					...connectURLQueryParams,
 					redirect: `http://example.com/wp-admin/admin.php?page=googlesitekit-dashboard&slug=${ MODULE_SLUG }&reAuth=true`,
+					status: 'true',
+				} );
+			} );
+
+			it( 'adds redirectQueryArgs to the adminReauthURL', () => {
+				registry.dispatch( CORE_SITE ).receiveSiteInfo( {
+					adminURL: 'http://example.com/wp-admin/',
+				} );
+				registry.dispatch( CORE_USER ).receiveGetAuthentication( {
+					needsReauthentication: false,
+				} );
+				const { STORE_NAME, ...store } = createInfoStore( MODULE_SLUG, {
+					storeName: TEST_STORE_NAME,
+				} );
+				registry.registerStore( STORE_NAME, store );
+
+				const adminReauthURL = registry
+					.select( STORE_NAME )
+					.getAdminReauthURL( {
+						redirectQueryArgs: {
+							foo: 'bar',
+						},
+					} );
+
+				expect( adminReauthURL ).toMatchQueryParameters( {
+					page: 'googlesitekit-dashboard',
+					slug: MODULE_SLUG,
+					reAuth: 'true',
+					foo: 'bar',
+				} );
+			} );
+
+			it( 'adds redirectQueryArgs to the OAuth redirect when needsReauthentication is true', () => {
+				const connectURLBase = 'http://example.com/wp-admin/index.php';
+				const connectURL = addQueryArgs( connectURLBase, {
+					action: 'googlesitekit_connect',
+					nonce: 'abc123',
+				} );
+				registry.dispatch( CORE_SITE ).receiveSiteInfo( {
+					adminURL: 'http://example.com/wp-admin/',
+				} );
+				registry.dispatch( CORE_USER ).receiveGetAuthentication( {
+					needsReauthentication: true,
+				} );
+				registry.dispatch( CORE_USER ).receiveConnectURL( connectURL );
+
+				const { STORE_NAME, ...store } = createInfoStore( MODULE_SLUG, {
+					storeName: TEST_STORE_NAME,
+				} );
+				registry.registerStore( STORE_NAME, store );
+
+				const adminReauthURL = registry
+					.select( STORE_NAME )
+					.getAdminReauthURL( {
+						redirectQueryArgs: {
+							foo: 'bar',
+						},
+					} );
+
+				expect( adminReauthURL ).toMatchQueryParameters( {
+					action: 'googlesitekit_connect',
+					nonce: 'abc123',
+					redirect: `http://example.com/wp-admin/admin.php?page=googlesitekit-dashboard&slug=${ MODULE_SLUG }&reAuth=true&foo=bar`,
 					status: 'true',
 				} );
 			} );

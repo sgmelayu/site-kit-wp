@@ -19,55 +19,153 @@
 /**
  * WordPress dependencies
  */
-import { Fragment, useCallback } from '@wordpress/element';
+import { useCallback, useEffect, useState } from '@wordpress/element';
 import { __ } from '@wordpress/i18n';
 
 /**
  * Internal dependencies
  */
-import Data from 'googlesitekit-data';
-import { trackEvent } from '../../util';
-import { ActivationMain } from './activation-main';
-import NotificationCounter from '../legacy-notifications/notification-counter';
-import { CORE_SITE } from '../../googlesitekit/datastore/site/constants';
-import { CORE_USER, PERMISSION_VIEW_DASHBOARD } from '../../googlesitekit/datastore/user/constants';
-import { CORE_LOCATION } from '../../googlesitekit/datastore/location/constants';
-const { useSelect, useDispatch } = Data;
+import { Button, Checkbox } from 'googlesitekit-components';
+import { useDispatch, useSelect } from 'googlesitekit-data';
+import Logo from '@/js/components/Logo';
+import Typography from '@/js/components/Typography';
+import { CORE_LOCATION } from '@/js/googlesitekit/datastore/location/constants';
+import { CORE_SITE } from '@/js/googlesitekit/datastore/site/constants';
+import {
+	CORE_USER,
+	PERMISSION_VIEW_DASHBOARD,
+} from '@/js/googlesitekit/datastore/user/constants';
+import useViewContext from '@/js/hooks/useViewContext';
+import { Cell, Grid, Row } from '@/js/material-components';
+import { trackEvent } from '@/js/util';
 
 export function ActivationApp() {
 	const { navigateTo } = useDispatch( CORE_LOCATION );
+	const { enableAutoUpdate } = useDispatch( CORE_SITE );
+	const viewContext = useViewContext();
 
-	const proxySetupURL = useSelect( ( select ) => select( CORE_SITE ).getProxySetupURL() );
-	const dashboardURL = useSelect( ( select ) => select( CORE_SITE ).getAdminURL( 'googlesitekit-dashboard' ) );
-	const splashURL = useSelect( ( select ) => select( CORE_SITE ).getAdminURL( 'googlesitekit-splash' ) );
-	const canViewDashboard = useSelect( ( select ) => select( CORE_USER ).hasCapability( PERMISSION_VIEW_DASHBOARD ) );
+	const dashboardURL = useSelect( ( select ) =>
+		select( CORE_SITE ).getAdminURL( 'googlesitekit-dashboard' )
+	);
+	const splashURL = useSelect( ( select ) =>
+		select( CORE_SITE ).getAdminURL( 'googlesitekit-splash' )
+	);
+	const canViewDashboard = useSelect( ( select ) =>
+		select( CORE_USER ).hasCapability( PERMISSION_VIEW_DASHBOARD )
+	);
+	const siteKitAutoUpdatesEnabled = useSelect( ( select ) =>
+		select( CORE_SITE ).getSiteKitAutoUpdatesEnabled()
+	);
 
-	let buttonURL = proxySetupURL || splashURL;
-	let buttonLabel = __( 'Start setup', 'google-site-kit' );
+	const [ viewNotificationSent, setViewNotificationSent ] = useState( false );
+	const [ autoUpdatesEnabled, setAutoUpdatesEnabled ] = useState( false );
 
-	if ( canViewDashboard ) {
-		buttonURL = dashboardURL;
-		buttonLabel = __( 'Go to Dashboard', 'google-site-kit' );
-	}
+	const buttonURL = canViewDashboard ? dashboardURL : splashURL;
+	const buttonLabel = canViewDashboard
+		? __( 'Go to dashboard', 'google-site-kit' )
+		: __( 'Start setup', 'google-site-kit' );
 
-	const onButtonClick = useCallback( async ( event ) => {
-		event.preventDefault();
-		await trackEvent( 'plugin_setup', proxySetupURL ? 'proxy_start_setup_banner' : 'goto_sitekit' );
-		navigateTo( buttonURL );
-	}, [ proxySetupURL, buttonURL ] );
+	useEffect( () => {
+		// Only trigger the view event if the notification is visible and we haven't
+		// already sent this notification.
+		if ( ! viewNotificationSent && buttonURL ) {
+			trackEvent( viewContext, 'view_notification' );
+			// Don't send the view event again.
+			setViewNotificationSent( true );
+		}
+	}, [ viewContext, buttonURL, viewNotificationSent ] );
+
+	const toggleAutoUpdates = useCallback(
+		( event ) => {
+			const checked = !! event.target.checked;
+
+			setAutoUpdatesEnabled( checked );
+		},
+		[ setAutoUpdatesEnabled ]
+	);
+
+	const onButtonClick = useCallback(
+		async ( event ) => {
+			event.preventDefault();
+			const eventLabel = canViewDashboard ? 'dashboard' : 'splash';
+			await trackEvent( viewContext, 'confirm_notification', eventLabel );
+
+			if ( autoUpdatesEnabled ) {
+				await enableAutoUpdate();
+			}
+
+			navigateTo( buttonURL );
+		},
+		[
+			autoUpdatesEnabled,
+			buttonURL,
+			canViewDashboard,
+			enableAutoUpdate,
+			navigateTo,
+			viewContext,
+		]
+	);
+
+	const showAutoUpdatesCheckbox = siteKitAutoUpdatesEnabled === false;
+
+	useEffect( () => {
+		const noticeElement = document.getElementById(
+			'googlesitekit-notice-activated'
+		);
+		if ( noticeElement ) {
+			noticeElement.classList.toggle(
+				'googlesitekit-notice-activated--with-auto-updates-checkbox',
+				showAutoUpdatesCheckbox
+			);
+		}
+	}, [ showAutoUpdatesCheckbox ] );
 
 	if ( ! buttonURL ) {
 		return null;
 	}
 
 	return (
-		<Fragment>
-			<NotificationCounter />
-			<ActivationMain
-				buttonURL={ buttonURL }
-				buttonLabel={ buttonLabel }
-				onButtonClick={ onButtonClick }
-			/>
-		</Fragment>
+		<Grid>
+			<Row>
+				<Cell size={ 12 }>
+					<Logo />
+					<Typography
+						as="h3"
+						size="small"
+						type="headline"
+						className="googlesitekit-activation__title"
+					>
+						{ __(
+							'Congratulations, the Site Kit plugin is now activated',
+							'google-site-kit'
+						) }
+					</Typography>
+					{ showAutoUpdatesCheckbox && (
+						<div className="googlesitekit-activation__auto-updates">
+							<Checkbox
+								id="googlesitekit-activation-auto-updates"
+								name="googlesitekit-activation-auto-updates"
+								checked={ autoUpdatesEnabled }
+								onChange={ toggleAutoUpdates }
+							>
+								<span className="googlesitekit-activation__auto-updates-label">
+									{ __(
+										"Enable auto-update and stay up-to-date with Site Kit's latest features",
+										'google-site-kit'
+									) }
+								</span>
+							</Checkbox>
+						</div>
+					) }
+					<Button
+						id="start-setup-link"
+						className="googlesitekit-start-setup"
+						onClick={ onButtonClick }
+					>
+						{ buttonLabel }
+					</Button>
+				</Cell>
+			</Row>
+		</Grid>
 	);
 }

@@ -19,134 +19,131 @@
 /**
  * External dependencies
  */
-import Tab from '@material/react-tab';
-import TabBar from '@material/react-tab-bar';
-import { useFirstMountState, useHash } from 'react-use';
+import { Link, useLocation, withRouter } from 'react-router-dom';
 
 /**
  * WordPress dependencies
  */
-import { Fragment, useState } from '@wordpress/element';
+import { Fragment, useCallback } from '@wordpress/element';
 import { __ } from '@wordpress/i18n';
 
 /**
  * Internal dependencies
  */
-import Data from 'googlesitekit-data';
-import SettingsAdmin from './SettingsAdmin';
-import Header from '../Header';
-import PageHeader from '../PageHeader';
-import Layout from '../layout/Layout';
-import HelpLink from '../HelpLink';
+import { Tab, TabBar } from 'googlesitekit-components';
+import UserSettingsSelectionPanel from '@/js/components/email-reporting/UserSettingsSelectionPanel';
+import Header from '@/js/components/Header';
+import HelpMenu from '@/js/components/help/HelpMenu';
+import Layout from '@/js/components/layout/Layout';
+import PageHeader from '@/js/components/PageHeader';
+import useOpenEmailReportingSelectionPanelEffect from '@/js/hooks/useOpenEmailReportingSelectionPanelEffect';
+import useViewContext from '@/js/hooks/useViewContext';
+import { Cell, Grid, Row } from '@/js/material-components';
+import { trackEvent } from '@/js/util/tracking';
 import SettingsModules from './SettingsModules';
-import { CORE_MODULES } from '../../googlesitekit/modules/datastore/constants';
-import { Cell, Grid, Row } from '../../material-components';
 
-const { useSelect, useDispatch } = Data;
+function SettingsApp() {
+	useOpenEmailReportingSelectionPanelEffect();
 
-const hashFrom = ( tabID, slug, state ) => {
-	const fragments = [ tabID ];
-
-	if ( tabID === 'settings' && slug && state !== 'closed' ) {
-		fragments.push( slug );
-		if ( state ) {
-			fragments.push( state );
-		}
+	const location = useLocation();
+	// Prevent pushing to hash history if it would send you to the same URL.
+	// (Without this React Router will trigger a warning.)
+	function shouldReplaceHistory( path ) {
+		return false && basePath === path;
 	}
+	const [ , basePath ] = location.pathname.split( '/' );
+	const activeTab = SettingsApp.basePathToTabIndex[ basePath ];
 
-	return fragments.join( '/' );
-};
+	const viewContext = useViewContext();
 
-const parseHash = ( hashToParse ) => hashToParse.replace( '#', '' ).split( /\// );
-
-export default function SettingsApp() {
-	const [ hash, setHash ] = useHash();
-	const isFirstMount = useFirstMountState();
-	const { setModuleSettingsPanelState } = useDispatch( CORE_MODULES );
-	const [ initialActiveTabID, initialModuleSlug, initialModuleState ] = parseHash( hash );
-	const [ activeTabID, setActiveTabID ] = useState( initialActiveTabID || 'settings' );
-	const [ moduleSlug, setModuleSlug ] = useState( initialModuleSlug );
-	const activeTab = SettingsApp.tabToIndex[ activeTabID ];
-
-	if ( isFirstMount ) {
-		if ( initialModuleSlug ) {
-			setModuleSettingsPanelState( initialModuleSlug, initialModuleState );
-		}
-		if ( ! hash ) {
-			setHash( 'settings' );
-		}
-	}
-
-	const moduleState = useSelect( ( select ) => moduleSlug ? select( CORE_MODULES ).getModuleSettingsPanelState( moduleSlug ) : null );
-
-	const setModuleState = ( slug, state ) => {
-		if ( state === 'edit' || state === 'view' ) {
-			setModuleSlug( slug );
-		} else {
-			setModuleSlug( null );
-		}
-		setModuleSettingsPanelState( slug, state );
-		setHash( hashFrom( activeTabID, slug, state ) );
-	};
-
-	const handleTabUpdate = ( tabIndex ) => {
-		const newActiveTabID = SettingsApp.tabIDsByIndex[ tabIndex ];
-		setActiveTabID( newActiveTabID );
-		setHash( hashFrom( newActiveTabID ) );
-	};
+	const handleTabChange = useCallback( () => {
+		trackEvent( viewContext, 'tab_select', basePath );
+	}, [ basePath, viewContext ] );
 
 	return (
 		<Fragment>
-			<Header />
+			<Header>
+				<HelpMenu />
+			</Header>
+
 			<div className="googlesitekit-module-page">
 				<Grid>
 					<Row>
 						<Cell size={ 12 }>
-							<PageHeader title={ __( 'Settings', 'google-site-kit' ) } />
+							<PageHeader
+								title={ __( 'Settings', 'google-site-kit' ) }
+							/>
 						</Cell>
 						<Cell size={ 12 }>
-							<Layout>
+							<Layout transparent rounded>
 								<TabBar
 									activeIndex={ activeTab }
-									handleActiveIndexUpdate={ handleTabUpdate }
+									className="googlesitekit-tab-bar__settings"
+									handleActiveIndexUpdate={ handleTabChange }
 								>
-									<Tab>
-										<span className="mdc-tab__text-label">{ __( 'Connected Services', 'google-site-kit' ) }</span>
+									<Tab
+										tag={ Link }
+										to="/connected-services"
+										replace={ shouldReplaceHistory(
+											'connected-services'
+										) }
+									>
+										<span className="mdc-tab__text-label">
+											{ __(
+												'Connected Services',
+												'google-site-kit'
+											) }
+										</span>
 									</Tab>
-									<Tab>
-										<span className="mdc-tab__text-label">{ __( 'Connect More Services', 'google-site-kit' ) }</span>
+									<Tab
+										tag={ Link }
+										to="/connect-more-services"
+										replace={ shouldReplaceHistory(
+											'connect-more-services'
+										) }
+									>
+										<span className="mdc-tab__text-label">
+											{ __(
+												'Connect More Services',
+												'google-site-kit'
+											) }
+										</span>
 									</Tab>
-									<Tab>
-										<span className="mdc-tab__text-label">{ __( 'Admin Settings', 'google-site-kit' ) }</span>
+									<Tab
+										tag={ Link }
+										to="/admin-settings"
+										replace={ shouldReplaceHistory(
+											'admin-settings'
+										) }
+									>
+										<span className="mdc-tab__text-label">
+											{ __(
+												'Admin Settings',
+												'google-site-kit'
+											) }
+										</span>
 									</Tab>
 								</TabBar>
 							</Layout>
 						</Cell>
-						{ [ 'settings', 'connect' ].includes( activeTabID ) && ( // TODO Refactor SettingsModules into separate components.
-							<SettingsModules
-								activeTab={ activeTab }
-								activeModule={ moduleSlug }
-								moduleState={ moduleState }
-								setModuleState={ setModuleState }
-							/>
-						) }
-						{ 'admin' === activeTabID && (
-							<SettingsAdmin />
-						) }
-						<Cell size={ 12 } alignRight>
-							<HelpLink />
+						<Cell size={ 12 }>
+							<SettingsModules />
 						</Cell>
 					</Row>
 				</Grid>
 			</div>
+			<UserSettingsSelectionPanel />
 		</Fragment>
 	);
 }
 
-// tabID to tabIndex
-SettingsApp.tabToIndex = {
-	settings: 0,
-	connect: 1,
-	admin: 2,
+SettingsApp.propTypes = {};
+
+// Necessary to set `TabBar.activeIndex`
+SettingsApp.basePathToTabIndex = {
+	'connected-services': 0,
+	'connect-more-services': 1,
+	'admin-settings': 2,
 };
-SettingsApp.tabIDsByIndex = Object.keys( SettingsApp.tabToIndex );
+
+export default withRouter( SettingsApp );

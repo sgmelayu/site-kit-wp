@@ -24,11 +24,16 @@ import classnames from 'classnames';
 import PropTypes from 'prop-types';
 
 /**
+ * WordPress dependencies
+ */
+import { __ } from '@wordpress/i18n';
+
+/**
  * Internal dependencies
  */
-import { createIncrementalArrayBySize } from '../util/create-incremental-array-by-size';
-import CloseIcon from '../../svg/close.svg';
-import Button from './Button';
+import { Button } from 'googlesitekit-components';
+import CloseIcon from '@/svg/icons/close.svg';
+import Typography from './Typography';
 
 export default function TourTooltip( {
 	backProps,
@@ -39,55 +44,65 @@ export default function TourTooltip( {
 	step,
 	tooltipProps,
 } ) {
-	const indicatorArray = size > 1 ? createIncrementalArrayBySize( size ) : [];
-	const getIndicatorClassName = ( indicatorIndex ) => classnames( 'googlesitekit-tooltip-indicator', {
-		active: indicatorIndex === index,
-	} );
-
 	return (
-		<div className="googlesitekit-tour-tooltip" { ...tooltipProps }>
+		<div
+			className={ classnames(
+				'googlesitekit-tour-tooltip',
+				step.className,
+				{
+					'googlesitekit-tour-tooltip--no-title': ! step.title,
+				}
+			) }
+			{ ...tooltipProps }
+		>
 			<Card className="googlesitekit-tooltip-card">
 				<div className="googlesitekit-tooltip-body">
-					<h2 className="googlesitekit-tooltip-title">
-						{ step.title }
-					</h2>
+					{ step.title && (
+						<Typography
+							as="h2"
+							className="googlesitekit-tooltip-title"
+							size="medium"
+							type="title"
+						>
+							{ step.title }
+						</Typography>
+					) }
 					<div className="googlesitekit-tooltip-content">
 						{ step.content }
 					</div>
 				</div>
 				<CardActions className="googlesitekit-tooltip-actions">
-					<ul className="googlesitekit-tooltip-indicators">
-						{ indicatorArray.map( ( indicatorIndex ) => (
-							<li
-								key={ `indicator-${ indicatorIndex }` }
-								className={ getIndicatorClassName( indicatorIndex ) }
-							/>
-						) ) }
-					</ul>
+					<p className="googlesitekit-tooltip-steps">
+						{ size > 1 && `${ index + 1 } / ${ size }` }
+					</p>
 					<div className="googlesitekit-tooltip-buttons">
 						{ index !== 0 && (
 							<Button
 								className="googlesitekit-tooltip-button"
-								text
+								tertiary
 								{ ...backProps }
 							>
 								{ backProps.title }
 							</Button>
 						) }
-						<Button
-							className="googlesitekit-tooltip-button"
-							text
-							{ ...primaryProps }
-						>
-							{ primaryProps.title }
-						</Button>
+						{ step.cta }
+						{ primaryProps.title && (
+							<Button
+								className="googlesitekit-tooltip-button googlesitekit-tooltip-button--primary"
+								{ ...primaryProps }
+							>
+								{ primaryProps.title }
+							</Button>
+						) }
 					</div>
 				</CardActions>
 				<Button
 					className="googlesitekit-tooltip-close"
+					icon={ <CloseIcon width={ 10 } height={ 10 } /> }
+					onClick={ closeProps.onClick }
+					aria-label={ __( 'Close', 'google-site-kit' ) }
 					text
-					icon={ <CloseIcon width="14" height="14" /> }
-					{ ...closeProps }
+					hideTooltipTitle
 				/>
 			</Card>
 		</div>
@@ -108,8 +123,10 @@ TourTooltip.propTypes = {
 	primaryProps: PropTypes.object.isRequired,
 	size: PropTypes.number.isRequired,
 	step: PropTypes.shape( {
-		content: PropTypes.node.isRequired,
-		title: PropTypes.node.isRequired,
+		content: PropTypes.node,
+		title: PropTypes.node,
+		cta: PropTypes.oneOfType( [ PropTypes.element, PropTypes.bool ] ),
+		className: PropTypes.string,
 	} ).isRequired,
 	tooltipProps: PropTypes.object.isRequired,
 };

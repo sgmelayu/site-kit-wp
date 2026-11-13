@@ -24,20 +24,27 @@ import PropTypes from 'prop-types';
 /**
  * Internal dependencies
  */
-import GoogleChartV2 from './GoogleChartV2';
+import GoogleChart from './GoogleChart';
 
-function Sparkline( {
-	change,
-	data,
-	invertChangeColor,
-	loadingHeight,
-} ) {
+function Sparkline( { change, data, invertChangeColor, loadingHeight } ) {
 	if ( ! data ) {
 		return null;
 	}
 
-	const positiveColor = ! invertChangeColor ? 'green' : 'red';
-	const negativeColor = ! invertChangeColor ? 'red' : 'green';
+	const colors = [];
+	const green = 'green';
+	const red = 'red';
+
+	if ( change === null ) {
+		// Use green color by default if the change can't be determined.
+		colors.push( green );
+	} else {
+		const positiveColor = ! invertChangeColor ? green : red;
+		const negativeColor = ! invertChangeColor ? red : green;
+		colors.push(
+			0 <= ( parseFloat( change ) || 0 ) ? positiveColor : negativeColor
+		);
+	}
 
 	const chartOptions = {
 		title: '',
@@ -61,14 +68,19 @@ function Sparkline( {
 			ticks: [],
 		},
 		axes: [],
-		colors: [
-			0 <= ( parseFloat( change ) || 0 ) ? positiveColor : negativeColor,
-		],
+		colors,
 	};
+
+	// If the line is flat (zero change), we need to adjust it so
+	// it sits in line visually with the other graphs.
+	if ( ! data.slice( 1 ).some( ( row ) => row[ 1 ] > 0 ) ) {
+		chartOptions.vAxis.minValue = 0;
+		chartOptions.vAxis.maxValue = 1;
+	}
 
 	return (
 		<div className="googlesitekit-analytics-sparkline-chart-wrap">
-			<GoogleChartV2
+			<GoogleChart
 				chartType="LineChart"
 				data={ data }
 				loadingHeight={ loadingHeight }

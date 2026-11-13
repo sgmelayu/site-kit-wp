@@ -1,0 +1,205 @@
+/**
+ * PDFTypography tests.
+ *
+ * Site Kit by Google, Copyright 2026 Google LLC
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     https://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+/**
+ * External dependencies
+ */
+import { ComponentProps } from 'react';
+import TestRenderer from 'react-test-renderer';
+
+/**
+ * Internal dependencies
+ */
+import { PDF_SCALE } from '@/js/components/pdf-export/pdf-scale';
+import {
+	PDF_COLORS,
+	PDF_FONT_FAMILY_DISPLAY,
+	PDF_FONT_FAMILY_TEXT,
+} from '@/js/components/pdf-export/pdf-theme';
+import {
+	flattenPDFStyle,
+	renderJSON,
+} from '@/js/components/pdf-export/test-utils';
+import PDFLink from './PDFLink';
+import PDFTypography from './PDFTypography';
+
+/**
+ * Renders the text and returns its flattened style object.
+ *
+ * @since 1.183.0
+ *
+ * @param props Props for the text.
+ * @return One object holding every style property of the text.
+ */
+function renderTextStyle(
+	props: ComponentProps< typeof PDFTypography >
+): Record< string, unknown > {
+	const renderer = TestRenderer.create( <PDFTypography { ...props } /> );
+	const tree = renderer.toJSON();
+	if ( ! tree || Array.isArray( tree ) ) {
+		throw new Error( 'Unexpected render output.' );
+	}
+	return flattenPDFStyle( tree.props.style );
+}
+
+describe( 'PDFTypography', () => {
+	it( 'renders a Text with the font family, size, weight, line height, and letter spacing of the given type and size', () => {
+		const tree = TestRenderer.create(
+			<PDFTypography type="headline" size="medium">
+				Heading
+			</PDFTypography>
+		).toJSON();
+		if ( ! tree || Array.isArray( tree ) ) {
+			throw new Error( 'Unexpected render output.' );
+		}
+
+		expect( tree.type ).toBe( 'pdf-text' );
+		expect( tree.children ).toEqual( [ 'Heading' ] );
+
+		const style = flattenPDFStyle( tree.props.style );
+		// The expected values for headline medium, scaled to the page.
+		expect( style ).toMatchObject( {
+			fontSize: 28 * PDF_SCALE,
+			fontWeight: 400,
+			letterSpacing: 0,
+			lineHeight: 1.286,
+			fontFamily: PDF_FONT_FAMILY_DISPLAY,
+			color: PDF_COLORS.SURFACES_ON_SURFACE,
+		} );
+	} );
+
+	it( 'uses the text font family for a body type', () => {
+		const style = renderTextStyle( {
+			type: 'body',
+			size: 'small',
+			children: 'Caption',
+		} );
+
+		expect( style ).toMatchObject( {
+			fontSize: 12 * PDF_SCALE,
+			fontWeight: 400,
+			letterSpacing: 0.2 * PDF_SCALE,
+			lineHeight: 1.33,
+			fontFamily: PDF_FONT_FAMILY_TEXT,
+		} );
+	} );
+
+	it( 'falls back to body medium with no type and size', () => {
+		const style = renderTextStyle( { children: 'Default' } );
+
+		expect( style ).toMatchObject( {
+			fontSize: 14 * PDF_SCALE,
+			fontWeight: 400,
+			letterSpacing: 0.25 * PDF_SCALE,
+			lineHeight: 1.43,
+			fontFamily: PDF_FONT_FAMILY_TEXT,
+			color: PDF_COLORS.SURFACES_ON_SURFACE,
+		} );
+	} );
+
+	it( 'merges the style prop over the base styles', () => {
+		const style = renderTextStyle( {
+			type: 'body',
+			size: 'medium',
+			style: { color: '#108080', marginTop: 4 },
+			children: 'Linked',
+		} );
+
+		// The font size comes from body medium, scaled. The `style` prop sets the
+		// color and the top margin, and both stay unscaled because the caller
+		// owns them.
+		expect( style ).toMatchObject( {
+			fontSize: 14 * PDF_SCALE,
+			color: '#108080',
+			marginTop: 4,
+		} );
+	} );
+
+	it( 'truncates the text to one line with an ellipsis when truncateContent is true', () => {
+		const json = renderJSON(
+			<PDFTypography truncateContent>
+				A very long page title
+			</PDFTypography>
+		);
+
+		expect( json ).toContain( '"textOverflow":"ellipsis"' );
+		expect( json ).toContain( '"maxLines":1' );
+	} );
+
+	it( 'sizes the text to the width the row leaves and keeps a 20px gap after it when truncateContent is true', () => {
+		const json = renderJSON(
+			<PDFTypography truncateContent>
+				A very long page title
+			</PDFTypography>
+		);
+
+		expect( json ).toContain(
+			`"flexGrow":1,"flexShrink":1,"flexBasis":0,"marginRight":${
+				20 * PDF_SCALE
+			}`
+		);
+	} );
+
+	it( 'cuts a linked text at one line and keeps its link when truncateContent is true', () => {
+		const json = renderJSON(
+			<PDFTypography truncateContent>
+				<PDFLink href="https://example.com/report/home">
+					A very long page title
+				</PDFLink>
+			</PDFTypography>
+		);
+
+		expect( json ).toContain( '"src":"https://example.com/report/home"' );
+		expect( json ).toContain( '"textOverflow":"ellipsis"' );
+		expect( json ).toContain( '"maxLines":1' );
+	} );
+
+	it( "renders the text in the style's color without dropping the ellipsis style when truncateContent is true", () => {
+		const json = renderJSON(
+			<PDFTypography
+				style={ { color: PDF_COLORS.CONTENT_SECONDARY } }
+				truncateContent
+			>
+				A very long page title
+			</PDFTypography>
+		);
+
+		expect( json ).toContain( PDF_COLORS.CONTENT_SECONDARY );
+		expect( json ).toContain( '"textOverflow":"ellipsis"' );
+	} );
+
+	it( 'cuts the text at the maxLines limit and ends it in an ellipsis when truncateContent is true and maxLines is set', () => {
+		const json = renderJSON(
+			<PDFTypography maxLines={ 2 } truncateContent>
+				A very long page title
+			</PDFTypography>
+		);
+
+		expect( json ).toContain( '"textOverflow":"ellipsis"' );
+		expect( json ).toContain( '"maxLines":2' );
+	} );
+
+	it( 'renders the whole text and adds no ellipsis when truncateContent is false', () => {
+		const json = renderJSON(
+			<PDFTypography>A very long page title</PDFTypography>
+		);
+
+		expect( json ).not.toContain( '"textOverflow":"ellipsis"' );
+		expect( json ).not.toContain( 'pdf-view' );
+	} );
+} );

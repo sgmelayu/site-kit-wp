@@ -17,9 +17,36 @@
  */
 
 /**
- * WordPress dependencies
+ * Internal dependencies
  */
-import { switchUserToAdmin, switchUserToTest, visitAdminPage } from '@wordpress/e2e-test-utils';
+import { switchUserToAdmin, switchUserToTest } from './login-user';
+import { visitAdminPage } from './visit-admin-page';
+
+/**
+ * Performs an action on provided plugins.
+ *
+ * @since 1.42.0
+ *
+ * @param {string}         action  An action to perform.
+ * @param {Array.<string>} plugins Plugin slugs.
+ * @return {Promise<void>} A promise object that indicates when the action ends.
+ */
+async function bulkPluginsAction( action, plugins ) {
+	await switchUserToAdmin();
+	await visitAdminPage( 'plugins.php' );
+
+	for ( const plugin of plugins ) {
+		await page
+			.click( `tr[data-slug="${ plugin }"] input` )
+			.catch( () => {} );
+	}
+
+	await page.select( '#bulk-action-selector-top', action );
+	await page.click( '#doaction' );
+	await page.waitForNavigation();
+
+	await switchUserToTest();
+}
 
 /**
  * Activates installed plugins.
@@ -27,18 +54,20 @@ import { switchUserToAdmin, switchUserToTest, visitAdminPage } from '@wordpress/
  * @since 1.27.0
  *
  * @param {Array.<string>} plugins Plugin slugs.
+ * @return {Promise<void>} A promise object that indicates when the plugins activation ends.
  */
-export async function activatePlugins( ...plugins ) {
-	await switchUserToAdmin();
-	await visitAdminPage( 'plugins.php' );
+export function activatePlugins( ...plugins ) {
+	return bulkPluginsAction( 'activate-selected', plugins );
+}
 
-	for ( const plugin of plugins ) {
-		await page.click( `tr[data-slug="${ plugin }"] input` );
-	}
-
-	await page.select( '#bulk-action-selector-top', 'activate-selected' );
-	await page.click( '#doaction' );
-	await page.waitForNavigation();
-
-	await switchUserToTest();
+/**
+ * Deactivates installed plugins.
+ *
+ * @since 1.42.0
+ *
+ * @param {Array.<string>} plugins Plugin slugs.
+ * @return {Promise<void>} A promise object that indicates when the plugins deactivation ends.
+ */
+export function deactivatePlugins( ...plugins ) {
+	return bulkPluginsAction( 'deactivate-selected', plugins );
 }

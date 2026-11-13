@@ -21,14 +21,14 @@ class Tag_Verify_GuardTest extends TestCase {
 	 */
 	private $tagverify;
 
-	public function setUp() {
-		parent::setUp();
+	public function set_up() {
+		parent::set_up();
 		$this->tagverify = new Tag_Verify_Guard( new MutableInput() );
 	}
 
 	public function test_can_activate_by_default() {
 		// Should return TRUE when "tagverify" isn't set.
-		$this->assertTrue( $this->tagverify->can_activate() );
+		$this->assertTrue( $this->tagverify->can_activate(), 'Tag should be able to activate by default when tagverify is not set.' );
 	}
 
 	public function test_can_activate() {
@@ -46,5 +46,4 @@ class Tag_Verify_GuardTest extends TestCase {
 			$this->assertFalse( $this->tagverify->can_activate(), "Should return FALSE when tagverify has \"{$tagverify}\" value" );
 		}
 	}
-
 }

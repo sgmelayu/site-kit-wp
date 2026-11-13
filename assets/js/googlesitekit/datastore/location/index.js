@@ -19,14 +19,11 @@
 /**
  * Internal dependencies
  */
-import Data from 'googlesitekit-data';
-import { STORE_NAME } from './constants';
+import { combineStores, commonStore } from 'googlesitekit-data';
+import { CORE_LOCATION } from './constants';
 import navigation from './navigation';
 
-const store = Data.combineStores(
-	Data.commonStore,
-	navigation,
-);
+const store = combineStores( commonStore, navigation );
 
 export const initialState = store.initialState;
 export const actions = store.actions;
@@ -35,8 +32,8 @@ export const reducer = store.reducer;
 export const resolvers = store.resolvers;
 export const selectors = store.selectors;
 
-export const registerStore = ( registry ) => {
-	registry.registerStore( STORE_NAME, store );
-};
+export function registerStore( registry ) {
+	registry.registerStore( CORE_LOCATION, store );
+}
 
 export default store;

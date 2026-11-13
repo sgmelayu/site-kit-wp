@@ -1,0 +1,35 @@
+<script>
+	// The bundle reads `_googlesitekitBaseData.enabledFeatures` at
+	// module-evaluation time, so the flags have to be set first.
+	( function () {
+		var FEATURES_STORAGE_KEY = 'googlesitekit-storybook-features';
+		var urlFeatures = new URLSearchParams( window.location.search ).get(
+			'features'
+		);
+		var features = urlFeatures ? urlFeatures.split( ',' ) : [];
+
+		try {
+			if ( urlFeatures === null ) {
+				var storedFeatures =
+					window.sessionStorage.getItem( FEATURES_STORAGE_KEY );
+				features = storedFeatures ? JSON.parse( storedFeatures ) : [];
+			} else {
+				window.sessionStorage.setItem(
+					FEATURES_STORAGE_KEY,
+					JSON.stringify( features )
+				);
+			}
+		} catch ( error ) {
+			// Without session storage, only the `features` query parameter sets
+			// the flags.
+		}
+
+		window._googlesitekitBaseData = { enabledFeatures: features };
+	} )();
+</script>
+<link
+	rel="stylesheet"
+	id="googlesitekit-fonts-css"
+	href="https://fonts.googleapis.com/css?family=Google+Sans+Text:400,500|Google+Sans+Display:400,500,700&amp;subset=latin-ext&amp;display=swap"
+	media="all"
+/>

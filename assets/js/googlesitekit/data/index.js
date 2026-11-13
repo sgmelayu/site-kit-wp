@@ -20,20 +20,23 @@
  * WordPress dependencies
  */
 import {
+	RegistryProvider,
+	controls,
 	createRegistry,
 	createRegistryControl,
 	createRegistrySelector,
-	useSelect,
 	useDispatch,
 	useRegistry,
-	withSelect,
+	useSelect,
 	withDispatch,
-	RegistryProvider,
+	withSelect,
 } from '@wordpress/data';
 
 /**
  * Internal dependencies
  */
+import { useInViewSelect } from '@/js/hooks/useInViewSelect';
+import { createReducer } from './create-reducer';
 import {
 	combineStores,
 	commonActions,
@@ -41,7 +44,49 @@ import {
 	commonStore,
 } from './utils';
 
-const Data = createRegistry();
+/**
+ * @since 1.166.0
+ * @since 1.178.0 Updated types to include `registerGenericStore` function.
+ *
+ * @typedef {Object} WPDataRegistry
+ * @property {Function} registerGenericStore Given a namespace key and settings
+ *                                           object, registers a new generic
+ *                                           store.
+ * @property {Function} registerStore        Given a namespace key and settings
+ *                                           object, registers a new namespace
+ *                                           store.
+ * @property {Function} subscribe            Given a function callback, invokes
+ *                                           the callback on any change to state
+ *                                           within any registered store.
+ * @property {Function} select               Given a namespace key, returns an
+ *                                           object of the store's registered
+ *                                           selectors.
+ * @property {Function} dispatch             Given a namespace key, returns an
+ *                                           object of the store's registered
+ *                                           action dispatchers.
+ * @property {Function} resolveSelect        Given a namespace key, returns an
+ *                                           object containing the store's
+ *                                           selectors modified so that they
+ *                                           return promises that resolve to
+ *                                           their eventual values, after any
+ *                                           resolvers have run.
+ */
+
+/**
+ * The Site Kit data registry.
+ *
+ * This should not be imported directly outside of `googlesitekit-*` files
+ * that need access to the registry to register datastores/widgets/etc.
+ *
+ * Instead, use the exported functions (eg `useSelect`,
+ * `createRegistrySelector`, etc.) from the `googlesitekit-data` package to
+ * access parts of the registry.
+ *
+ * @since 1.3.0 Data registry introduced.
+ * @since 1.130.0 Deprecated for general use in favor of named exports from `googlesitekit-data` package.
+ * @deprecated
+ */
+const Data = createRegistry( {}, global.wp?.data );
 
 // Attach some of our utility functions to the registry so third-party
 // developers can use them.
@@ -49,6 +94,15 @@ Data.combineStores = combineStores;
 Data.commonActions = commonActions;
 Data.commonControls = commonControls;
 Data.commonStore = commonStore;
+Data.createReducer = createReducer;
+
+// Attach our custom, useInViewSelect hook to the registry so third-party
+// developers can use it.
+Data.useInViewSelect = useInViewSelect;
+
+// Attach some WordPress data functions to the registry so third-party
+// developers can use them without importing '@wordpress/data'.
+Data.controls = controls;
 Data.createRegistryControl = createRegistryControl;
 Data.createRegistrySelector = createRegistrySelector;
 Data.useSelect = useSelect;
@@ -57,5 +111,25 @@ Data.useRegistry = useRegistry;
 Data.withSelect = withSelect;
 Data.withDispatch = withDispatch;
 Data.RegistryProvider = RegistryProvider;
+
+export {
+	combineStores,
+	commonActions,
+	commonControls,
+	commonStore,
+	controls,
+	createReducer,
+	useInViewSelect,
+	createRegistryControl,
+	createRegistrySelector,
+	useSelect,
+	useDispatch,
+	useRegistry,
+	withSelect,
+	withDispatch,
+	RegistryProvider,
+};
+
+export * from './types';
 
 export default Data;

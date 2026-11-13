@@ -22,44 +22,46 @@ use Google\Site_Kit\Tests\TestCase;
  */
 class Tag_GuardTest extends TestCase {
 
+	/**
+	 * Settings object.
+	 *
+	 * @var Settings
+	 */
+	private $settings;
+
+	/**
+	 * Tag_Guard object.
+	 *
+	 * @var Tag_Guard
+	 */
+	private $guard;
+
+	public function set_up() {
+		parent::set_up();
+
+		update_option(
+			Settings::OPTION,
+			array(
+				'clientID'   => 'test-client-id',
+				'useSnippet' => true,
+			)
+		);
+
+		$this->settings = new Settings( new Options( new Context( GOOGLESITEKIT_PLUGIN_MAIN_FILE ) ) );
+		$this->guard    = new Tag_Guard( $this->settings );
+	}
+
 	public function test_can_activate() {
-		$settings = new Settings( new Options( new Context( GOOGLESITEKIT_PLUGIN_MAIN_FILE ) ) );
-		$guard    = new Tag_Guard( $settings );
-
-		update_option(
-			Settings::OPTION,
-			array(
-				'clientID'   => 'test-client-id',
-				'useSnippet' => true,
-			)
-		);
-
-		$this->assertTrue( $guard->can_activate() );
+		$this->assertTrue( $this->guard->can_activate(), 'Guard should allow activation when clientID set and useSnippet true.' );
 	}
 
-	public function test_cant_activate() {
-		$settings = new Settings( new Options( new Context( GOOGLESITEKIT_PLUGIN_MAIN_FILE ) ) );
-		$guard    = new Tag_Guard( $settings );
-
-		update_option(
-			Settings::OPTION,
-			array(
-				'clientID'   => 'test-client-id',
-				'useSnippet' => false,
-			)
-		);
-
-		$this->assertFalse( $guard->can_activate(), 'Should return FALSE when useSnippet has negative value.' );
-
-		update_option(
-			Settings::OPTION,
-			array(
-				'clientID'   => '',
-				'useSnippet' => true,
-			)
-		);
-
-		$this->assertFalse( $guard->can_activate(), 'Should return FALSE when clientID is empty.' );
+	public function test_cant_activate_when_usesnippet_is_falsy() {
+		$this->settings->merge( array( 'useSnippet' => false ) );
+		$this->assertFalse( $this->guard->can_activate(), 'Should return FALSE when useSnippet has negative value.' );
 	}
 
+	public function test_cant_activate_when_clientid_is_invalid() {
+		$this->settings->merge( array( 'clientID' => '' ) );
+		$this->assertFalse( $this->guard->can_activate(), 'Should return FALSE when clientID is empty.' );
+	}
 }

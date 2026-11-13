@@ -19,27 +19,41 @@
 /**
  * WordPress dependencies
  */
+import {
+	Fragment,
+	createInterpolateElement,
+	useCallback,
+	useEffect,
+	useState,
+} from '@wordpress/element';
 import { __ } from '@wordpress/i18n';
-import { Fragment, useState, useEffect, useCallback, createInterpolateElement } from '@wordpress/element';
-import { ESCAPE } from '@wordpress/keycodes';
-import { useDebounce } from '../hooks/useDebounce';
 
 /**
  * Internal dependencies
  */
-import Data from 'googlesitekit-data';
-import { clearWebStorage } from '../util';
-import Dialog from './Dialog';
-import Modal from './Modal';
+import { useDispatch, useSelect } from 'googlesitekit-data';
+import { clearCache } from '@/js/googlesitekit/api/cache';
+import { CORE_LOCATION } from '@/js/googlesitekit/datastore/location/constants';
+import { CORE_SITE } from '@/js/googlesitekit/datastore/site/constants';
+import { useDebounce } from '@/js/hooks/useDebounce';
+import useViewContext from '@/js/hooks/useViewContext';
+import { trackEvent } from '@/js/util/tracking';
 import Link from './Link';
-import { CORE_SITE } from '../googlesitekit/datastore/site/constants';
-import { CORE_LOCATION } from '../googlesitekit/datastore/location/constants';
-const { useSelect, useDispatch } = Data;
+import ModalDialog from './ModalDialog';
+import Portal from './Portal';
 
 function ResetButton( { children } ) {
-	const postResetURL = useSelect( ( select ) => select( CORE_SITE ).getAdminURL( 'googlesitekit-splash', { notification: 'reset_success' } ) );
-	const isDoingReset = useSelect( ( select ) => select( CORE_SITE ).isDoingReset() );
-	const isNavigatingToPostResetURL = useSelect( ( select ) => select( CORE_LOCATION ).isNavigatingTo( postResetURL || '' ) );
+	const postResetURL = useSelect( ( select ) =>
+		select( CORE_SITE ).getAdminURL( 'googlesitekit-splash', {
+			notification: 'reset_success',
+		} )
+	);
+	const isDoingReset = useSelect( ( select ) =>
+		select( CORE_SITE ).isDoingReset()
+	);
+	const isNavigatingToPostResetURL = useSelect( ( select ) =>
+		select( CORE_LOCATION ).isNavigatingTo( postResetURL || '' )
+	);
 	const [ inProgress, setInProgress ] = useState( false );
 	const [ dialogActive, setDialogActive ] = useState( false );
 
@@ -49,76 +63,62 @@ function ResetButton( { children } ) {
 	 * the navigate call starting, we will just set a debounce to keep the spinner for 3 seconds.
 	 */
 	const debouncedSetInProgress = useDebounce( setInProgress, 3000 );
-	const mediatedSetInProgress = ( bool ) => bool ? setInProgress( true ) : debouncedSetInProgress( false );
 
 	useEffect( () => {
-		mediatedSetInProgress( isDoingReset || isNavigatingToPostResetURL );
-	}, [ isDoingReset, isNavigatingToPostResetURL ] );
-
-	useEffect( () => {
-		const handleCloseModal = ( event ) => {
-			if ( ESCAPE === event.keyCode ) {
-				// Only close the modal if the "Escape" key is pressed.
-				setDialogActive( false );
-			}
-		};
-
-		if ( dialogActive ) {
-			// When the dialogActive changes and it is set to true(has opened), add the event listener.
-			global.addEventListener( 'keyup', handleCloseModal, false );
+		if ( isDoingReset || isNavigatingToPostResetURL ) {
+			setInProgress( true );
+		} else {
+			debouncedSetInProgress( false );
 		}
-		// Remove the event listener when the dialog is removed; there's no need
-		// to have it attached when it won't be used.
-		return () => {
-			if ( dialogActive ) {
-				// When the dialogActive is true(is open) and its value changes, remove the event listener.
-				global.removeEventListener( 'keyup', handleCloseModal );
-			}
-		};
-	}, [ dialogActive ] );
+	}, [ isDoingReset, isNavigatingToPostResetURL, debouncedSetInProgress ] );
 
 	const { reset } = useDispatch( CORE_SITE );
 	const { navigateTo } = useDispatch( CORE_LOCATION );
 
+	const viewContext = useViewContext();
+
 	const handleUnlinkConfirm = useCallback( async () => {
 		await reset();
-		clearWebStorage();
+		await clearCache();
+		await trackEvent( viewContext, 'reset_plugin' );
 		navigateTo( postResetURL );
-	}, [ reset, postResetURL ] );
-
-	const toggleDialogActive = useCallback( () => {
-		setDialogActive( ! dialogActive );
-	}, [ dialogActive ] );
+	}, [ navigateTo, postResetURL, reset, viewContext ] );
 
 	const openDialog = useCallback( () => {
 		setDialogActive( true );
 	}, [] );
 
+	const closeDialog = useCallback( () => {
+		setDialogActive( false );
+	}, [] );
+
 	return (
 		<Fragment>
-			<Link
-				className="googlesitekit-reset-button"
-				onClick={ openDialog }
-				inherit
-			>
+			<Link className="googlesitekit-reset-button" onClick={ openDialog }>
 				{ children || __( 'Reset Site Kit', 'google-site-kit' ) }
 			</Link>
-			<Modal>
-				<Dialog
+			<Portal>
+				<ModalDialog
 					dialogActive={ dialogActive }
 					handleConfirm={ handleUnlinkConfirm }
-					handleDialog={ toggleDialogActive }
+					handleCancel={ closeDialog }
+					onClose={ closeDialog }
 					title={ __( 'Reset Site Kit', 'google-site-kit' ) }
 					subtitle={ createInterpolateElement(
-						__( `Resetting will disconnect all users and remove all Site Kit settings and data within WordPress. <br />You and any other users who wish to use Site Kit will need to reconnect to restore access.`, 'google-site-kit' ),
+						__(
+							'Resetting will disconnect all users and remove all Site Kit settings and data within WordPress. <br />You and any other users who wish to use Site Kit will need to reconnect to restore access.',
+							'google-site-kit'
+						),
 						{
 							br: <br />,
-						} ) }
+						}
+					) }
 					confirmButton={ __( 'Reset', 'google-site-kit' ) }
-					danger
 					inProgress={ inProgress }
+					danger
+					small
 				/>
-			</Modal>
+			</Portal>
 		</Fragment>
 	);
 }

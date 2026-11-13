@@ -17,89 +17,21 @@
  */
 
 /**
- * WordPress dependencies
- */
-import { __ } from '@wordpress/i18n';
-
-/**
  * Internal dependencies
  */
-import { SettingsView } from './components/settings';
-import DashboardImpressionsWidget from './components/dashboard/DashboardImpressionsWidget';
-import DashboardClicksWidget from './components/dashboard/DashboardClicksWidget';
-import DashboardPopularKeywordsWidget from './components/dashboard/DashboardPopularKeywordsWidget';
-import {
-	AREA_DASHBOARD_POPULARITY,
-	AREA_DASHBOARD_SEARCH_FUNNEL,
-	AREA_PAGE_DASHBOARD_POPULARITY,
-	AREA_PAGE_DASHBOARD_SEARCH_FUNNEL,
-} from '../../googlesitekit/widgets/default-areas';
-import SearchConsoleIcon from '../../../svg/search-console.svg';
-import { STORE_NAME } from './datastore/constants';
-import { CONTEXT_MODULE_SEARCH_CONSOLE, AREA_MODULE_SEARCH_CONSOLE_MAIN } from './constants';
-import { WIDGET_AREA_STYLES } from '../../googlesitekit/widgets/datastore/constants';
+import SearchConsoleIcon from '@/svg/graphics/search-console.svg';
+import { SettingsEdit, SettingsView } from './components/settings';
+import { MODULE_SLUG_SEARCH_CONSOLE } from './constants';
+import { MODULES_SEARCH_CONSOLE } from './datastore/constants';
 
 export { registerStore } from './datastore';
+export { registerWidgets } from './widgets';
 
-export const registerModule = ( modules ) => {
-	modules.registerModule(
-		'search-console',
-		{
-			storeName: STORE_NAME,
-			SettingsViewComponent: SettingsView,
-			Icon: SearchConsoleIcon,
-			screenWidgetContext: CONTEXT_MODULE_SEARCH_CONSOLE,
-		}
-	);
-};
-
-export const registerWidgets = ( widgets ) => {
-	widgets.registerWidget(
-		'searchConsoleImpressions',
-		{
-			Component: DashboardImpressionsWidget,
-			width: widgets.WIDGET_WIDTHS.QUARTER,
-			priority: 1,
-			wrapWidget: true,
-		},
-		[
-			AREA_DASHBOARD_SEARCH_FUNNEL,
-			AREA_PAGE_DASHBOARD_SEARCH_FUNNEL,
-		],
-	);
-	widgets.registerWidget(
-		'searchConsoleClicks',
-		{
-			Component: DashboardClicksWidget,
-			width: widgets.WIDGET_WIDTHS.QUARTER,
-			priority: 2,
-			wrapWidget: true,
-		},
-		[
-			AREA_DASHBOARD_SEARCH_FUNNEL,
-			AREA_PAGE_DASHBOARD_SEARCH_FUNNEL,
-		],
-	);
-	widgets.registerWidget(
-		'searchConsolePopularKeywords',
-		{
-			Component: DashboardPopularKeywordsWidget,
-			width: [ widgets.WIDGET_WIDTHS.HALF, widgets.WIDGET_WIDTHS.FULL ],
-			priority: 1,
-			wrapWidget: false,
-		},
-		[
-			AREA_DASHBOARD_POPULARITY,
-			AREA_PAGE_DASHBOARD_POPULARITY,
-		],
-	);
-	widgets.registerWidgetArea(
-		AREA_MODULE_SEARCH_CONSOLE_MAIN,
-		{
-			priority: 1,
-			style: WIDGET_AREA_STYLES.BOXES,
-			title: __( 'Overview', 'google-site-kit' ),
-		},
-		CONTEXT_MODULE_SEARCH_CONSOLE,
-	);
-};
+export function registerModule( modules ) {
+	modules.registerModule( MODULE_SLUG_SEARCH_CONSOLE, {
+		storeName: MODULES_SEARCH_CONSOLE,
+		SettingsEditComponent: SettingsEdit,
+		SettingsViewComponent: SettingsView,
+		Icon: SearchConsoleIcon,
+	} );
+}

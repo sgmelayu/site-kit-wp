@@ -1,0 +1,51 @@
+/**
+ * Type definitions for googlesitekit-data.
+ *
+ * Site Kit by Google, Copyright 2026 Google LLC
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     https://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+/**
+ * WordPress dependencies
+ */
+import type { WPDataRegistry } from '@wordpress/data/build-types/registry';
+
+/* eslint-disable @typescript-eslint/no-explicit-any -- The `Select` type is intentionally generic for now. */
+
+/**
+ * Site Kit data store selector function type.
+ */
+export type Select = ( select: any ) => any;
+
+/**
+ * Site Kit `useSelect` signature, with an optional `deps` argument.
+ *
+ * The `@wordpress/data` types require `deps`, but it can be left out. Without
+ * it, `mapSelect` runs on every render instead of only when `deps` change.
+ * Hooks that want that cast `useSelect` to this type.
+ */
+export type UseSelect = < T >(
+	mapSelect: ( select: Select ) => T,
+	deps?: unknown[]
+) => T;
+
+/**
+ * Site Kit data registry type.
+ *
+ * Extends WordPress's `WPDataRegistry` with `resolveSelect`, which exists on
+ * the runtime registry but is absent from the `@wordpress/data` registry types.
+ */
+export type Registry = WPDataRegistry & {
+	resolveSelect: WPDataRegistry[ 'select' ];
+};

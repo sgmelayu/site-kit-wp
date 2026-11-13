@@ -17,38 +17,113 @@
  */
 
 /**
+ * External dependencies
+ */
+import PropTypes from 'prop-types';
+
+/**
+ * WordPress dependencies
+ */
+import { createInterpolateElement } from '@wordpress/element';
+import { __, sprintf } from '@wordpress/i18n';
+
+/**
  * Internal dependencies
  */
+import { useSelect } from 'googlesitekit-data';
+import GoogleTagGatewayToggle from '@/js/components/google-tag-gateway/GoogleTagGatewayToggle';
+import Notice from '@/js/components/Notice';
+import { NOTICE_TYPES } from '@/js/components/Notice/constants';
+import SettingsGroup from '@/js/components/settings/SettingsGroup';
+import StoreErrorNotices from '@/js/components/StoreErrorNotices';
+import { CORE_MODULES } from '@/js/googlesitekit/modules/datastore/constants';
+import { useFeature } from '@/js/hooks/useFeature';
 import {
-	AccountSelect,
 	AMPContainerSelect,
+	AccountSelect,
 	ContainerNames,
 	FormInstructions,
-	UseSnippetSwitch,
+	TagCheckProgress,
 	WebContainerSelect,
-} from '../common';
-import StoreErrorNotices from '../../../../components/StoreErrorNotices';
-import { STORE_NAME } from '../../datastore/constants';
+} from '@/js/modules/tagmanager/components/common';
+import { MODULE_SLUG_TAGMANAGER } from '@/js/modules/tagmanager/constants';
+import { MODULES_TAGMANAGER } from '@/js/modules/tagmanager/datastore/constants';
+import SettingsUseSnippetSwitch from './SettingsUseSnippetSwitch';
 
-export default function SettingsForm() {
+export default function SettingsForm( { hasModuleAccess } ) {
+	const gtgEnabled = useFeature( 'googleTagGateway' );
+
+	const module = useSelect( ( select ) =>
+		select( CORE_MODULES ).getModule( MODULE_SLUG_TAGMANAGER )
+	);
+
+	const formattedOwnerName = module?.owner?.login
+		? `<strong>${ module.owner.login }</strong>`
+		: __( 'Another admin', 'google-site-kit' );
+
 	return (
 		<div className="googlesitekit-tagmanager-settings-fields">
-			<StoreErrorNotices moduleSlug="tagmanager" storeName={ STORE_NAME } />
+			<StoreErrorNotices
+				moduleSlug="tagmanager"
+				storeName={ MODULES_TAGMANAGER }
+			/>
 			<FormInstructions />
 
 			<div className="googlesitekit-setup-module__inputs">
-				<AccountSelect />
+				<AccountSelect hasModuleAccess={ hasModuleAccess } />
 
-				<WebContainerSelect />
+				<WebContainerSelect hasModuleAccess={ hasModuleAccess } />
 
-				<AMPContainerSelect />
+				<AMPContainerSelect hasModuleAccess={ hasModuleAccess } />
+
+				<TagCheckProgress />
 			</div>
+
+			{ hasModuleAccess === false && (
+				<Notice
+					className="googlesitekit-notice--bottom-margin"
+					type={ NOTICE_TYPES.INFO }
+					description={ createInterpolateElement(
+						sprintf(
+							/* translators: 1: module owner's name, 2: module name */
+							__(
+								'%1$s configured %2$s and you don’t have access to this %2$s account. Contact them to share access or change the %2$s account.',
+								'google-site-kit'
+							),
+							formattedOwnerName,
+							module?.name
+						),
+						{
+							strong: <strong />,
+						}
+					) }
+				/>
+			) }
 
 			<ContainerNames />
 
 			<div className="googlesitekit-setup-module__inputs googlesitekit-setup-module__inputs--multiline">
-				<UseSnippetSwitch />
+				<SettingsUseSnippetSwitch />
 			</div>
+
+			{ gtgEnabled && (
+				<SettingsGroup
+					title={ __(
+						'Improve your measurement',
+						'google-site-kit'
+					) }
+				>
+					<GoogleTagGatewayToggle />
+				</SettingsGroup>
+			) }
 		</div>
 	);
 }
+
+SettingsForm.propTypes = {
+	hasModuleAccess: PropTypes.bool,
+};
+
+SettingsForm.defaultProps = {
+	hasModuleAccess: true,
+};

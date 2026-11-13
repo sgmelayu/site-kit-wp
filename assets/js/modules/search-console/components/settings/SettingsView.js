@@ -24,23 +24,34 @@ import { __ } from '@wordpress/i18n';
 /**
  * Internal dependencies
  */
-import Data from 'googlesitekit-data';
-import DisplaySetting from '../../../../components/DisplaySetting';
-import { STORE_NAME } from '../../datastore/constants';
-const { useSelect } = Data;
+import { useSelect } from 'googlesitekit-data';
+import DisplaySetting from '@/js/components/DisplaySetting';
+import Typography from '@/js/components/Typography';
+import { SIZE_MEDIUM } from '@/js/components/Typography/constants';
+import P from '@/js/components/Typography/P';
+import { MODULES_SEARCH_CONSOLE } from '@/js/modules/search-console/datastore/constants';
 
 export default function SettingsView() {
-	const propertyID = useSelect( ( select ) => select( STORE_NAME ).getPropertyID() );
+	const propertyID = useSelect( ( select ) =>
+		select( MODULES_SEARCH_CONSOLE ).getPropertyID()
+	);
 
 	return (
-		<div className="mdc-layout-grid__cell mdc-layout-grid__cell--span-12">
-
-			<h5 className="googlesitekit-settings-module__meta-item-type">
+		<div className="googlesitekit-settings-module__meta-item">
+			<Typography
+				as="h5"
+				size="medium"
+				type="label"
+				className="googlesitekit-settings-module__meta-item-type"
+			>
 				{ __( 'Connected Property', 'google-site-kit' ) }
-			</h5>
-			<p className="googlesitekit-settings-module__meta-item-data">
+			</Typography>
+			<P
+				className="googlesitekit-settings-module__meta-item-data"
+				size={ SIZE_MEDIUM }
+			>
 				<DisplaySetting value={ propertyID } />
-			</p>
+			</P>
 		</div>
 	);
 }

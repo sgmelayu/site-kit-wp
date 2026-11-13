@@ -19,94 +19,302 @@
 /**
  * WordPress dependencies
  */
-import { Fragment } from '@wordpress/element';
-import { __ } from '@wordpress/i18n';
+import { Fragment, createInterpolateElement } from '@wordpress/element';
+import { __, sprintf } from '@wordpress/i18n';
 
 /**
  * Internal dependencies
  */
-import Data from 'googlesitekit-data';
-import DisplaySetting from '../../../../components/DisplaySetting';
-import { CORE_SITE } from '../../../../googlesitekit/datastore/site/constants';
-import { STORE_NAME } from '../../datastore/constants';
-import {
-	ExistingTagError,
-	ExistingTagNotice,
-} from '../common';
-import StoreErrorNotices from '../../../../components/StoreErrorNotices';
-const { useSelect } = Data;
+import { useSelect } from 'googlesitekit-data';
+import DisplaySetting from '@/js/components/DisplaySetting';
+import Link from '@/js/components/Link';
+import SettingsStatuses from '@/js/components/settings/SettingsStatuses';
+import StoreErrorNotices from '@/js/components/StoreErrorNotices';
+import Typography from '@/js/components/Typography';
+import { SIZE_MEDIUM, SIZE_SMALL } from '@/js/components/Typography/constants';
+import P from '@/js/components/Typography/P';
+import VisuallyHidden from '@/js/components/VisuallyHidden';
+import { CORE_SITE } from '@/js/googlesitekit/datastore/site/constants';
+import { useFeature } from '@/js/hooks/useFeature';
+import { MODULES_TAGMANAGER } from '@/js/modules/tagmanager/datastore/constants';
+import { escapeURI } from '@/js/util/escape-uri';
 
 export default function SettingsView() {
-	const accountID = useSelect( ( select ) => select( STORE_NAME ).getAccountID() );
-	const containerID = useSelect( ( select ) => select( STORE_NAME ).getContainerID() );
-	const ampContainerID = useSelect( ( select ) => select( STORE_NAME ).getAMPContainerID() );
-	const useSnippet = useSelect( ( select ) => select( STORE_NAME ).getUseSnippet() );
-	const hasExistingTag = useSelect( ( select ) => select( STORE_NAME ).hasExistingTag() );
-	const hasExistingTagPermission = useSelect( ( select ) => select( STORE_NAME ).hasExistingTagPermission() );
+	const accountID = useSelect( ( select ) =>
+		select( MODULES_TAGMANAGER ).getAccountID()
+	);
+	const containerID = useSelect( ( select ) =>
+		select( MODULES_TAGMANAGER ).getContainerID()
+	);
+	const ampContainerID = useSelect( ( select ) =>
+		select( MODULES_TAGMANAGER ).getAMPContainerID()
+	);
+	const useSnippet = useSelect( ( select ) =>
+		select( MODULES_TAGMANAGER ).getUseSnippet()
+	);
+	const hasExistingTag = useSelect( ( select ) =>
+		select( MODULES_TAGMANAGER ).hasExistingTag()
+	);
 	const isAMP = useSelect( ( select ) => select( CORE_SITE ).isAMP() );
-	const isSecondaryAMP = useSelect( ( select ) => select( CORE_SITE ).isSecondaryAMP() );
+	const isSecondaryAMP = useSelect( ( select ) =>
+		select( CORE_SITE ).isSecondaryAMP()
+	);
+	const internalContainerID = useSelect( ( select ) =>
+		select( MODULES_TAGMANAGER ).getInternalContainerID()
+	);
+	const internalAMPContainerID = useSelect( ( select ) =>
+		select( MODULES_TAGMANAGER ).getInternalAMPContainerID()
+	);
+	const editWebContainerURL = useSelect( ( select ) =>
+		select( MODULES_TAGMANAGER ).getServiceURL( {
+			path: escapeURI`/container/accounts/${ accountID }/containers/${ internalContainerID }`,
+		} )
+	);
+	const editAMPContainerURL = useSelect( ( select ) =>
+		select( MODULES_TAGMANAGER ).getServiceURL( {
+			path: escapeURI`/container/accounts/${ accountID }/containers/${ internalAMPContainerID }`,
+		} )
+	);
+
+	const googleTagGatewayEnabled = useFeature( 'googleTagGateway' );
+	const googleTagGatewayStatuses = useSelect( ( select ) => {
+		if ( ! googleTagGatewayEnabled ) {
+			return [];
+		}
+		const {
+			isGoogleTagGatewayEnabled,
+			isGTGHealthy,
+			isScriptAccessEnabled,
+		} = select( CORE_SITE );
+		const status =
+			isGoogleTagGatewayEnabled() &&
+			isGTGHealthy() &&
+			isScriptAccessEnabled();
+		return [
+			{
+				label: __(
+					'Google tag gateway for advertisers',
+					'google-site-kit'
+				),
+				status,
+			},
+		];
+	} );
 
 	return (
 		<Fragment>
-
-			{ /* Prevent showing ExistingTagError and general error notice at the same time. */ }
-			{ ( ! hasExistingTag || hasExistingTagPermission ) && <StoreErrorNotices moduleSlug="tagmanager" storeName={ STORE_NAME } /> }
-			{ ( hasExistingTag && ! hasExistingTagPermission && hasExistingTagPermission !== undefined ) && <ExistingTagError /> }
-			{ ( hasExistingTag && hasExistingTagPermission && hasExistingTagPermission !== undefined ) && <ExistingTagNotice /> }
+			<StoreErrorNotices
+				moduleSlug="tagmanager"
+				storeName={ MODULES_TAGMANAGER }
+			/>
 
 			<div className="googlesitekit-settings-module__meta-items">
 				<div className="googlesitekit-settings-module__meta-item">
-					<h5 className="googlesitekit-settings-module__meta-item-type">
+					<Typography
+						as="h5"
+						size="medium"
+						type="label"
+						className="googlesitekit-settings-module__meta-item-type"
+					>
 						{ __( 'Account', 'google-site-kit' ) }
-					</h5>
-					<p className="googlesitekit-settings-module__meta-item-data">
+					</Typography>
+					<P
+						className="googlesitekit-settings-module__meta-item-data"
+						size={ SIZE_MEDIUM }
+					>
 						<DisplaySetting value={ accountID } />
-					</p>
+					</P>
 				</div>
 
 				{ ( ! isAMP || isSecondaryAMP ) && (
-					<div className="googlesitekit-settings-module__meta-item">
-						<h5 className="googlesitekit-settings-module__meta-item-type">
-							{ isSecondaryAMP && __( 'Web Container ID', 'google-site-kit' ) }
-							{ ! isSecondaryAMP && __( 'Container ID', 'google-site-kit' ) }
-						</h5>
-						<p className="googlesitekit-settings-module__meta-item-data">
-							<DisplaySetting value={ containerID } />
-						</p>
-					</div>
+					<Fragment>
+						<div className="googlesitekit-settings-module__meta-item">
+							<Typography
+								as="h5"
+								size="medium"
+								type="label"
+								className="googlesitekit-settings-module__meta-item-type"
+							>
+								{ isSecondaryAMP && (
+									<span>
+										{ __(
+											'Web Container ID',
+											'google-site-kit'
+										) }
+									</span>
+								) }
+								{ ! isSecondaryAMP && (
+									<span>
+										{ __(
+											'Container ID',
+											'google-site-kit'
+										) }
+									</span>
+								) }
+							</Typography>
+							<P
+								className="googlesitekit-settings-module__meta-item-data"
+								size={ SIZE_MEDIUM }
+							>
+								<DisplaySetting value={ containerID } />
+							</P>
+						</div>
+						{ editWebContainerURL && (
+							<div className="googlesitekit-settings-module__meta-item googlesitekit-settings-module__meta-item--data-only">
+								<P
+									className="googlesitekit-settings-module__meta-item-data"
+									size={ SIZE_SMALL }
+								>
+									<Link href={ editWebContainerURL } external>
+										{ createInterpolateElement(
+											sprintf(
+												/* translators: %s: Appropriate container term. */
+												__(
+													'Edit <VisuallyHidden>%s </VisuallyHidden>in Tag Manager',
+													'google-site-kit'
+												),
+												isSecondaryAMP
+													? __(
+															'web container',
+															'google-site-kit'
+													  )
+													: __(
+															'container',
+															'google-site-kit'
+													  )
+											),
+											{
+												VisuallyHidden: (
+													<VisuallyHidden />
+												),
+											}
+										) }
+									</Link>
+								</P>
+							</div>
+						) }
+					</Fragment>
 				) }
 
 				{ isAMP && (
-					<div className="googlesitekit-settings-module__meta-item">
-						<h5 className="googlesitekit-settings-module__meta-item-type">
-							{ isSecondaryAMP && __( 'AMP Container ID', 'google-site-kit' ) }
-							{ ! isSecondaryAMP && __( 'Container ID', 'google-site-kit' ) }
-						</h5>
-						<p className="googlesitekit-settings-module__meta-item-data">
-							<DisplaySetting value={ ampContainerID } />
-						</p>
-					</div>
+					<Fragment>
+						<div className="googlesitekit-settings-module__meta-item">
+							<Typography
+								as="h5"
+								size="medium"
+								type="label"
+								className="googlesitekit-settings-module__meta-item-type"
+							>
+								{ isSecondaryAMP && (
+									<span>
+										{ __(
+											'AMP Container ID',
+											'google-site-kit'
+										) }
+									</span>
+								) }
+								{ ! isSecondaryAMP && (
+									<span>
+										{ __(
+											'Container ID',
+											'google-site-kit'
+										) }
+									</span>
+								) }
+							</Typography>
+							<P
+								className="googlesitekit-settings-module__meta-item-data"
+								size={ SIZE_MEDIUM }
+							>
+								<DisplaySetting value={ ampContainerID } />
+							</P>
+						</div>
+						{ editAMPContainerURL && (
+							<div className="googlesitekit-settings-module__meta-item googlesitekit-settings-module__meta-item--data-only">
+								<P
+									className="googlesitekit-settings-module__meta-item-data"
+									size={ SIZE_SMALL }
+								>
+									<Link href={ editAMPContainerURL } external>
+										{ createInterpolateElement(
+											sprintf(
+												/* translators: %s: Appropriate container term. */
+												__(
+													'Edit <VisuallyHidden>%s </VisuallyHidden>in Tag Manager',
+													'google-site-kit'
+												),
+												isSecondaryAMP
+													? __(
+															'AMP container',
+															'google-site-kit'
+													  )
+													: __(
+															'container',
+															'google-site-kit'
+													  )
+											),
+											{
+												VisuallyHidden: (
+													<VisuallyHidden />
+												),
+											}
+										) }
+									</Link>
+								</P>
+							</div>
+						) }
+					</Fragment>
 				) }
 			</div>
 
 			<div className="googlesitekit-settings-module__meta-items">
 				<div className="googlesitekit-settings-module__meta-item">
-					<h5 className="googlesitekit-settings-module__meta-item-type">
+					<Typography
+						as="h5"
+						size="medium"
+						type="label"
+						className="googlesitekit-settings-module__meta-item-type"
+					>
 						{ __( 'Tag Manager Code Snippet', 'google-site-kit' ) }
-					</h5>
+					</Typography>
 
-					<p className="googlesitekit-settings-module__meta-item-data">
-						{ useSnippet && __( 'Snippet is inserted', 'google-site-kit' ) }
-						{ ! useSnippet && __( 'Snippet is not inserted', 'google-site-kit' ) }
-					</p>
+					<P
+						className="googlesitekit-settings-module__meta-item-data"
+						size={ SIZE_MEDIUM }
+					>
+						{ useSnippet && (
+							<span>
+								{ __(
+									'Snippet is inserted',
+									'google-site-kit'
+								) }
+							</span>
+						) }
+						{ ! useSnippet && (
+							<span>
+								{ __(
+									'Snippet is not inserted',
+									'google-site-kit'
+								) }
+							</span>
+						) }
+					</P>
 
 					{ hasExistingTag && (
-						<p>
-							{ __( 'Placing two tags at the same time is not recommended.', 'google-site-kit' ) }
-						</p>
+						<P
+							className="googlesitekit-margin-bottom-0"
+							size={ SIZE_SMALL }
+						>
+							{ __(
+								'Placing two tags at the same time is not recommended.',
+								'google-site-kit'
+							) }
+						</P>
 					) }
 				</div>
 			</div>
+
+			<SettingsStatuses statuses={ googleTagGatewayStatuses } />
 		</Fragment>
 	);
 }

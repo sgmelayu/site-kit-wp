@@ -1,0 +1,1004 @@
+/**
+ * Default notifications tests.
+ *
+ * Site Kit by Google, Copyright 2026 Google LLC
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     https://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+/**
+ * Internal dependencies
+ */
+import {
+	ALL_SERVICES_TAB_PATH,
+	WHATS_NEW_TAB_PATH,
+} from '@/js/components/feature-discovery/constants';
+import { FEATURE_DISCOVERY_CALLOUT_NOTIFICATION } from '@/js/components/feature-discovery/FeatureDiscoveryCallout';
+import { FEATURE_DISCOVERY_AUTO_UPDATES_BANNER_SLUG } from '@/js/components/notifications/EnableAutoUpdateBannerNotification';
+import { WELCOME_MODAL_NOTIFICATION } from '@/js/components/WelcomeModal';
+import sharedKeyMetrics from '@/js/feature-tours/shared-key-metrics';
+import {
+	VIEW_CONTEXT_ENTITY_DASHBOARD,
+	VIEW_CONTEXT_ENTITY_DASHBOARD_VIEW_ONLY,
+	VIEW_CONTEXT_FEATURE_DISCOVERY,
+	VIEW_CONTEXT_MAIN_DASHBOARD,
+	VIEW_CONTEXT_MAIN_DASHBOARD_VIEW_ONLY,
+} from '@/js/googlesitekit/constants';
+import { CORE_FEATURE_DISCOVERY } from '@/js/googlesitekit/datastore/feature-discovery/constants';
+import { provideFeatures } from '@/js/googlesitekit/datastore/feature-discovery/test-utils';
+import { CORE_SITE } from '@/js/googlesitekit/datastore/site/constants';
+import {
+	CORE_USER,
+	PERMISSION_MANAGE_OPTIONS,
+	PERMISSION_READ_SHARED_MODULE_DATA,
+	PERMISSION_UPDATE_PLUGINS,
+	WELCOME_GATHERING_DATA_DISMISSED_ITEM_SLUG,
+} from '@/js/googlesitekit/datastore/user/constants';
+import { getMetaCapabilityPropertyName } from '@/js/googlesitekit/datastore/util/permissions';
+import { CORE_MODULES } from '@/js/googlesitekit/modules/datastore/constants';
+import { MODULE_SLUG_ANALYTICS_4 } from '@/js/modules/analytics-4/constants';
+import { MODULES_ANALYTICS_4 } from '@/js/modules/analytics-4/datastore/constants';
+import { MODULE_SLUG_SEARCH_CONSOLE } from '@/js/modules/search-console/constants';
+import { MODULES_SEARCH_CONSOLE } from '@/js/modules/search-console/datastore/constants';
+import {
+	createTestRegistry,
+	provideModuleRegistrations,
+	provideModules,
+	provideSiteInfo,
+	provideUserAuthentication,
+	provideUserCapabilities,
+	provideUserInfo,
+} from '@tests/js/test-utils';
+import {
+	FEATURE_DISCOVERY_SETUP_SUCCESS_ALL_SERVICES_NOTIFICATION,
+	FEATURE_DISCOVERY_SETUP_SUCCESS_WHATS_NEW_NOTIFICATION,
+	NOTIFICATION_AREAS,
+	NOTIFICATION_GROUPS,
+} from './constants';
+import { DEFAULT_NOTIFICATIONS } from './register-defaults';
+
+describe( 'DEFAULT_NOTIFICATIONS checkRequirements', () => {
+	let registry;
+	let oldLocation;
+
+	/**
+	 * Marks the given module's datastore as having resolved its sample report
+	 * with the given rows, which is what the zero data state is derived from.
+	 *
+	 * @since 1.187.0
+	 *
+	 * @param {string} datastoreSlug Datastore slug.
+	 * @param {Array}  report        Sample report rows.
+	 */
+	function provideSampleReport( datastoreSlug, report ) {
+		const options = registry.select( datastoreSlug ).getSampleReportArgs();
+
+		registry
+			.dispatch( datastoreSlug )
+			.receiveGetReport( report, { options } );
+		registry
+			.dispatch( datastoreSlug )
+			.finishResolution( 'getReport', [ options ] );
+	}
+
+	function provideGatheringData( datastoreSlug, isGatheringData ) {
+		registry
+			.dispatch( datastoreSlug )
+			.receiveIsGatheringData( isGatheringData );
+	}
+
+	/**
+	 * Shares the given modules with a view-only user.
+	 *
+	 * @since 1.187.0
+	 *
+	 * @param {Array.<string>} slugs Module slugs the view-only user can view.
+	 */
+	function provideSharedModules( slugs ) {
+		provideUserCapabilities(
+			registry,
+			slugs.reduce(
+				( capabilities, slug ) => ( {
+					...capabilities,
+					[ getMetaCapabilityPropertyName(
+						PERMISSION_READ_SHARED_MODULE_DATA,
+						slug
+					) ]: true,
+				} ),
+				{}
+			)
+		);
+	}
+
+	beforeAll( () => {
+		oldLocation = global.location;
+		delete global.location;
+		global.location = { href: 'http://example.com/wp-admin/admin.php' };
+	} );
+
+	afterAll( () => {
+		global.location = oldLocation;
+	} );
+
+	beforeEach( () => {
+		registry = createTestRegistry();
+		global.location.href = 'http://example.com/wp-admin/admin.php';
+
+		provideSiteInfo( registry );
+		registry.dispatch( CORE_USER ).receiveGetDismissedItems( [] );
+		registry.dispatch( CORE_USER ).receiveGetDismissedPrompts( {} );
+	} );
+
+	describe( 'auth-error', () => {
+		const { checkRequirements } = DEFAULT_NOTIFICATIONS[ 'auth-error' ];
+
+		it( 'should be active when there is an authentication error', async () => {
+			registry.dispatch( CORE_USER ).setAuthError( {
+				code: 'test-error',
+				message: 'Test error',
+				data: {},
+			} );
+
+			expect( await checkRequirements( registry ) ).toBe( true );
+		} );
+
+		it( 'should not be active when there is no authentication error', async () => {
+			expect( await checkRequirements( registry ) ).toBe( false );
+		} );
+	} );
+
+	describe( 'module-recovery-alert', () => {
+		const { checkRequirements } =
+			DEFAULT_NOTIFICATIONS[ 'module-recovery-alert' ];
+
+		it( 'should be active when there is a recoverable module', async () => {
+			provideModules( registry, [
+				{ slug: MODULE_SLUG_ANALYTICS_4, recoverable: true },
+			] );
+
+			expect( await checkRequirements( registry ) ).toBe( true );
+		} );
+
+		it( 'should not be active when there are no recoverable modules', async () => {
+			provideModules( registry );
+
+			expect( await checkRequirements( registry ) ).toBe( false );
+		} );
+	} );
+
+	describe( 'gathering-data-notification', () => {
+		const { checkRequirements } =
+			DEFAULT_NOTIFICATIONS[ 'gathering-data-notification' ];
+
+		beforeEach( () => {
+			provideModules( registry, [
+				{
+					slug: MODULE_SLUG_ANALYTICS_4,
+					active: true,
+					connected: true,
+					shareable: true,
+				},
+				{
+					slug: MODULE_SLUG_SEARCH_CONSOLE,
+					active: true,
+					connected: true,
+					shareable: true,
+				},
+			] );
+		} );
+
+		it( 'should be active when Analytics is gathering data', async () => {
+			provideGatheringData( MODULES_ANALYTICS_4, true );
+			provideGatheringData( MODULES_SEARCH_CONSOLE, false );
+
+			expect(
+				await checkRequirements( registry, VIEW_CONTEXT_MAIN_DASHBOARD )
+			).toBe( true );
+		} );
+
+		it( 'should be active when Search Console is gathering data', async () => {
+			provideGatheringData( MODULES_ANALYTICS_4, false );
+			provideGatheringData( MODULES_SEARCH_CONSOLE, true );
+
+			expect(
+				await checkRequirements( registry, VIEW_CONTEXT_MAIN_DASHBOARD )
+			).toBe( true );
+		} );
+
+		it( 'should not be active when neither module is gathering data', async () => {
+			provideGatheringData( MODULES_ANALYTICS_4, false );
+			provideGatheringData( MODULES_SEARCH_CONSOLE, false );
+
+			expect(
+				await checkRequirements( registry, VIEW_CONTEXT_MAIN_DASHBOARD )
+			).toBe( false );
+		} );
+
+		it( 'should not be active when the gathering module is disconnected', async () => {
+			provideModules( registry, [
+				{
+					slug: MODULE_SLUG_ANALYTICS_4,
+					active: false,
+					connected: false,
+				},
+			] );
+			provideGatheringData( MODULES_ANALYTICS_4, true );
+			provideGatheringData( MODULES_SEARCH_CONSOLE, false );
+
+			expect(
+				await checkRequirements( registry, VIEW_CONTEXT_MAIN_DASHBOARD )
+			).toBe( false );
+		} );
+
+		it( 'should be active in a view-only context when the gathering module is shared', async () => {
+			provideSharedModules( [ MODULE_SLUG_ANALYTICS_4 ] );
+			provideGatheringData( MODULES_ANALYTICS_4, true );
+			provideGatheringData( MODULES_SEARCH_CONSOLE, false );
+
+			expect(
+				await checkRequirements(
+					registry,
+					VIEW_CONTEXT_MAIN_DASHBOARD_VIEW_ONLY
+				)
+			).toBe( true );
+		} );
+
+		it( 'should not be active in a view-only context when the gathering module is not shared', async () => {
+			provideSharedModules( [] );
+			provideGatheringData( MODULES_ANALYTICS_4, true );
+			provideGatheringData( MODULES_SEARCH_CONSOLE, false );
+
+			expect(
+				await checkRequirements(
+					registry,
+					VIEW_CONTEXT_MAIN_DASHBOARD_VIEW_ONLY
+				)
+			).toBe( false );
+		} );
+
+		it( 'should not be active in a view-only context when the gathering module is recoverable', async () => {
+			provideModules( registry, [
+				{
+					slug: MODULE_SLUG_ANALYTICS_4,
+					active: true,
+					connected: true,
+					shareable: true,
+					recoverable: true,
+				},
+				{
+					slug: MODULE_SLUG_SEARCH_CONSOLE,
+					active: true,
+					connected: true,
+					shareable: true,
+				},
+			] );
+			provideSharedModules( [ MODULE_SLUG_ANALYTICS_4 ] );
+			provideGatheringData( MODULES_ANALYTICS_4, true );
+			provideGatheringData( MODULES_SEARCH_CONSOLE, false );
+
+			expect(
+				await checkRequirements(
+					registry,
+					VIEW_CONTEXT_MAIN_DASHBOARD_VIEW_ONLY
+				)
+			).toBe( false );
+		} );
+	} );
+
+	describe( 'zero-data-notification', () => {
+		const { checkRequirements } =
+			DEFAULT_NOTIFICATIONS[ 'zero-data-notification' ];
+
+		const searchConsoleReport = [
+			{
+				clicks: 100,
+				ctr: 0.5,
+				impressions: 200,
+				keys: [ '2024-01-01' ],
+				position: 1,
+			},
+		];
+
+		beforeEach( () => {
+			provideModules( registry, [
+				{
+					slug: MODULE_SLUG_ANALYTICS_4,
+					active: false,
+					connected: false,
+				},
+				{
+					slug: MODULE_SLUG_SEARCH_CONSOLE,
+					active: true,
+					connected: true,
+					shareable: true,
+				},
+			] );
+		} );
+
+		it( 'should be active when a module has zero data', async () => {
+			provideGatheringData( MODULES_SEARCH_CONSOLE, false );
+			provideSampleReport( MODULES_SEARCH_CONSOLE, [] );
+
+			expect(
+				await checkRequirements( registry, VIEW_CONTEXT_MAIN_DASHBOARD )
+			).toBe( true );
+		} );
+
+		it( 'should not be active when the module has data', async () => {
+			provideGatheringData( MODULES_SEARCH_CONSOLE, false );
+			provideSampleReport( MODULES_SEARCH_CONSOLE, searchConsoleReport );
+
+			expect(
+				await checkRequirements( registry, VIEW_CONTEXT_MAIN_DASHBOARD )
+			).toBe( false );
+		} );
+
+		it( 'should not be active when a module is still gathering data', async () => {
+			provideModules( registry, [
+				{
+					slug: MODULE_SLUG_ANALYTICS_4,
+					active: true,
+					connected: true,
+					shareable: true,
+				},
+				{
+					slug: MODULE_SLUG_SEARCH_CONSOLE,
+					active: true,
+					connected: true,
+					shareable: true,
+				},
+			] );
+			provideGatheringData( MODULES_ANALYTICS_4, true );
+			provideGatheringData( MODULES_SEARCH_CONSOLE, false );
+			provideSampleReport( MODULES_SEARCH_CONSOLE, [] );
+
+			expect(
+				await checkRequirements( registry, VIEW_CONTEXT_MAIN_DASHBOARD )
+			).toBe( false );
+		} );
+
+		it( 'should be active in a view-only context when the zero data module is shared', async () => {
+			provideSharedModules( [ MODULE_SLUG_SEARCH_CONSOLE ] );
+			provideGatheringData( MODULES_SEARCH_CONSOLE, false );
+			provideSampleReport( MODULES_SEARCH_CONSOLE, [] );
+
+			expect(
+				await checkRequirements(
+					registry,
+					VIEW_CONTEXT_MAIN_DASHBOARD_VIEW_ONLY
+				)
+			).toBe( true );
+		} );
+
+		it( 'should not be active in a view-only context when the zero data module is not shared', async () => {
+			provideSharedModules( [] );
+			provideGatheringData( MODULES_SEARCH_CONSOLE, false );
+			provideSampleReport( MODULES_SEARCH_CONSOLE, [] );
+
+			expect(
+				await checkRequirements(
+					registry,
+					VIEW_CONTEXT_MAIN_DASHBOARD_VIEW_ONLY
+				)
+			).toBe( false );
+		} );
+
+		it( 'should not be active in a view-only context when the zero data module is recoverable', async () => {
+			provideModules( registry, [
+				{
+					slug: MODULE_SLUG_ANALYTICS_4,
+					active: false,
+					connected: false,
+				},
+				{
+					slug: MODULE_SLUG_SEARCH_CONSOLE,
+					active: true,
+					connected: true,
+					shareable: true,
+					recoverable: true,
+				},
+			] );
+			provideSharedModules( [ MODULE_SLUG_SEARCH_CONSOLE ] );
+			provideGatheringData( MODULES_SEARCH_CONSOLE, false );
+			provideSampleReport( MODULES_SEARCH_CONSOLE, [] );
+
+			expect(
+				await checkRequirements(
+					registry,
+					VIEW_CONTEXT_MAIN_DASHBOARD_VIEW_ONLY
+				)
+			).toBe( false );
+		} );
+	} );
+
+	describe( 'setup-success-notification-module', () => {
+		const { checkRequirements } =
+			DEFAULT_NOTIFICATIONS[ 'setup-success-notification-module' ];
+
+		beforeEach( () => {
+			provideModules( registry, [
+				{
+					slug: MODULE_SLUG_ANALYTICS_4,
+					active: true,
+					connected: true,
+					overrideSetupSuccessNotification: false,
+				},
+			] );
+		} );
+
+		it( 'should be active for a module that has just been set up', async () => {
+			global.location.href = `http://example.com/wp-admin/admin.php?notification=authentication_success&slug=${ MODULE_SLUG_ANALYTICS_4 }`;
+
+			expect( await checkRequirements( registry ) ).toBe( true );
+		} );
+
+		it( 'should not be active when the `notification` query arg is not set to `authentication_success`', async () => {
+			global.location.href = `http://example.com/wp-admin/admin.php?notification=other&slug=${ MODULE_SLUG_ANALYTICS_4 }`;
+
+			expect( await checkRequirements( registry ) ).toBe( false );
+		} );
+
+		it( 'should not be active when the module overrides the setup success notification', async () => {
+			provideModules( registry, [
+				{
+					slug: MODULE_SLUG_ANALYTICS_4,
+					active: true,
+					connected: true,
+					overrideSetupSuccessNotification: true,
+				},
+			] );
+
+			global.location.href = `http://example.com/wp-admin/admin.php?notification=authentication_success&slug=${ MODULE_SLUG_ANALYTICS_4 }`;
+
+			expect( await checkRequirements( registry ) ).toBe( false );
+		} );
+
+		it( 'should not be active when the module is not active', async () => {
+			provideModules( registry, [
+				{
+					slug: MODULE_SLUG_ANALYTICS_4,
+					active: false,
+					connected: false,
+					overrideSetupSuccessNotification: false,
+				},
+			] );
+
+			global.location.href = `http://example.com/wp-admin/admin.php?notification=authentication_success&slug=${ MODULE_SLUG_ANALYTICS_4 }`;
+
+			expect( await checkRequirements( registry ) ).toBe( false );
+		} );
+
+		it( 'should not be active when the `slug` query arg is missing', async () => {
+			global.location.href =
+				'http://example.com/wp-admin/admin.php?notification=authentication_success';
+
+			expect( await checkRequirements( registry ) ).toBe( false );
+		} );
+	} );
+
+	describe( 'feature-discovery-auto-update-cta', () => {
+		const { checkRequirements } =
+			DEFAULT_NOTIFICATIONS[ FEATURE_DISCOVERY_AUTO_UPDATES_BANNER_SLUG ];
+
+		it( 'should be active when user can update plugins and auto-updates can be enabled', async () => {
+			provideSiteInfo( registry, {
+				changePluginAutoUpdatesCapacity: true,
+				siteKitAutoUpdatesEnabled: false,
+			} );
+			provideUserCapabilities( registry, {
+				[ PERMISSION_UPDATE_PLUGINS ]: true,
+			} );
+
+			expect( await checkRequirements( registry ) ).toBe( true );
+		} );
+
+		it( 'should not be active when auto-updates are already enabled', async () => {
+			provideSiteInfo( registry, {
+				changePluginAutoUpdatesCapacity: true,
+				siteKitAutoUpdatesEnabled: true,
+			} );
+			provideUserCapabilities( registry, {
+				[ PERMISSION_UPDATE_PLUGINS ]: true,
+			} );
+
+			expect( await checkRequirements( registry ) ).toBe( false );
+		} );
+
+		it( 'should not be active when user cannot update plugins', async () => {
+			provideSiteInfo( registry, {
+				changePluginAutoUpdatesCapacity: true,
+				siteKitAutoUpdatesEnabled: false,
+			} );
+			provideUserCapabilities( registry, {
+				[ PERMISSION_UPDATE_PLUGINS ]: false,
+			} );
+
+			expect( await checkRequirements( registry ) ).toBe( false );
+		} );
+
+		it( 'should not be active when plugin auto-updates cannot be changed', async () => {
+			provideSiteInfo( registry, {
+				changePluginAutoUpdatesCapacity: false,
+				siteKitAutoUpdatesEnabled: false,
+			} );
+			provideUserCapabilities( registry, {
+				[ PERMISSION_UPDATE_PLUGINS ]: true,
+			} );
+
+			expect( await checkRequirements( registry ) ).toBe( false );
+		} );
+	} );
+
+	describe.each( [
+		[
+			FEATURE_DISCOVERY_SETUP_SUCCESS_WHATS_NEW_NOTIFICATION,
+			WHATS_NEW_TAB_PATH,
+			ALL_SERVICES_TAB_PATH,
+		],
+		[
+			FEATURE_DISCOVERY_SETUP_SUCCESS_ALL_SERVICES_NOTIFICATION,
+			ALL_SERVICES_TAB_PATH,
+			WHATS_NEW_TAB_PATH,
+		],
+	] )( '%s', ( notificationID, returnTab, otherTab ) => {
+		const { checkRequirements } = DEFAULT_NOTIFICATIONS[ notificationID ];
+
+		function providePendingSetup( pendingSetup ) {
+			registry
+				.dispatch( CORE_FEATURE_DISCOVERY )
+				.receivePendingSetup( pendingSetup );
+		}
+
+		const successNotice = { title: 'Success! Test feature is set up' };
+
+		function provideFeature( { isEnabled } ) {
+			provideFeatures( registry, [
+				{
+					slug: 'test-feature',
+					setup: { isEnabled: () => isEnabled },
+					successNotice,
+				},
+			] );
+		}
+
+		beforeEach( () => {
+			provideModules( registry );
+		} );
+
+		it( 'should not be active when there is no pending setup', async () => {
+			provideFeature( { isEnabled: true } );
+			providePendingSetup( null );
+
+			expect( await checkRequirements( registry ) ).toBe( false );
+		} );
+
+		it( 'should not be active when the user returned to the other tab', async () => {
+			provideFeature( { isEnabled: true } );
+			providePendingSetup( {
+				featureSlug: 'test-feature',
+				returnTab: otherTab,
+			} );
+
+			expect( await checkRequirements( registry ) ).toBe( false );
+		} );
+
+		it( 'should not be active when the pending feature is unknown', async () => {
+			providePendingSetup( {
+				featureSlug: 'unknown-feature',
+				returnTab,
+			} );
+
+			expect( await checkRequirements( registry ) ).toBe( false );
+		} );
+
+		it( 'should not be active when the pending feature has no success notice', async () => {
+			provideFeatures( registry, [
+				{
+					slug: 'test-feature',
+					setup: { isEnabled: () => true },
+				},
+			] );
+			providePendingSetup( { featureSlug: 'test-feature', returnTab } );
+
+			expect( await checkRequirements( registry ) ).toBe( false );
+		} );
+
+		it( 'should still be active for the newsletter sign-up feature', async () => {
+			provideFeatures( registry, [
+				{
+					slug: 'newsletter-signup',
+					setup: { isEnabled: () => true },
+					successNotice,
+				},
+			] );
+			providePendingSetup( {
+				featureSlug: 'newsletter-signup',
+				returnTab,
+			} );
+
+			expect( await checkRequirements( registry ) ).toBe( true );
+		} );
+
+		it( 'should be active when the pending feature is now set up', async () => {
+			provideFeature( { isEnabled: true } );
+			providePendingSetup( { featureSlug: 'test-feature', returnTab } );
+
+			expect( await checkRequirements( registry ) ).toBe( true );
+		} );
+
+		it( 'should not be active when the pending feature is not set up', async () => {
+			provideFeature( { isEnabled: false } );
+			providePendingSetup( { featureSlug: 'test-feature', returnTab } );
+
+			expect( await checkRequirements( registry ) ).toBe( false );
+		} );
+
+		it( "should not be active when the pending feature's setup state is unresolved", async () => {
+			provideFeature( { isEnabled: undefined } );
+			providePendingSetup( { featureSlug: 'test-feature', returnTab } );
+
+			expect( await checkRequirements( registry ) ).toBe( false );
+		} );
+
+		it( 'should wait for the modules, module settings and site info before checking', async () => {
+			// Only reports the feature as set up once the module's settings
+			// have loaded, so this passes only if they're waited for.
+			function isEnabled( select ) {
+				return (
+					select( MODULES_ANALYTICS_4 ).getSettings()?.propertyID ===
+					'12345'
+				);
+			}
+
+			provideModuleRegistrations( registry );
+			provideFeatures( registry, [
+				{
+					slug: 'test-feature',
+					setup: {
+						moduleSlug: MODULE_SLUG_ANALYTICS_4,
+						isEnabled,
+					},
+					successNotice,
+				},
+			] );
+			providePendingSetup( { featureSlug: 'test-feature', returnTab } );
+
+			const settingsEndpoint = new RegExp(
+				'^/google-site-kit/v1/modules/analytics-4/data/settings'
+			);
+			fetchMock.getOnce( settingsEndpoint, {
+				body: { propertyID: '12345' },
+				status: 200,
+			} );
+
+			expect( fetchMock ).not.toHaveFetched( settingsEndpoint );
+			expect(
+				registry
+					.select( CORE_MODULES )
+					.hasFinishedResolution( 'getModules' )
+			).toBe( false );
+			expect(
+				registry
+					.select( CORE_SITE )
+					.hasFinishedResolution( 'getSiteInfo' )
+			).toBe( false );
+
+			expect( await checkRequirements( registry ) ).toBe( true );
+
+			expect( fetchMock ).toHaveFetched( settingsEndpoint );
+			expect(
+				registry
+					.select( CORE_MODULES )
+					.hasFinishedResolution( 'getModules' )
+			).toBe( true );
+			expect(
+				registry
+					.select( CORE_SITE )
+					.hasFinishedResolution( 'getSiteInfo' )
+			).toBe( true );
+		} );
+
+		it( 'should wait for a prerequisite module’s settings before checking', async () => {
+			// Only reports the feature as set up once the prerequisite
+			// module's settings have loaded, so this passes only if they're
+			// waited for.
+			function isEnabled( select ) {
+				return (
+					select( MODULES_ANALYTICS_4 ).getSettings()?.propertyID ===
+					'12345'
+				);
+			}
+
+			provideModuleRegistrations( registry );
+			provideFeatures( registry, [
+				{
+					slug: 'test-feature',
+					prerequisiteModules: [ MODULE_SLUG_ANALYTICS_4 ],
+					setup: { isEnabled },
+					successNotice,
+				},
+			] );
+			providePendingSetup( { featureSlug: 'test-feature', returnTab } );
+
+			const settingsEndpoint = new RegExp(
+				'^/google-site-kit/v1/modules/analytics-4/data/settings'
+			);
+			fetchMock.getOnce( settingsEndpoint, {
+				body: { propertyID: '12345' },
+				status: 200,
+			} );
+
+			expect( await checkRequirements( registry ) ).toBe( true );
+			expect( fetchMock ).toHaveFetched( settingsEndpoint );
+		} );
+	} );
+
+	describe( 'feature discovery setup success placements', () => {
+		it( 'should take precedence over the auto-updates notice in the same area', () => {
+			const successNotification =
+				DEFAULT_NOTIFICATIONS[
+					FEATURE_DISCOVERY_SETUP_SUCCESS_WHATS_NEW_NOTIFICATION
+				];
+			const autoUpdatesNotification =
+				DEFAULT_NOTIFICATIONS[
+					FEATURE_DISCOVERY_AUTO_UPDATES_BANNER_SLUG
+				];
+
+			expect( successNotification.areaSlug ).toBe(
+				NOTIFICATION_AREAS.FEATURE_DISCOVERY_WHATS_NEW_TOP
+			);
+			expect( autoUpdatesNotification.areaSlug ).toBe(
+				successNotification.areaSlug
+			);
+			expect( successNotification.groupID ).toBe(
+				NOTIFICATION_GROUPS.SETUP_CTAS
+			);
+			expect( autoUpdatesNotification.groupID ).toBe(
+				successNotification.groupID
+			);
+			expect( successNotification.priority ).toBeLessThan(
+				autoUpdatesNotification.priority
+			);
+		} );
+
+		it( 'should keep the "All services" notice out of the auto-updates notice’s queue', () => {
+			const successNotification =
+				DEFAULT_NOTIFICATIONS[
+					FEATURE_DISCOVERY_SETUP_SUCCESS_ALL_SERVICES_NOTIFICATION
+				];
+			const autoUpdatesNotification =
+				DEFAULT_NOTIFICATIONS[
+					FEATURE_DISCOVERY_AUTO_UPDATES_BANNER_SLUG
+				];
+
+			expect( successNotification.areaSlug ).toBe(
+				NOTIFICATION_AREAS.FEATURE_DISCOVERY_ALL_SERVICES_TOP
+			);
+			expect( successNotification.groupID ).toBe(
+				NOTIFICATION_GROUPS.DEFAULT
+			);
+			expect( successNotification.groupID ).not.toBe(
+				autoUpdatesNotification.groupID
+			);
+		} );
+	} );
+
+	describe( 'welcome-modal', () => {
+		const { checkRequirements } =
+			DEFAULT_NOTIFICATIONS[ WELCOME_MODAL_NOTIFICATION ];
+
+		beforeEach( () => {
+			provideModules( registry );
+			provideUserAuthentication( registry );
+			provideUserCapabilities( registry );
+		} );
+
+		it( 'should be active when the data gathering complete modal is active', async () => {
+			registry
+				.dispatch( CORE_USER )
+				.receiveGetDismissedItems( [
+					WELCOME_GATHERING_DATA_DISMISSED_ITEM_SLUG,
+				] );
+
+			expect( await checkRequirements( registry ) ).toBe( true );
+		} );
+
+		it( 'should be active directly after the initial setup', async () => {
+			registry.dispatch( CORE_USER ).receiveGetDismissedItems( [] );
+
+			global.location.href =
+				'http://example.com/wp-admin/admin.php?notification=initial_setup_success';
+
+			expect( await checkRequirements( registry ) ).toBe( true );
+		} );
+
+		it( 'should not be active when neither modal variant applies', async () => {
+			registry.dispatch( CORE_USER ).receiveGetDismissedItems( [] );
+
+			expect( await checkRequirements( registry ) ).toBe( false );
+		} );
+
+		it( 'should not be active for a view-only user without access to a shared module', async () => {
+			provideUserAuthentication( registry, { authenticated: false } );
+			provideSharedModules( [] );
+			registry
+				.dispatch( CORE_USER )
+				.receiveGetDismissedItems( [
+					WELCOME_GATHERING_DATA_DISMISSED_ITEM_SLUG,
+				] );
+
+			expect( await checkRequirements( registry ) ).toBe( false );
+		} );
+
+		it( 'should be active for a view-only user with access to a shared module', async () => {
+			provideModules( registry, [
+				{ slug: MODULE_SLUG_SEARCH_CONSOLE, shareable: true },
+			] );
+			provideUserAuthentication( registry, { authenticated: false } );
+			provideSharedModules( [ MODULE_SLUG_SEARCH_CONSOLE ] );
+			registry
+				.dispatch( CORE_USER )
+				.receiveGetDismissedItems( [
+					WELCOME_GATHERING_DATA_DISMISSED_ITEM_SLUG,
+				] );
+
+			expect( await checkRequirements( registry ) ).toBe( true );
+		} );
+	} );
+
+	describe( 'sharedKeyMetrics', () => {
+		const { checkRequirements } =
+			DEFAULT_NOTIFICATIONS[ sharedKeyMetrics.slug ];
+
+		function provideTourConditions( {
+			keyMetrics = [ 'kmAnalyticsTopTrafficSource' ],
+			keyMetricsSetupCompletedBy = 2,
+			currentUserID = 1,
+			dismissedTours = [],
+		} = {} ) {
+			provideSiteInfo( registry, { keyMetricsSetupCompletedBy } );
+			provideUserInfo( registry, { id: currentUserID } );
+			provideUserAuthentication( registry );
+			registry
+				.dispatch( CORE_USER )
+				.receiveGetDismissedTours( dismissedTours );
+			registry.dispatch( CORE_USER ).receiveGetUserInputSettings( {} );
+			registry
+				.dispatch( CORE_USER )
+				.receiveGetKeyMetricsSettings( { widgetSlugs: keyMetrics } );
+		}
+
+		it( 'should be active when another admin set up the key metrics', async () => {
+			provideTourConditions();
+
+			expect( await checkRequirements( registry ) ).toBe( true );
+		} );
+
+		it( 'should be active when the key metrics settings arrive after the other requirements', async () => {
+			// Everything except the key metrics settings, which are left to the
+			// request below so they land last.
+			provideSiteInfo( registry, { keyMetricsSetupCompletedBy: 2 } );
+			provideUserInfo( registry, { id: 1 } );
+			provideUserAuthentication( registry );
+			registry.dispatch( CORE_USER ).receiveGetDismissedTours( [] );
+			registry.dispatch( CORE_USER ).receiveGetUserInputSettings( {} );
+
+			fetchMock.getOnce(
+				new RegExp( '^/google-site-kit/v1/core/user/data/key-metrics' ),
+				() =>
+					new Promise( ( resolve ) =>
+						setTimeout(
+							() =>
+								resolve( {
+									body: {
+										widgetSlugs: [
+											'kmAnalyticsTopTrafficSource',
+										],
+									},
+									status: 200,
+								} ),
+							50
+						)
+					)
+			);
+
+			expect( await checkRequirements( registry ) ).toBe( true );
+		} );
+
+		it( 'should not be active when the tour is already dismissed', async () => {
+			provideTourConditions( {
+				dismissedTours: [ sharedKeyMetrics.slug ],
+			} );
+
+			expect( await checkRequirements( registry ) ).toBe( false );
+		} );
+
+		it( 'should not be active when the current user set up the key metrics', async () => {
+			provideTourConditions( {
+				keyMetricsSetupCompletedBy: 1,
+				currentUserID: 1,
+			} );
+
+			expect( await checkRequirements( registry ) ).toBe( false );
+		} );
+
+		it( 'should not be active when nobody has set up the key metrics', async () => {
+			provideTourConditions( { keyMetricsSetupCompletedBy: 0 } );
+
+			expect( await checkRequirements( registry ) ).toBe( false );
+		} );
+
+		it( 'should not be active while the initial welcome modal is up', async () => {
+			provideTourConditions();
+			global.location.href =
+				'http://example.com/wp-admin/admin.php?page=googlesitekit-dashboard&notification=initial_setup_success';
+
+			expect( await checkRequirements( registry ) ).toBe( false );
+		} );
+	} );
+
+	describe( 'feature_discovery_callout_notification', () => {
+		const notification =
+			DEFAULT_NOTIFICATIONS[ FEATURE_DISCOVERY_CALLOUT_NOTIFICATION ];
+
+		it( 'is registered only for main and entity dashboard admin contexts', () => {
+			expect( notification.viewContexts ).toEqual( [
+				VIEW_CONTEXT_MAIN_DASHBOARD,
+				VIEW_CONTEXT_ENTITY_DASHBOARD,
+			] );
+			expect( notification.viewContexts ).not.toContain(
+				VIEW_CONTEXT_MAIN_DASHBOARD_VIEW_ONLY
+			);
+			expect( notification.viewContexts ).not.toContain(
+				VIEW_CONTEXT_ENTITY_DASHBOARD_VIEW_ONLY
+			);
+			expect( notification.viewContexts ).not.toContain(
+				VIEW_CONTEXT_FEATURE_DISCOVERY
+			);
+			expect( notification.featureFlag ).toBe( 'featureDiscoveryHub' );
+		} );
+
+		it( 'requires the manage options capability', async () => {
+			registry.dispatch( CORE_USER ).receiveGetDismissedItems( [] );
+			registry.dispatch( CORE_USER ).receiveGetDismissedPrompts( {} );
+
+			registry.dispatch( CORE_USER ).receiveGetCapabilities( {
+				[ PERMISSION_MANAGE_OPTIONS ]: true,
+			} );
+
+			expect(
+				await notification.checkRequirements(
+					{
+						select: registry.select,
+						resolveSelect: registry.resolveSelect,
+					},
+					VIEW_CONTEXT_MAIN_DASHBOARD
+				)
+			).toBe( true );
+
+			registry.dispatch( CORE_USER ).receiveGetCapabilities( {
+				[ PERMISSION_MANAGE_OPTIONS ]: false,
+			} );
+
+			expect(
+				await notification.checkRequirements(
+					{
+						select: registry.select,
+						resolveSelect: registry.resolveSelect,
+					},
+					VIEW_CONTEXT_MAIN_DASHBOARD
+				)
+			).toBe( false );
+		} );
+	} );
+} );

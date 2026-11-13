@@ -19,17 +19,30 @@
 /**
  * Internal dependencies
  */
-import Data from 'googlesitekit-data';
-import { CORE_SITE } from '../../googlesitekit/datastore/site/constants';
-import SetupUsingProxy from '../setup/SetupUsingProxy';
-import SetupUsingGCP from '../legacy-setup/SetupUsingGCP';
-const { useSelect } = Data;
+import { useSelect } from 'googlesitekit-data';
+import SetupUsingGCP from '@/js/components/legacy-setup/SetupUsingGCP';
+import SetupUsingProxyViewOnly from '@/js/components/setup/SetupUsingProxyViewOnly';
+import SetupUsingProxyWithSignIn from '@/js/components/setup/SetupUsingProxyWithSignIn';
+import { CORE_SITE } from '@/js/googlesitekit/datastore/site/constants';
+import {
+	CORE_USER,
+	PERMISSION_AUTHENTICATE,
+} from '@/js/googlesitekit/datastore/user/constants';
 
 export default function DashboardSplashApp() {
-	const usingProxy = useSelect( ( select ) => select( CORE_SITE ).isUsingProxy() );
+	const usingProxy = useSelect( ( select ) =>
+		select( CORE_SITE ).isUsingProxy()
+	);
+	const canAuthenticate = useSelect( ( select ) =>
+		select( CORE_USER ).hasCapability( PERMISSION_AUTHENTICATE )
+	);
 
 	if ( usingProxy === true ) {
-		return <SetupUsingProxy />;
+		if ( ! canAuthenticate ) {
+			return <SetupUsingProxyViewOnly />;
+		}
+
+		return <SetupUsingProxyWithSignIn />;
 	}
 
 	if ( usingProxy === false ) {

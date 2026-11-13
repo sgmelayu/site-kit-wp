@@ -1,0 +1,1424 @@
+/**
+ * SetupUsingProxyWithSignIn component tests.
+ *
+ * Site Kit by Google, Copyright 2022 Google LLC
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     https://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+/**
+ * WordPress dependencies
+ */
+import { addQueryArgs } from '@wordpress/url';
+
+/**
+ * Internal dependencies
+ */
+import {
+	ANALYTICS_NOTICE_CHECKBOX,
+	ANALYTICS_NOTICE_FORM_NAME,
+} from '@/js/components/setup/constants';
+import SetupUsingProxyWithSignIn from '@/js/components/setup/SetupUsingProxyWithSignIn';
+import { VIEW_CONTEXT_SPLASH } from '@/js/googlesitekit/constants';
+import { CORE_FORMS } from '@/js/googlesitekit/datastore/forms/constants';
+import { CORE_SITE } from '@/js/googlesitekit/datastore/site/constants';
+import { CORE_USER } from '@/js/googlesitekit/datastore/user/constants';
+import coreModulesFixture from '@/js/googlesitekit/modules/datastore/__fixtures__';
+import { CORE_MODULES } from '@/js/googlesitekit/modules/datastore/constants';
+import { MODULE_SLUG_ANALYTICS_4 } from '@/js/modules/analytics-4/constants';
+import { MODULES_ANALYTICS_4 } from '@/js/modules/analytics-4/datastore/constants';
+import { MODULE_SLUG_SEARCH_CONSOLE } from '@/js/modules/search-console/constants';
+import * as tracking from '@/js/util/tracking';
+import { mockLocation } from '@tests/js/mock-browser-utils';
+import {
+	act,
+	createTestRegistry,
+	fireEvent,
+	muteFetch,
+	provideModuleRegistrations,
+	provideModules,
+	provideNotifications,
+	provideSiteConnection,
+	provideSiteInfo,
+	provideUserAuthentication,
+	provideUserCapabilities,
+	provideUserInfo,
+	render,
+	waitFor,
+	within,
+} from '@tests/js/test-utils';
+
+const mockTrackEvent = jest.spyOn( tracking, 'trackEvent' );
+mockTrackEvent.mockImplementation( () => Promise.resolve() );
+
+jest.mock(
+	'../CompatibilityChecks',
+	() =>
+		( { children } ) =>
+			children( { complete: true } )
+);
+
+describe( 'SetupUsingProxyWithSignIn', () => {
+	mockLocation();
+	let registry;
+
+	beforeEach( () => {
+		registry = createTestRegistry();
+		global.location.href =
+			'http://example.com/wp-admin/admin.php?page=googlesitekit-splash';
+
+		provideModules( registry );
+		provideSiteInfo( registry );
+		provideUserInfo( registry );
+		provideUserAuthentication( registry );
+		provideUserCapabilities( registry );
+		registry.dispatch( CORE_USER ).receiveConnectURL( 'test-url' );
+		registry.dispatch( CORE_USER ).receiveGetDismissedItems( [] );
+		registry.dispatch( CORE_USER ).receiveGetDismissedPrompts( {} );
+		registry
+			.dispatch( MODULES_ANALYTICS_4 )
+			.receiveGetAudienceSettings( {} );
+
+		muteFetch(
+			new RegExp( '^/google-site-kit/v1/core/site/data/connection' )
+		);
+		muteFetch(
+			new RegExp( '^/google-site-kit/v1/core/user/data/tracking' )
+		);
+	} );
+
+	afterEach( () => {
+		jest.resetAllMocks();
+	} );
+
+	it( 'should render the setup page, including the Activate Analytics notice', async () => {
+		const { container, getByText, waitForRegistry } = render(
+			<SetupUsingProxyWithSignIn />,
+			{
+				registry,
+				viewContext: VIEW_CONTEXT_SPLASH,
+			}
+		);
+
+		await waitForRegistry();
+
+		expect( container ).toMatchSnapshot();
+
+		expect(
+			getByText(
+				/Get visitor insights by connecting Google Analytics as part of setup/
+			)
+		).toBeInTheDocument();
+	} );
+
+	it( 'should keep the words "Site Kit" in the splash header, by adding `googlesitekit-setup-flow` to the body', async () => {
+		const { waitForRegistry } = render( <SetupUsingProxyWithSignIn />, {
+			registry,
+			viewContext: VIEW_CONTEXT_SPLASH,
+		} );
+
+		await waitForRegistry();
+
+		expect( global.document.body ).toHaveClass(
+			'googlesitekit-setup-flow'
+		);
+	} );
+
+	it( 'should not render the Activate Analytics notice when the Analytics module is not available', async () => {
+		registry
+			.dispatch( CORE_MODULES )
+			.receiveGetModules(
+				coreModulesFixture.filter(
+					( { slug } ) => slug !== MODULE_SLUG_ANALYTICS_4
+				)
+			);
+
+		const { container, waitForRegistry, queryByText } = render(
+			<SetupUsingProxyWithSignIn />,
+			{
+				registry,
+				viewContext: VIEW_CONTEXT_SPLASH,
+			}
+		);
+
+		await waitForRegistry();
+
+		expect( container ).toMatchSnapshot();
+
+		expect(
+			queryByText(
+				/Get visitor insights by connecting Google Analytics as part of setup/
+			)
+		).not.toBeInTheDocument();
+	} );
+
+	it( 'should navigate to the proxy setup URL on CTA click', async () => {
+		const { getByRole, waitForRegistry } = render(
+			<SetupUsingProxyWithSignIn />,
+			{
+				registry,
+				viewContext: VIEW_CONTEXT_SPLASH,
+			}
+		);
+
+		await waitForRegistry();
+
+		fireEvent.click(
+			getByRole( 'button', { name: /sign in with google/i } )
+		);
+
+		const proxySetupURL = registry.select( CORE_SITE ).getProxySetupURL();
+
+		await waitFor( () => {
+			expect( global.location.assign ).toHaveBeenCalled();
+			expect( global.location.assign ).toHaveBeenCalledWith(
+				proxySetupURL
+			);
+		} );
+	} );
+
+	it( 'should pass panel query arg through redirect when signing in', async () => {
+		global.location.href =
+			'http://example.com/wp-admin/admin.php?page=googlesitekit-splash&panel=email-reporting';
+
+		const { getByRole, waitForRegistry } = render(
+			<SetupUsingProxyWithSignIn />,
+			{
+				registry,
+				viewContext: VIEW_CONTEXT_SPLASH,
+			}
+		);
+
+		await waitForRegistry();
+
+		fireEvent.click(
+			getByRole( 'button', { name: /sign in with google/i } )
+		);
+
+		const proxySetupURL = registry.select( CORE_SITE ).getProxySetupURL();
+		const dashboardURL = registry
+			.select( CORE_SITE )
+			.getAdminURL( 'googlesitekit-dashboard', {
+				panel: 'email-reporting',
+			} );
+		const expectedURL = addQueryArgs( proxySetupURL, {
+			redirect: dashboardURL,
+		} );
+
+		await waitFor( () => {
+			expect( global.location.assign ).toHaveBeenCalled();
+			expect( global.location.assign ).toHaveBeenCalledWith(
+				expectedURL
+			);
+		} );
+	} );
+
+	const initialSetupSettingsEndpoint = new RegExp(
+		'^/google-site-kit/v1/core/user/data/initial-setup-settings'
+	);
+
+	beforeEach( () => {
+		muteFetch( initialSetupSettingsEndpoint );
+	} );
+
+	it( 'should render the setup page correctly', async () => {
+		const { container, waitForRegistry } = render(
+			<SetupUsingProxyWithSignIn />,
+			{
+				registry,
+				viewContext: VIEW_CONTEXT_SPLASH,
+			}
+		);
+
+		await waitForRegistry();
+
+		expect( container ).toMatchSnapshot();
+	} );
+
+	it( 'should render the setup page with the Analytics checkbox when the Analytics module is inactive', async () => {
+		registry.dispatch( CORE_MODULES ).receiveGetModules(
+			coreModulesFixture.map( ( module ) => {
+				if ( MODULE_SLUG_ANALYTICS_4 === module.slug ) {
+					return {
+						...module,
+						active: false,
+					};
+				}
+				return module;
+			} )
+		);
+
+		const { container, getByText, waitForRegistry } = render(
+			<SetupUsingProxyWithSignIn />,
+			{
+				registry,
+				viewContext: VIEW_CONTEXT_SPLASH,
+			}
+		);
+
+		await waitForRegistry();
+
+		expect( container ).toMatchSnapshot();
+
+		expect(
+			getByText(
+				/Get visitor insights by connecting Google Analytics as part of setup/
+			)
+		).toBeInTheDocument();
+	} );
+
+	it( 'should not render the Analytics checkbox when the splash URL has `purpose=intent`', async () => {
+		global.location.href =
+			'http://example.com/wp-admin/admin.php?page=googlesitekit-splash&purpose=intent';
+
+		const { queryByText, waitForRegistry } = render(
+			<SetupUsingProxyWithSignIn />,
+			{
+				registry,
+				viewContext: VIEW_CONTEXT_SPLASH,
+			}
+		);
+
+		await waitForRegistry();
+
+		expect(
+			queryByText(
+				/Get visitor insights by connecting Google Analytics as part of setup/
+			)
+		).not.toBeInTheDocument();
+	} );
+
+	it( 'should render the Analytics checkbox when the splash URL has a `purpose` other than `intent`', async () => {
+		global.location.href =
+			'http://example.com/wp-admin/admin.php?page=googlesitekit-splash&purpose=something-else';
+
+		const { getByText, waitForRegistry } = render(
+			<SetupUsingProxyWithSignIn />,
+			{
+				registry,
+				viewContext: VIEW_CONTEXT_SPLASH,
+			}
+		);
+
+		await waitForRegistry();
+
+		expect(
+			getByText(
+				/Get visitor insights by connecting Google Analytics as part of setup/
+			)
+		).toBeInTheDocument();
+	} );
+
+	it( 'should track the `click_learn_more_link` event when the Analytics opt-in "Learn more" link is clicked', async () => {
+		const { getByRole, waitForRegistry } = render(
+			<SetupUsingProxyWithSignIn />,
+			{
+				registry,
+				viewContext: VIEW_CONTEXT_SPLASH,
+			}
+		);
+
+		await waitForRegistry();
+
+		expect( mockTrackEvent ).toHaveBeenCalledTimes( 0 );
+
+		const learnMoreLink = getByRole( 'link', { name: /Learn more/i } );
+		// Add click handler to prevent navigation.
+		learnMoreLink.addEventListener( 'click', ( event ) =>
+			event.preventDefault()
+		);
+
+		fireEvent.click( learnMoreLink );
+
+		expect( mockTrackEvent ).toHaveBeenCalledTimes( 1 );
+
+		expect( mockTrackEvent ).toHaveBeenCalledWith(
+			VIEW_CONTEXT_SPLASH,
+			'click_learn_more_link',
+			'analytics_checkbox'
+		);
+	} );
+
+	it( 'should not render the Analytics checkbox when the Analytics module is already active', async () => {
+		registry.dispatch( CORE_MODULES ).receiveGetModules(
+			coreModulesFixture.map( ( module ) => {
+				if ( MODULE_SLUG_ANALYTICS_4 === module.slug ) {
+					return {
+						...module,
+						active: true,
+					};
+				}
+				return module;
+			} )
+		);
+
+		const { container, queryByText, waitForRegistry } = render(
+			<SetupUsingProxyWithSignIn />,
+			{
+				registry,
+				viewContext: VIEW_CONTEXT_SPLASH,
+			}
+		);
+
+		await waitForRegistry();
+
+		expect( container ).toMatchSnapshot();
+
+		expect(
+			queryByText(
+				/Get visitor insights by connecting Google Analytics as part of setup/
+			)
+		).not.toBeInTheDocument();
+	} );
+
+	it( 'should show the correct title and description for a secondary admin when Analytics is not active', async () => {
+		provideSiteConnection( registry, {
+			hasConnectedAdmins: true,
+			hasMultipleAdmins: true,
+		} );
+
+		registry.dispatch( CORE_MODULES ).receiveGetModules(
+			coreModulesFixture.map( ( module ) => {
+				if ( MODULE_SLUG_ANALYTICS_4 === module.slug ) {
+					return {
+						...module,
+						active: false,
+					};
+				}
+
+				return module;
+			} )
+		);
+
+		const {
+			container,
+			getByRole,
+			getByText,
+			queryByText,
+			waitForRegistry,
+		} = render( <SetupUsingProxyWithSignIn />, {
+			registry,
+			viewContext: VIEW_CONTEXT_SPLASH,
+		} );
+
+		await waitForRegistry();
+
+		expect(
+			getByRole( 'heading', { name: "Let's get started!" } )
+		).toBeInTheDocument();
+
+		expect(
+			getByText(
+				/Once you complete the setup, you’ll see stats from all connected Google services\./
+			)
+		).toBeInTheDocument();
+
+		expect(
+			queryByText(
+				/all connected Google services that are shared with you:/
+			)
+		).not.toBeInTheDocument();
+
+		expect(
+			container.querySelector( '.googlesitekit-setup__services-list' )
+		).toBeNull();
+		expect(
+			getByText(
+				/Get visitor insights by connecting Google Analytics as part of setup/
+			)
+		).toBeInTheDocument();
+	} );
+
+	it( 'should show the correct title and description for a secondary admin when Analytics is active and shared services are viewable', async () => {
+		provideSiteConnection( registry, {
+			hasConnectedAdmins: true,
+			hasMultipleAdmins: true,
+		} );
+
+		registry.dispatch( CORE_MODULES ).receiveGetModules(
+			coreModulesFixture.map( ( module ) => {
+				if (
+					MODULE_SLUG_ANALYTICS_4 === module.slug ||
+					MODULE_SLUG_SEARCH_CONSOLE === module.slug
+				) {
+					return {
+						...module,
+						active: true,
+						shareable: true,
+					};
+				}
+
+				return module;
+			} )
+		);
+
+		registry.dispatch( CORE_USER ).receiveGetCapabilities( {
+			'googlesitekit_read_shared_module_data::["analytics-4"]': true,
+			'googlesitekit_read_shared_module_data::["search-console"]': true,
+		} );
+
+		const { container, getByRole, getByText, waitForRegistry } = render(
+			<SetupUsingProxyWithSignIn />,
+			{
+				registry,
+				viewContext: VIEW_CONTEXT_SPLASH,
+			}
+		);
+
+		await waitForRegistry();
+
+		expect(
+			getByRole( 'heading', { name: "Let's get started!" } )
+		).toBeInTheDocument();
+
+		expect(
+			getByText(
+				/all connected Google services that are shared with you:/
+			)
+		).toBeInTheDocument();
+
+		expect(
+			container.querySelector( '.googlesitekit-setup__services-list' )
+		).toBeInTheDocument();
+
+		expect( getByText( 'Search Console' ) ).toBeInTheDocument();
+		expect( getByText( 'Analytics' ) ).toBeInTheDocument();
+
+		expect(
+			Array.from(
+				container.querySelectorAll(
+					'.googlesitekit-setup__services-list-item-name'
+				)
+			).map( ( element ) => element.textContent )
+		).toEqual( [ 'Search Console', 'Analytics' ] );
+	} );
+
+	it( 'should navigate to the proxy setup URL with Analytics re-auth redirect URL and `showProgress` query argument on CTA click if chosen to connect Analytics', async () => {
+		fetchMock.postOnce( initialSetupSettingsEndpoint, {
+			body: {
+				settings: {
+					isAnalyticsSetupComplete: false,
+					hasSitePurposeAnswer: false,
+				},
+			},
+		} );
+
+		fetchMock.postOnce(
+			new RegExp( '^/google-site-kit/v1/core/modules/data/activation' ),
+			{ body: { success: true } }
+		);
+
+		fetchMock.getOnce(
+			new RegExp( '^/google-site-kit/v1/core/user/data/authentication' ),
+			{
+				body: {
+					authenticated: true,
+					requiredScopes: [
+						'https://www.googleapis.com/auth/analytics.readonly',
+					],
+					grantedScopes: [],
+					unsatisfiedScopes: [
+						'https://www.googleapis.com/auth/analytics.readonly',
+					],
+					needsReauthentication: true,
+				},
+			}
+		);
+
+		// Set the Analytics checkbox to true.
+		registry.dispatch( CORE_FORMS ).setValues( ANALYTICS_NOTICE_FORM_NAME, {
+			[ ANALYTICS_NOTICE_CHECKBOX ]: true,
+		} );
+
+		provideModuleRegistrations( registry );
+
+		const { getByRole, waitForRegistry } = render(
+			<SetupUsingProxyWithSignIn />,
+			{
+				registry,
+				viewContext: VIEW_CONTEXT_SPLASH,
+			}
+		);
+
+		await waitForRegistry();
+
+		fireEvent.click(
+			getByRole( 'button', { name: /sign in with google/i } )
+		);
+
+		await act( () =>
+			registry.resolveSelect( MODULES_ANALYTICS_4 ).getAdminReauthURL()
+		);
+
+		const proxySetupURL = registry.select( CORE_SITE ).getProxySetupURL();
+		const reauthURL = registry
+			.select( MODULES_ANALYTICS_4 )
+			.getAdminReauthURL();
+		const reauthURLWithShowProgress = addQueryArgs( reauthURL, {
+			showProgress: true,
+		} );
+
+		const finalURL = addQueryArgs( proxySetupURL, {
+			redirect: reauthURLWithShowProgress,
+		} );
+
+		await waitFor( () => {
+			expect( global.location.assign ).toHaveBeenCalled();
+			expect( global.location.assign ).toHaveBeenCalledWith( finalURL );
+		} );
+	} );
+
+	it( 'should call saveInitialSetupSettings with isAnalyticsSetupComplete: false when starting setup with Analytics', async () => {
+		fetchMock.postOnce( initialSetupSettingsEndpoint, {
+			body: {
+				settings: {
+					isAnalyticsSetupComplete: false,
+					hasSitePurposeAnswer: false,
+				},
+			},
+		} );
+
+		fetchMock.postOnce(
+			new RegExp( '^/google-site-kit/v1/core/modules/data/activation' ),
+			{ body: { success: true } }
+		);
+
+		fetchMock.getOnce(
+			new RegExp( '^/google-site-kit/v1/core/user/data/authentication' ),
+			{
+				body: {
+					authenticated: true,
+					requiredScopes: [
+						'https://www.googleapis.com/auth/analytics.readonly',
+					],
+					grantedScopes: [],
+					unsatisfiedScopes: [
+						'https://www.googleapis.com/auth/analytics.readonly',
+					],
+					needsReauthentication: true,
+				},
+			}
+		);
+
+		registry.dispatch( CORE_FORMS ).setValues( ANALYTICS_NOTICE_FORM_NAME, {
+			[ ANALYTICS_NOTICE_CHECKBOX ]: true,
+		} );
+
+		provideModuleRegistrations( registry );
+
+		const { getByRole, waitForRegistry } = render(
+			<SetupUsingProxyWithSignIn />,
+			{
+				registry,
+				viewContext: VIEW_CONTEXT_SPLASH,
+			}
+		);
+
+		await waitForRegistry();
+
+		fireEvent.click(
+			getByRole( 'button', { name: /sign in with google/i } )
+		);
+
+		await act( () =>
+			registry.resolveSelect( MODULES_ANALYTICS_4 ).getAdminReauthURL()
+		);
+
+		await waitFor( () => {
+			expect( fetchMock ).toHaveFetched( initialSetupSettingsEndpoint, {
+				body: {
+					data: {
+						settings: {
+							isAnalyticsSetupComplete: false,
+							hasSitePurposeAnswer: false,
+						},
+					},
+				},
+			} );
+		} );
+	} );
+
+	it( 'should show an error notification and prevent navigation when Analytics activation fails', async () => {
+		fetchMock.postOnce(
+			new RegExp( '^/google-site-kit/v1/core/modules/data/activation' ),
+			{
+				body: {
+					code: 'internal_server_error',
+					message: 'Internal server error',
+					data: { status: 500 },
+				},
+				status: 500,
+			}
+		);
+
+		registry.dispatch( CORE_FORMS ).setValues( ANALYTICS_NOTICE_FORM_NAME, {
+			[ ANALYTICS_NOTICE_CHECKBOX ]: true,
+		} );
+
+		provideModuleRegistrations( registry );
+
+		const { getByRole, getByText, waitForRegistry } = render(
+			<SetupUsingProxyWithSignIn />,
+			{
+				registry,
+				viewContext: VIEW_CONTEXT_SPLASH,
+			}
+		);
+
+		await waitForRegistry();
+
+		fireEvent.click(
+			getByRole( 'button', { name: /sign in with google/i } )
+		);
+
+		await waitFor( () => {
+			expect(
+				getByText( 'Connecting Site Kit failed' )
+			).toBeInTheDocument();
+		} );
+
+		await waitFor( () => {
+			expect( global.location.assign ).not.toHaveBeenCalled();
+			expect( console ).toHaveErrored();
+		} );
+	} );
+
+	it( 'should show an error notification, prevent navigation and leave "Sign in with Google" clickable with no spinner when saving initial setup settings fails', async () => {
+		fetchMock.postOnce(
+			initialSetupSettingsEndpoint,
+			{
+				body: {
+					code: 'internal_server_error',
+					message: 'Internal server error',
+					data: { status: 500 },
+				},
+				status: 500,
+			},
+			{ overwriteRoutes: true }
+		);
+
+		fetchMock.postOnce(
+			new RegExp( '^/google-site-kit/v1/core/modules/data/activation' ),
+			{ body: { success: true } }
+		);
+
+		registry.dispatch( CORE_FORMS ).setValues( ANALYTICS_NOTICE_FORM_NAME, {
+			[ ANALYTICS_NOTICE_CHECKBOX ]: true,
+		} );
+
+		provideModuleRegistrations( registry );
+
+		const { getByRole, getByText, waitForRegistry } = render(
+			<SetupUsingProxyWithSignIn />,
+			{
+				registry,
+				viewContext: VIEW_CONTEXT_SPLASH,
+			}
+		);
+
+		await waitForRegistry();
+
+		fireEvent.click(
+			getByRole( 'button', { name: /sign in with google/i } )
+		);
+
+		await waitFor( () => {
+			expect(
+				getByText( 'Connecting Site Kit failed' )
+			).toBeInTheDocument();
+		} );
+
+		const button = getByRole( 'button', { name: /sign in with google/i } );
+
+		expect( button ).toBeEnabled();
+		expect(
+			within( button ).queryByRole( 'progressbar' )
+		).not.toBeInTheDocument();
+
+		expect( global.location.assign ).not.toHaveBeenCalled();
+		expect( console ).toHaveErrored();
+	} );
+
+	it( 'should leave "Sign in with Google" clickable with no spinner when Analytics activation fails, then show the spinner again and retry the setup when "Retry plugin setup" is clicked', async () => {
+		fetchMock.postOnce(
+			new RegExp( '^/google-site-kit/v1/core/modules/data/activation' ),
+			{
+				body: {
+					code: 'internal_server_error',
+					message: 'Internal server error',
+					data: { status: 500 },
+				},
+				status: 500,
+			}
+		);
+
+		fetchMock.postOnce(
+			new RegExp( '^/google-site-kit/v1/core/modules/data/activation' ),
+			{ body: { success: true } }
+		);
+
+		fetchMock.postOnce( initialSetupSettingsEndpoint, {
+			body: {
+				settings: {
+					isAnalyticsSetupComplete: false,
+					hasSitePurposeAnswer: false,
+				},
+			},
+		} );
+
+		registry.dispatch( CORE_FORMS ).setValues( ANALYTICS_NOTICE_FORM_NAME, {
+			[ ANALYTICS_NOTICE_CHECKBOX ]: true,
+		} );
+
+		provideModuleRegistrations( registry );
+
+		const { getByRole, getByText, waitForRegistry } = render(
+			<SetupUsingProxyWithSignIn />,
+			{
+				registry,
+				viewContext: VIEW_CONTEXT_SPLASH,
+			}
+		);
+
+		await waitForRegistry();
+
+		fireEvent.click(
+			getByRole( 'button', { name: /sign in with google/i } )
+		);
+
+		await waitFor( () => {
+			expect(
+				getByText( 'Connecting Site Kit failed' )
+			).toBeInTheDocument();
+		} );
+
+		expect( global.location.assign ).toHaveBeenCalledTimes( 0 );
+
+		const buttonAfterFailure = getByRole( 'button', {
+			name: /sign in with google/i,
+		} );
+
+		expect( buttonAfterFailure ).toBeEnabled();
+		expect(
+			within( buttonAfterFailure ).queryByRole( 'progressbar' )
+		).not.toBeInTheDocument();
+
+		fireEvent.click(
+			getByRole( 'button', { name: /retry plugin setup/i } )
+		);
+
+		const buttonDuringRetry = getByRole( 'button', {
+			name: /sign in with google/i,
+		} );
+
+		expect( buttonDuringRetry ).toBeDisabled();
+		expect(
+			within( buttonDuringRetry ).getByRole( 'progressbar' )
+		).toBeInTheDocument();
+
+		const proxySetupURL = registry.select( CORE_SITE ).getProxySetupURL();
+
+		const dashboardURL = registry
+			.select( CORE_SITE )
+			.getAdminURL( 'googlesitekit-dashboard', {
+				slug: MODULE_SLUG_ANALYTICS_4,
+				reAuth: true,
+				showProgress: true,
+			} );
+
+		const expectedURL = addQueryArgs( proxySetupURL, {
+			redirect: dashboardURL,
+		} );
+
+		await waitFor( () => {
+			expect( global.location.assign ).toHaveBeenCalledTimes( 1 );
+			expect( global.location.assign ).toHaveBeenCalledWith(
+				expectedURL
+			);
+		} );
+	} );
+
+	it( 'should show a spinner on the Sign in with Google button and disable it after a click, with the Analytics checkbox unticked', async () => {
+		const { getByRole, waitForRegistry } = render(
+			<SetupUsingProxyWithSignIn />,
+			{
+				registry,
+				viewContext: VIEW_CONTEXT_SPLASH,
+			}
+		);
+
+		await waitForRegistry();
+
+		fireEvent.click(
+			getByRole( 'button', { name: /sign in with google/i } )
+		);
+
+		// The click replaces the `a` element with a disabled `button`, so find it again.
+		const button = getByRole( 'button', {
+			name: /sign in with google/i,
+		} );
+
+		expect( button ).toBeDisabled();
+		expect(
+			within( button ).getByRole( 'progressbar' )
+		).toBeInTheDocument();
+
+		await waitFor( () => {
+			expect( global.location.assign ).toHaveBeenCalled();
+		} );
+	} );
+
+	it( 'should show a spinner on the Sign in with Google button and disable it after a click, with the Analytics checkbox ticked', async () => {
+		fetchMock.postOnce(
+			new RegExp( '^/google-site-kit/v1/core/modules/data/activation' ),
+			{ body: { success: true } }
+		);
+
+		fetchMock.getOnce(
+			new RegExp( '^/google-site-kit/v1/core/user/data/authentication' ),
+			{
+				body: {
+					authenticated: true,
+					requiredScopes: [
+						'https://www.googleapis.com/auth/analytics.readonly',
+					],
+					grantedScopes: [],
+					unsatisfiedScopes: [
+						'https://www.googleapis.com/auth/analytics.readonly',
+					],
+					needsReauthentication: true,
+				},
+			}
+		);
+
+		// Set the Analytics checkbox to true.
+		registry.dispatch( CORE_FORMS ).setValues( ANALYTICS_NOTICE_FORM_NAME, {
+			[ ANALYTICS_NOTICE_CHECKBOX ]: true,
+		} );
+
+		provideModuleRegistrations( registry );
+
+		const { getByRole, waitForRegistry } = render(
+			<SetupUsingProxyWithSignIn />,
+			{
+				registry,
+				viewContext: VIEW_CONTEXT_SPLASH,
+			}
+		);
+
+		await waitForRegistry();
+
+		fireEvent.click(
+			getByRole( 'button', { name: /sign in with google/i } )
+		);
+
+		// The click replaces the `a` element with a disabled `button`, so find it again.
+		const button = getByRole( 'button', {
+			name: /sign in with google/i,
+		} );
+
+		expect( button ).toBeDisabled();
+		expect(
+			within( button ).getByRole( 'progressbar' )
+		).toBeInTheDocument();
+
+		await waitFor( () => {
+			expect( global.location.assign ).toHaveBeenCalled();
+		} );
+	} );
+
+	it( 'should stop the spinner when the page is restored from the back/forward cache, so the button can be clicked again', async () => {
+		const { getByRole, waitForRegistry } = render(
+			<SetupUsingProxyWithSignIn />,
+			{
+				registry,
+				viewContext: VIEW_CONTEXT_SPLASH,
+			}
+		);
+
+		await waitForRegistry();
+
+		fireEvent.click(
+			getByRole( 'button', { name: /sign in with google/i } )
+		);
+
+		await waitFor( () => {
+			expect( global.location.assign ).toHaveBeenCalled();
+		} );
+
+		const button = getByRole( 'button', { name: /sign in with google/i } );
+
+		expect(
+			within( button ).getByRole( 'progressbar' )
+		).toBeInTheDocument();
+
+		act( () => {
+			global.dispatchEvent(
+				new global.PageTransitionEvent( 'pageshow', {
+					persisted: true,
+				} )
+			);
+		} );
+
+		const restoredButton = getByRole( 'button', {
+			name: /sign in with google/i,
+		} );
+
+		expect( restoredButton ).toBeEnabled();
+		expect(
+			within( restoredButton ).queryByRole( 'progressbar' )
+		).not.toBeInTheDocument();
+	} );
+
+	it( 'should keep the spinner and the disabled button after the pageshow event of a normal page load', async () => {
+		const { getByRole, waitForRegistry } = render(
+			<SetupUsingProxyWithSignIn />,
+			{
+				registry,
+				viewContext: VIEW_CONTEXT_SPLASH,
+			}
+		);
+
+		await waitForRegistry();
+
+		fireEvent.click(
+			getByRole( 'button', { name: /sign in with google/i } )
+		);
+
+		await waitFor( () => {
+			expect( global.location.assign ).toHaveBeenCalled();
+		} );
+
+		act( () => {
+			global.dispatchEvent(
+				new global.PageTransitionEvent( 'pageshow', {
+					persisted: false,
+				} )
+			);
+		} );
+
+		const button = getByRole( 'button', { name: /sign in with google/i } );
+
+		expect( button ).toBeDisabled();
+		expect(
+			within( button ).getByRole( 'progressbar' )
+		).toBeInTheDocument();
+	} );
+
+	describe( 'the pageshow listener', () => {
+		let addEventListenerSpy;
+		let removeEventListenerSpy;
+
+		beforeEach( () => {
+			addEventListenerSpy = jest.spyOn( global, 'addEventListener' );
+			removeEventListenerSpy = jest.spyOn(
+				global,
+				'removeEventListener'
+			);
+		} );
+
+		afterEach( () => {
+			addEventListenerSpy.mockRestore();
+			removeEventListenerSpy.mockRestore();
+		} );
+
+		it( 'should be removed when the splash screen unmounts', async () => {
+			const { unmount, waitForRegistry } = render(
+				<SetupUsingProxyWithSignIn />,
+				{
+					registry,
+					viewContext: VIEW_CONTEXT_SPLASH,
+				}
+			);
+
+			await waitForRegistry();
+
+			const [ , onPageShow ] = addEventListenerSpy.mock.calls.find(
+				( [ type ] ) => type === 'pageshow'
+			);
+
+			unmount();
+
+			expect( removeEventListenerSpy ).toHaveBeenCalledWith(
+				'pageshow',
+				onPageShow
+			);
+		} );
+	} );
+
+	it( 'should save `hasSitePurposeAnswer: false` on a "Sign in with Google" click', async () => {
+		const { getByRole, waitForRegistry } = render(
+			<SetupUsingProxyWithSignIn />,
+			{
+				registry,
+				viewContext: VIEW_CONTEXT_SPLASH,
+			}
+		);
+
+		await waitForRegistry();
+
+		fireEvent.click(
+			getByRole( 'button', { name: /sign in with google/i } )
+		);
+
+		const proxySetupURL = registry.select( CORE_SITE ).getProxySetupURL();
+
+		await waitFor( () => {
+			expect( global.location.assign ).toHaveBeenCalledTimes( 1 );
+			expect( global.location.assign ).toHaveBeenCalledWith(
+				proxySetupURL
+			);
+		} );
+
+		expect( fetchMock ).toHaveFetched( initialSetupSettingsEndpoint, {
+			body: { data: { settings: { hasSitePurposeAnswer: false } } },
+		} );
+	} );
+
+	it( 'should not save a site purpose answer on a "Sign in with Google" click when the splash URL has `purpose=intent`', async () => {
+		global.location.href =
+			'http://example.com/wp-admin/admin.php?page=googlesitekit-splash&purpose=intent';
+
+		const { getByRole, waitForRegistry } = render(
+			<SetupUsingProxyWithSignIn />,
+			{
+				registry,
+				viewContext: VIEW_CONTEXT_SPLASH,
+			}
+		);
+
+		await waitForRegistry();
+
+		fireEvent.click(
+			getByRole( 'button', { name: /sign in with google/i } )
+		);
+
+		const proxySetupURL = registry.select( CORE_SITE ).getProxySetupURL();
+
+		await waitFor( () => {
+			expect( global.location.assign ).toHaveBeenCalledTimes( 1 );
+			expect( global.location.assign ).toHaveBeenCalledWith(
+				proxySetupURL
+			);
+		} );
+
+		expect( fetchMock ).not.toHaveFetched( initialSetupSettingsEndpoint );
+	} );
+
+	it( 'should allow exiting the setup', async () => {
+		registry.dispatch( CORE_SITE ).receiveSiteInfo( {
+			adminURL: 'http://example.com/wp-admin/',
+		} );
+
+		const { queryByText } = render( <SetupUsingProxyWithSignIn />, {
+			registry,
+			viewContext: VIEW_CONTEXT_SPLASH,
+		} );
+
+		expect( queryByText( /Exit setup/ ) ).toBeInTheDocument();
+
+		fireEvent.click( queryByText( /Exit setup/ ) );
+
+		await waitFor( () => {
+			expect( global.location.assign ).toHaveBeenCalled();
+		} );
+
+		expect( global.location.assign ).toHaveBeenCalledWith(
+			'http://example.com/wp-admin'
+		);
+	} );
+
+	it( 'should render a "Why is this required?" information tooltip', async () => {
+		const { getByText, waitForRegistry } = render(
+			<SetupUsingProxyWithSignIn />,
+			{
+				registry,
+				viewContext: VIEW_CONTEXT_SPLASH,
+			}
+		);
+
+		expect( getByText( /Why is this required?/ ) ).toBeInTheDocument();
+
+		await waitForRegistry();
+	} );
+
+	it( 'should track the `click_learn_more_link` event when the CTA tooltip "Learn more" link is clicked', async () => {
+		const { container, waitForRegistry } = render(
+			<SetupUsingProxyWithSignIn />,
+			{
+				registry,
+				viewContext: VIEW_CONTEXT_SPLASH,
+			}
+		);
+
+		await waitForRegistry();
+
+		expect( mockTrackEvent ).toHaveBeenCalledTimes( 0 );
+
+		const stepHintInfoTooltip = container.querySelector(
+			'.googlesitekit-setup__step-hint .googlesitekit-info-tooltip'
+		);
+		expect( stepHintInfoTooltip ).toBeInTheDocument();
+
+		fireEvent.mouseOver( stepHintInfoTooltip );
+
+		await waitFor( () => {
+			expect(
+				document.querySelector(
+					'.googlesitekit-setup__step-hint-tooltip'
+				)
+			).toBeInTheDocument();
+		} );
+
+		const tooltipContent = document.querySelector(
+			'.googlesitekit-setup__step-hint-tooltip'
+		);
+
+		fireEvent.click(
+			within( tooltipContent ).getByRole( 'link', {
+				name: /Learn more/i,
+			} )
+		);
+
+		expect( mockTrackEvent ).toHaveBeenCalledTimes( 1 );
+
+		expect( mockTrackEvent ).toHaveBeenCalledWith(
+			VIEW_CONTEXT_SPLASH,
+			'click_learn_more_link',
+			'cta_tooltip'
+		);
+	} );
+
+	it( 'should track GA events on CTA click', async () => {
+		const { getByRole, waitForRegistry } = render(
+			<SetupUsingProxyWithSignIn />,
+			{
+				registry,
+				viewContext: VIEW_CONTEXT_SPLASH,
+			}
+		);
+
+		await waitForRegistry();
+
+		expect( mockTrackEvent ).toHaveBeenCalledTimes( 0 );
+
+		fireEvent.click(
+			getByRole( 'button', { name: /sign in with google/i } )
+		);
+
+		await waitFor( () => {
+			expect( mockTrackEvent ).toHaveBeenCalledWith(
+				`${ VIEW_CONTEXT_SPLASH }_setup`,
+				'setup_flow_v3_start_site_setup',
+				'proxy'
+			);
+			expect( mockTrackEvent ).toHaveBeenCalledWith(
+				`${ VIEW_CONTEXT_SPLASH }_setup`,
+				'setup_flow_v3_start_user_setup',
+				'proxy'
+			);
+			expect( mockTrackEvent ).toHaveBeenCalledTimes( 2 );
+		} );
+	} );
+
+	it( 'should track GA events on CTA click when chosen to connect Analytics', async () => {
+		fetchMock.postOnce( initialSetupSettingsEndpoint, {
+			body: {
+				settings: {
+					isAnalyticsSetupComplete: false,
+					hasSitePurposeAnswer: false,
+				},
+			},
+		} );
+
+		fetchMock.postOnce(
+			new RegExp( '^/google-site-kit/v1/core/modules/data/activation' ),
+			{ body: { success: true } }
+		);
+
+		fetchMock.getOnce(
+			new RegExp( '^/google-site-kit/v1/core/user/data/authentication' ),
+			{
+				body: {
+					authenticated: true,
+					requiredScopes: [
+						'https://www.googleapis.com/auth/analytics.readonly',
+					],
+					grantedScopes: [],
+					unsatisfiedScopes: [
+						'https://www.googleapis.com/auth/analytics.readonly',
+					],
+					needsReauthentication: true,
+				},
+			}
+		);
+
+		// Set the Analytics checkbox to true.
+		registry.dispatch( CORE_FORMS ).setValues( ANALYTICS_NOTICE_FORM_NAME, {
+			[ ANALYTICS_NOTICE_CHECKBOX ]: true,
+		} );
+
+		provideModuleRegistrations( registry );
+
+		const { getByRole, waitForRegistry } = render(
+			<SetupUsingProxyWithSignIn />,
+			{
+				registry,
+				viewContext: VIEW_CONTEXT_SPLASH,
+			}
+		);
+
+		await waitForRegistry();
+
+		expect( mockTrackEvent ).toHaveBeenCalledTimes( 0 );
+
+		fireEvent.click(
+			getByRole( 'button', { name: /sign in with google/i } )
+		);
+
+		await waitFor( () => {
+			expect( mockTrackEvent ).toHaveBeenCalledWith(
+				`${ VIEW_CONTEXT_SPLASH }_setup`,
+				'setup_flow_v3_start_site_setup',
+				'proxy'
+			);
+			expect( mockTrackEvent ).toHaveBeenCalledWith(
+				`${ VIEW_CONTEXT_SPLASH }_setup`,
+				'setup_flow_v3_start_user_setup',
+				'proxy'
+			);
+			expect( mockTrackEvent ).toHaveBeenCalledWith(
+				`${ VIEW_CONTEXT_SPLASH }_setup`,
+				'setup_flow_v3_start_with_analytics'
+			);
+			expect( mockTrackEvent ).toHaveBeenCalledTimes( 3 );
+		} );
+	} );
+
+	it( 'should render the progress indicator', async () => {
+		const { container, waitForRegistry } = render(
+			<SetupUsingProxyWithSignIn />,
+			{
+				registry,
+
+				viewContext: VIEW_CONTEXT_SPLASH,
+			}
+		);
+
+		await waitForRegistry();
+
+		expect(
+			container.querySelector( '.googlesitekit-progress-indicator' )
+		).toBeInTheDocument();
+
+		expect( container ).toMatchSnapshot();
+	} );
+
+	it( 'should have only the initial stub segment in the progress indicator (no active segments yet)', async () => {
+		const { container, waitForRegistry } = render(
+			<SetupUsingProxyWithSignIn />,
+			{
+				registry,
+
+				viewContext: VIEW_CONTEXT_SPLASH,
+			}
+		);
+
+		await waitForRegistry();
+
+		expect( container ).toMatchSnapshot();
+		const segments = container.querySelectorAll(
+			'.googlesitekit-progress-indicator__segment'
+		);
+		// Only the stub segment should be present at initial render.
+		expect( segments.length ).toBe( 1 );
+	} );
+
+	it( 'should show the splash setup error notification when a setup error is present', async () => {
+		provideSiteInfo( registry, {
+			setupErrorCode: 'access_denied',
+			setupErrorMessage:
+				'Setup was interrupted because you did not grant the necessary permissions',
+			setupErrorRedoURL: 'https://sitekit.withgoogle.com/setup/redo/',
+		} );
+		provideNotifications( registry );
+
+		const { container, getByText, queryByText, waitForRegistry } = render(
+			<SetupUsingProxyWithSignIn />,
+			{
+				registry,
+				viewContext: VIEW_CONTEXT_SPLASH,
+			}
+		);
+
+		await waitForRegistry();
+
+		expect(
+			container.querySelector(
+				'.googlesitekit-setup__splash-setup-error-message-notification'
+			)
+		).toBeInTheDocument();
+
+		expect( getByText( 'Site Kit setup failed' ) ).toBeInTheDocument();
+
+		expect(
+			container.querySelector(
+				'.googlesitekit-banner-notification--error'
+			)
+		).not.toBeInTheDocument();
+
+		expect( queryByText( 'Permissions Error' ) ).not.toBeInTheDocument();
+	} );
+
+	it.each( [
+		[
+			'OAuth cancel',
+			'access_denied',
+			'Site Kit setup failed',
+			'https://example.com/?error=access_denied',
+		],
+		[
+			'generic OAuth error',
+			'oauth_error',
+			'Connecting Site Kit failed',
+			'https://example.com/?error=oauth_error',
+		],
+	] )(
+		'should retry plugin setup from the splash setup error notification CTA for %s states',
+		async ( _label, setupErrorCode, title, setupErrorRedoURL ) => {
+			provideSiteInfo( registry, {
+				setupErrorCode,
+				setupErrorMessage: 'Setup failed.',
+				setupErrorRedoURL,
+			} );
+
+			provideNotifications( registry );
+
+			const { getByRole, getByText, waitForRegistry } = render(
+				<SetupUsingProxyWithSignIn />,
+				{
+					registry,
+					viewContext: VIEW_CONTEXT_SPLASH,
+				}
+			);
+
+			await waitForRegistry();
+
+			expect( getByText( title ) ).toBeInTheDocument();
+
+			expect(
+				getByRole( 'button', { name: /retry plugin setup/i } )
+			).toHaveAttribute( 'href', setupErrorRedoURL );
+		}
+	);
+} );

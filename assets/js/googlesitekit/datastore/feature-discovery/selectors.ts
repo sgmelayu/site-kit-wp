@@ -1,0 +1,462 @@
+/**
+ * `core/feature-discovery` data store: selectors.
+ *
+ * Site Kit by Google, Copyright 2026 Google LLC
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     https://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+/**
+ * External dependencies
+ */
+import invariant from 'invariant';
+
+/**
+ * WordPress dependencies
+ */
+import { __ } from '@wordpress/i18n';
+
+/**
+ * Internal dependencies
+ */
+import { Select, createRegistrySelector } from 'googlesitekit-data';
+import { CORE_UI } from '@/js/googlesitekit/datastore/ui/constants';
+import { CORE_MODULES } from '@/js/googlesitekit/modules/datastore/constants';
+import {
+	CORE_FEATURE_DISCOVERY,
+	FEATURE_CATEGORIES,
+	FEATURE_CATEGORY_ORDER,
+	SUCCEEDED_FEATURES_UI_KEY,
+} from './constants';
+import type {
+	Feature,
+	FeatureCategory,
+	FeatureCategorySlug,
+	FeatureDiscoveryState,
+	PendingSetup,
+} from './types';
+
+export const selectors = {
+	/**
+	 * Gets the record of the setup the user left the hub to complete, as
+	 * consumed when the hub mounted.
+	 *
+	 * @since 1.190.0
+	 *
+	 * @param {Object} state Data store's state.
+	 * @return {(Object|null)} The pending setup (`featureSlug` and `returnTab`), or `null` if there is none.
+	 */
+	getPendingSetup( state: FeatureDiscoveryState ): PendingSetup | null {
+		return state.pendingSetup;
+	},
+
+	/**
+	 * Gets every registered feature, in registration order.
+	 *
+	 * @since 1.186.0
+	 *
+	 * @param {Object} state Data store's state.
+	 * @return {Array.<Object>} Registered features.
+	 */
+	getFeatures( state: FeatureDiscoveryState ): Feature[] {
+		return Object.values( state.features );
+	},
+
+	/**
+	 * Gets a single registered feature by its slug.
+	 *
+	 * @since 1.186.0
+	 *
+	 * @param {Object} state Data store's state.
+	 * @param {string} slug  Feature's slug.
+	 * @return {(Object|null)} The feature, or `null` if none is registered under `slug`.
+	 */
+	getFeature( state: FeatureDiscoveryState, slug: string ): Feature | null {
+		invariant( slug, 'slug is required to get a feature.' );
+
+		return state.features[ slug ] || null;
+	},
+
+	/**
+	 * Gets the goal categories, in their fixed, curated order.
+	 *
+	 * @since 1.186.0
+	 *
+	 * @return {Array.<Object>} Categories, each with its `slug` and `title`.
+	 */
+	getFeatureCategories(): FeatureCategory[] {
+		const titles = {
+			[ FEATURE_CATEGORIES.AUDIENCE ]: __(
+				'Get to know your audience',
+				'google-site-kit'
+			),
+			[ FEATURE_CATEGORIES.ENGAGEMENT ]: __(
+				'Engage your visitors',
+				'google-site-kit'
+			),
+			[ FEATURE_CATEGORIES.MONETIZATION ]: __(
+				'Earn money from your content',
+				'google-site-kit'
+			),
+			[ FEATURE_CATEGORIES.TRAFFIC ]: __(
+				'Drive traffic to your site',
+				'google-site-kit'
+			),
+			[ FEATURE_CATEGORIES.PRIVACY ]: __(
+				'Manage privacy',
+				'google-site-kit'
+			),
+			[ FEATURE_CATEGORIES.PERFORMANCE ]: __(
+				'Improve your site speed and experience',
+				'google-site-kit'
+			),
+			[ FEATURE_CATEGORIES.PRODUCTIVITY ]: __(
+				'Collaborate and save time',
+				'google-site-kit'
+			),
+		};
+
+		const chipLabels = {
+			[ FEATURE_CATEGORIES.AUDIENCE ]: __(
+				'Know your audience',
+				'google-site-kit'
+			),
+			[ FEATURE_CATEGORIES.ENGAGEMENT ]: __(
+				'Engage your visitors',
+				'google-site-kit'
+			),
+			[ FEATURE_CATEGORIES.MONETIZATION ]: __(
+				'Monetize',
+				'google-site-kit'
+			),
+			[ FEATURE_CATEGORIES.TRAFFIC ]: __(
+				'Drive traffic',
+				'google-site-kit'
+			),
+			[ FEATURE_CATEGORIES.PRIVACY ]: __(
+				'Manage privacy',
+				'google-site-kit'
+			),
+			[ FEATURE_CATEGORIES.PERFORMANCE ]: __(
+				'Improve site speed',
+				'google-site-kit'
+			),
+			[ FEATURE_CATEGORIES.PRODUCTIVITY ]: __(
+				'Collaborate',
+				'google-site-kit'
+			),
+		};
+
+		return FEATURE_CATEGORY_ORDER.map( ( slug ) => ( {
+			slug,
+			title: titles[ slug ],
+			chipLabel: chipLabels[ slug ],
+		} ) );
+	},
+
+	/**
+	 * Determines whether every module a feature depends on is connected.
+	 *
+	 * Always `true` for a feature with no `prerequisiteModules`.
+	 *
+	 * @since 1.186.0
+	 *
+	 * @param {Object} state Data store's state.
+	 * @param {string} slug  Feature's slug.
+	 * @return {(boolean|undefined)} Whether the prerequisites are met, or `undefined` if the feature is not registered or module state has not loaded.
+	 */
+	isFeaturePrerequisiteMet: createRegistrySelector(
+		( select: Select ) => ( state: FeatureDiscoveryState, slug: string ) => {
+			const feature = select( CORE_FEATURE_DISCOVERY ).getFeature( slug );
+
+			if ( ! feature ) {
+				return undefined;
+			}
+
+			const { prerequisiteModules = [] } = feature;
+
+			if ( prerequisiteModules.length === 0 ) {
+				return true;
+			}
+
+			const connectedStates: ( boolean | null | undefined )[] =
+				prerequisiteModules.map( ( moduleSlug: string ) =>
+					select( CORE_MODULES ).isModuleConnected( moduleSlug )
+				);
+
+			if (
+				connectedStates.some(
+					( isConnected ) => isConnected === undefined
+				)
+			) {
+				return undefined;
+			}
+
+			return connectedStates.every(
+				( isConnected ) => isConnected === true
+			);
+		}
+	),
+
+	/**
+	 * Determines whether a feature is already set up.
+	 *
+	 * Uses the setup descriptor's `isEnabled` check where it provides one, and
+	 * otherwise whether the module the feature sets up is connected.
+	 *
+	 * @since 1.186.0
+	 *
+	 * @param {Object} state Data store's state.
+	 * @param {string} slug  Feature's slug.
+	 * @return {(boolean|undefined)} Whether the feature is set up, or `undefined` if the feature is not registered or the underlying state has not loaded.
+	 */
+	isFeatureConnected: createRegistrySelector(
+		( select: Select ) => ( state: FeatureDiscoveryState, slug: string ) => {
+			const feature = select( CORE_FEATURE_DISCOVERY ).getFeature( slug );
+
+			if ( ! feature ) {
+				return undefined;
+			}
+
+			const { setup } = feature;
+
+			if ( typeof setup?.isEnabled === 'function' ) {
+				return setup.isEnabled( select );
+			}
+
+			// No completion state to read, as for a feature that is an action
+			// rather than a persisted setting.
+			if ( ! setup?.moduleSlug ) {
+				return false;
+			}
+
+			const isConnected = select( CORE_MODULES ).isModuleConnected(
+				setup.moduleSlug
+			);
+
+			if ( isConnected === undefined ) {
+				return undefined;
+			}
+
+			// `isModuleConnected()` returns `null` for a module it can't find.
+			return isConnected === true;
+		}
+	),
+
+	/**
+	 * Determines whether a feature setup is in progress.
+	 *
+	 * @since 1.191.0
+	 *
+	 * @param {Object} state Data store's state.
+	 * @param {string} slug  Feature's slug.
+	 * @return {(boolean|undefined)} Whether the feature is in progress, or `undefined` if the feature is not registered or progress cannot yet be resolved.
+	 */
+	isFeatureInProgress: createRegistrySelector(
+		( select: Select ) => ( state: FeatureDiscoveryState, slug: string ) => {
+			const feature = select( CORE_FEATURE_DISCOVERY ).getFeature( slug );
+
+			if ( ! feature ) {
+				return undefined;
+			}
+
+			const { setup } = feature;
+
+			if ( typeof setup?.isInProgress !== 'function' ) {
+				return false;
+			}
+
+			const isConnected = select(
+				CORE_FEATURE_DISCOVERY
+			).isFeatureConnected( slug );
+
+			if ( isConnected === true ) {
+				return false;
+			}
+
+			const isInProgress = setup.isInProgress( select );
+
+			if ( isInProgress === undefined ) {
+				return undefined;
+			}
+
+			if ( isInProgress !== true ) {
+				return false;
+			}
+
+			return isConnected === undefined ? undefined : true;
+		}
+	),
+
+	/**
+	 * Checks whether the feature's setup action is currently running.
+	 *
+	 * @since 1.191.0
+	 *
+	 * @param {Object} state Data store's state.
+	 * @param {string} slug  Feature's slug.
+	 * @return {boolean} Whether setup is running for the feature.
+	 */
+	isSetupInProgress( state: FeatureDiscoveryState, slug: string ): boolean {
+		invariant( slug, 'slug is required to check setup progress.' );
+
+		return !! state.setupInProgress[ slug ];
+	},
+
+	/**
+	 * Gets the resume URL for a feature setup.
+	 *
+	 * Falls back to the setup URL where no dedicated resume URL exists.
+	 *
+	 * @since 1.191.0
+	 *
+	 * @param {Object} state Data store's state.
+	 * @param {string} slug  Feature's slug.
+	 * @return {(string|undefined)} Resume URL, setup URL fallback, or `undefined` if neither can be resolved.
+	 */
+	getFeatureResumeURL: createRegistrySelector(
+		( select: Select ) => ( state: FeatureDiscoveryState, slug: string ) => {
+			const feature = select( CORE_FEATURE_DISCOVERY ).getFeature( slug );
+
+			if ( ! feature ) {
+				return undefined;
+			}
+
+			const { setup } = feature;
+
+			if ( typeof setup?.getResumeURL === 'function' ) {
+				return setup.getResumeURL( select );
+			}
+
+			if ( typeof setup?.getSetupURL === 'function' ) {
+				return setup.getSetupURL( select );
+			}
+
+			return undefined;
+		}
+	),
+
+	/**
+	 * Gets the features that are available to show.
+	 *
+	 * A feature is available while it is not set up, its prerequisite modules
+	 * are connected, and its own `checkRequirements()` passes. A feature that
+	 * was just set up without leaving the hub stays available while its success
+	 * notice is shown, so that the notice keeps the feature's place in the list.
+	 *
+	 * @since 1.186.0
+	 *
+	 * @return {Array.<Object>} Available features, in registration order.
+	 */
+	getAvailableFeatures: createRegistrySelector(
+		( select: Select ) => (): Feature[] => {
+			const {
+				getFeatures,
+				isFeatureConnected,
+				isFeaturePrerequisiteMet,
+			} = select( CORE_FEATURE_DISCOVERY );
+
+			const succeededFeatures: string[] =
+				select( CORE_UI ).getValue( SUCCEEDED_FEATURES_UI_KEY ) || [];
+
+			return getFeatures().filter( ( feature: Feature ) => {
+				const isConnected = isFeatureConnected( feature.slug );
+
+				// A set-up feature is kept only while its success notice shows.
+				const isShowingSuccess =
+					isConnected === true &&
+					succeededFeatures.includes( feature.slug );
+
+				if ( isConnected !== false && ! isShowingSuccess ) {
+					return false;
+				}
+
+				if ( isFeaturePrerequisiteMet( feature.slug ) !== true ) {
+					return false;
+				}
+
+				const { checkRequirements } = feature;
+
+				if (
+					typeof checkRequirements === 'function' &&
+					! checkRequirements( select )
+				) {
+					return false;
+				}
+
+				return true;
+			} );
+		}
+	),
+
+	/**
+	 * Gets available features to show under a category for the current filter.
+	 *
+	 * @since 1.191.0
+	 *
+	 * @param {Object} state              Data store's state.
+	 * @param {string} category           Goal category slug.
+	 * @param {Array}  selectedCategories Selected filter category slugs.
+	 * @return {Array.<Object>} Filtered features with in-progress items first.
+	 */
+	getFeaturesFilteredByGoal: createRegistrySelector(
+		( select: Select ) =>
+			(
+				state: FeatureDiscoveryState,
+				category: FeatureCategorySlug,
+				selectedCategories: FeatureCategorySlug[] = []
+			): Feature[] => {
+				invariant(
+					category,
+					'category is required to get filtered features by goal.'
+				);
+
+				return select( CORE_FEATURE_DISCOVERY )
+					.getAvailableFeatures()
+					.filter( ( feature: Feature ) => {
+						const primaryCategory = feature.goalCategories[ 0 ];
+
+						if ( selectedCategories.length === 0 ) {
+							return primaryCategory === category;
+						}
+
+						const firstSelectedCategory =
+							feature.goalCategories.find( ( goal ) =>
+								selectedCategories.includes( goal )
+							);
+
+						return firstSelectedCategory === category;
+					} )
+					.sort( ( first: Feature, second: Feature ) => {
+						const firstInProgress =
+							select(
+								CORE_FEATURE_DISCOVERY
+							).isFeatureInProgress( first.slug ) === true;
+						const secondInProgress =
+							select(
+								CORE_FEATURE_DISCOVERY
+							).isFeatureInProgress( second.slug ) === true;
+
+						if ( firstInProgress !== secondInProgress ) {
+							return firstInProgress ? -1 : 1;
+						}
+
+						return 0;
+					} );
+			}
+	),
+};
+
+export default {
+	selectors,
+};

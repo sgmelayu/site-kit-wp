@@ -19,32 +19,87 @@
 /**
  * External dependencies
  */
-import PropTypes from 'prop-types';
 import classnames from 'classnames';
+import PropTypes from 'prop-types';
 
 /**
  * WordPress dependencies
  */
-import { useState, useCallback } from '@wordpress/element';
+import { useCallback, useEffect, useState } from '@wordpress/element';
+import { ENTER, SPACE } from '@wordpress/keycodes';
 
-export default function Accordion( { title, children, initialOpen } ) {
+/**
+ * Internal dependencies
+ */
+import ChevronDown from '@/svg/icons/chevron-down-v2.svg';
+import IconWrapper from './IconWrapper';
+
+export default function Accordion( {
+	title,
+	children,
+	initialOpen,
+	onOpen,
+	onClose,
+	disabled,
+} ) {
 	const [ isActive, setActive ] = useState( !! initialOpen );
-	const toggleAccordion = useCallback( () => {
-		setActive( ! isActive );
-	}, [ isActive ] );
+
+	useEffect( () => {
+		if ( isActive && onOpen && typeof onOpen === 'function' ) {
+			onOpen();
+		} else if ( ! isActive && onClose && typeof onClose === 'function' ) {
+			onClose();
+		}
+	}, [ isActive, onClose, onOpen ] );
+
+	useEffect( () => {
+		if ( disabled && isActive ) {
+			setActive( false );
+		}
+	}, [ disabled, isActive ] );
+
+	const toggleAccordion = useCallback(
+		( event ) => {
+			if (
+				event.type === 'keydown' &&
+				! [ ENTER, SPACE ].includes( event.keyCode )
+			) {
+				return;
+			}
+
+			// Prevent scroll when spacebar is hit.
+			event.preventDefault();
+
+			setActive( ! isActive );
+		},
+		[ isActive ]
+	);
 
 	return (
-		<div className="googlesitekit-accordion">
+		<div
+			className={ classnames( 'googlesitekit-accordion', {
+				'googlesitekit-accordion--disabled': disabled,
+			} ) }
+		>
 			<div
-				className={ classnames( 'googlesitekit-accordion__header', { 'is-active': isActive } ) }
+				className={ classnames( 'googlesitekit-accordion__header', {
+					'is-active': isActive,
+				} ) }
 				onClick={ toggleAccordion }
-				onKeyDown={ () => {} }
-				tabIndex={ 0 }
+				onKeyDown={ toggleAccordion }
+				tabIndex={ disabled ? -1 : 0 }
 				role="button"
 			>
 				{ title }
+				<IconWrapper>
+					<ChevronDown width={ 12 } height={ 12 } />
+				</IconWrapper>
 			</div>
-			<div className={ classnames( 'googlesitekit-accordion__content', { 'is-active': isActive } ) }>
+			<div
+				className={ classnames( 'googlesitekit-accordion__content', {
+					'is-active': isActive,
+				} ) }
+			>
 				{ children }
 			</div>
 		</div>
@@ -55,4 +110,7 @@ Accordion.propTypes = {
 	title: PropTypes.node.isRequired,
 	children: PropTypes.node.isRequired,
 	initialOpen: PropTypes.bool,
+	onOpen: PropTypes.func,
+	onClose: PropTypes.func,
+	disabled: PropTypes.bool,
 };

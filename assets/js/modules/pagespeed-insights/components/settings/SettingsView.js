@@ -24,26 +24,33 @@ import { __, sprintf } from '@wordpress/i18n';
 /**
  * Internal dependencies
  */
-import Data from 'googlesitekit-data';
-import { sanitizeHTML } from '../../../../util';
-import { STORE_NAME } from '../../datastore/constants';
-const { useSelect } = Data;
+import { useSelect } from 'googlesitekit-data';
+import { SIZE_MEDIUM } from '@/js/components/Typography/constants';
+import P from '@/js/components/Typography/P';
+import { MODULES_PAGESPEED_INSIGHTS } from '@/js/modules/pagespeed-insights/datastore/constants';
+import { sanitizeHTML } from '@/js/util';
 
 export default function SettingsView() {
-	const dashboardPermalink = useSelect( ( select ) => select( STORE_NAME ).getAdminScreenURL() );
+	const dashboardPermalink = useSelect( ( select ) =>
+		select( MODULES_PAGESPEED_INSIGHTS ).getAdminScreenURL()
+	);
 
 	const content = sprintf(
-		/* translators: %s is the URL to the Site Kit dashboard. */
-		__( 'To view insights, <a href="%s">visit the dashboard</a>.', 'google-site-kit' ),
-		dashboardPermalink
+		/* translators: %s: is the URL to the Site Kit dashboard. */
+		__(
+			'To view insights, <a href="%s">visit the dashboard</a>',
+			'google-site-kit'
+		),
+		`${ dashboardPermalink }#speed`
 	);
 
 	return (
-		<p
+		<P
 			dangerouslySetInnerHTML={ sanitizeHTML( content, {
 				ALLOWED_TAGS: [ 'a' ],
 				ALLOWED_ATTR: [ 'href' ],
 			} ) }
+			size={ SIZE_MEDIUM }
 		/>
 	);
 }

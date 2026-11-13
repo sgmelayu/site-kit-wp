@@ -19,30 +19,50 @@
 /**
  * Internal dependencies
  */
-import Data from 'googlesitekit-data';
-import { STORE_NAME } from '../../datastore/constants';
-import { MODULES_ANALYTICS } from '../../../analytics/datastore/constants';
-import { CORE_MODULES } from '../../../../googlesitekit/modules/datastore/constants';
-import StoreErrorNotices from '../../../../components/StoreErrorNotices';
-import ErrorText from '../../../../components/ErrorText';
-const { useSelect } = Data;
+import { useSelect } from 'googlesitekit-data';
+import ErrorNotice from '@/js/components/ErrorNotice';
+import StoreErrorNotices from '@/js/components/StoreErrorNotices';
+import { CORE_MODULES } from '@/js/googlesitekit/modules/datastore/constants';
+import { MODULE_SLUG_ANALYTICS_4 } from '@/js/modules/analytics-4/constants';
+import { MODULES_ANALYTICS_4 } from '@/js/modules/analytics-4/datastore/constants';
+import { MODULES_TAGMANAGER } from '@/js/modules/tagmanager/datastore/constants';
 
 export default function SetupErrorNotice() {
+	const analyticsModuleAvailable = useSelect( ( select ) =>
+		select( CORE_MODULES ).isModuleAvailable( MODULE_SLUG_ANALYTICS_4 )
+	);
+
 	const analyticsErrors = [
 		// Check if activating Analytics failed.
-		useSelect( ( select ) => select( CORE_MODULES ).getErrorForAction( 'activateModule', [ 'analytics' ] ) ),
+		useSelect( ( select ) =>
+			select( CORE_MODULES ).getErrorForAction( 'activateModule', [
+				MODULE_SLUG_ANALYTICS_4,
+			] )
+		),
 		// Check if saving Analytics settings failed.
 		useSelect( ( select ) => {
-			const settings = select( MODULES_ANALYTICS ).getSettings();
-			return select( MODULES_ANALYTICS ).getErrorForAction( 'saveSettings', [ settings ] );
+			if ( ! analyticsModuleAvailable ) {
+				return false;
+			}
+
+			const settings = select( MODULES_ANALYTICS_4 ).getSettings();
+			return select( MODULES_ANALYTICS_4 ).getErrorForAction(
+				'saveSettings',
+				[ settings ]
+			);
 		} ),
 	].filter( Boolean );
 
 	if ( analyticsErrors.length ) {
-		return analyticsErrors.map(
-			( { message, reconnectURL } ) => <ErrorText key={ message } message={ message } reconnectURL={ reconnectURL } />
-		);
+		return analyticsErrors.map( ( error ) => (
+			<ErrorNotice key={ error?.message } error={ error } />
+		) );
 	}
 
-	return <StoreErrorNotices moduleSlug="tagmanager" storeName={ STORE_NAME } />;
+	return (
+		<StoreErrorNotices
+			moduleSlug="tagmanager"
+			storeName={ MODULES_TAGMANAGER }
+		/>
+	);
 }

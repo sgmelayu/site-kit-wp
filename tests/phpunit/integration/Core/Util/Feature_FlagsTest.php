@@ -16,8 +16,8 @@ use ReflectionMethod;
 
 class Feature_FlagsTest extends TestCase {
 
-	public function tearDown() {
-		parent::tearDown();
+	public function tear_down() {
+		parent::tear_down();
 		static::reset_feature_flags();
 	}
 
@@ -29,7 +29,7 @@ class Feature_FlagsTest extends TestCase {
 			)
 		);
 
-		$this->assertFalse( Feature_Flags::enabled( '' ) );
+		$this->assertFalse( Feature_Flags::enabled( '' ), 'Feature should be disabled when feature name is empty.' );
 	}
 
 	public function test_enabled_when_feature_name_is_non_string() {
@@ -41,7 +41,7 @@ class Feature_FlagsTest extends TestCase {
 		);
 
 		$feature = (object) array( 'foo' => 'bar' );
-		$this->assertFalse( Feature_Flags::enabled( $feature ) );
+		$this->assertFalse( Feature_Flags::enabled( $feature ), 'Feature should be disabled when feature name is not a string.' );
 	}
 
 	public function test_enabled_with_filter() {
@@ -54,14 +54,14 @@ class Feature_FlagsTest extends TestCase {
 
 		add_filter(
 			'googlesitekit_is_feature_enabled',
-			function( $enabled, $feature_name ) {
+			function ( $enabled, $feature_name ) {
 				return 'test_feature' === $feature_name;
 			},
 			10,
 			2
 		);
 
-		$this->assertTrue( Feature_Flags::enabled( 'test_feature' ) );
+		$this->assertTrue( Feature_Flags::enabled( 'test_feature' ), 'Feature should be enabled when filter returns true.' );
 	}
 
 	public function test_enabled_without_filter() {
@@ -72,7 +72,6 @@ class Feature_FlagsTest extends TestCase {
 			)
 		);
 
-		$this->assertFalse( Feature_Flags::enabled( 'test_feature' ) );
+		$this->assertFalse( Feature_Flags::enabled( 'test_feature' ), 'Feature should be disabled when no filter is set.' );
 	}
-
 }

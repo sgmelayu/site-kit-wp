@@ -16,47 +16,85 @@
  * limitations under the License.
  */
 
-import API from 'googlesitekit-api';
-import { CORE_SITE } from '../../../googlesitekit/datastore/site/constants';
+/**
+ * Internal dependencies
+ */
+import { get } from 'googlesitekit-api';
+import { CORE_SITE } from '@/js/googlesitekit/datastore/site/constants';
+import { isIPAddressInRange } from '@/js/util/ip-cidr';
 import {
 	AMP_PROJECT_TEST_URL,
 	ERROR_AMP_CDN_RESTRICTED,
+	ERROR_API_UNAVAILABLE,
 	ERROR_FETCH_FAIL,
 	ERROR_GOOGLE_API_CONNECTION_FAIL,
 	ERROR_INVALID_HOSTNAME,
+	ERROR_SK_SERVICE_CONNECTION_FAIL,
 	ERROR_TOKEN_MISMATCH,
-	ERROR_WP_PRE_V5,
 } from './constants';
 
-// Check for a known non-public/reserved domain.
-export const checkHostname = async () => {
-	const { hostname } = global.location;
+const isIP =
+	/^(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]\d|\d)(?:\.(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]\d|\d)){3}$/;
 
-	if ( [ 'localhost', '127.0.0.1' ].includes( hostname ) || hostname.match( /\.(example|invalid|localhost|test)$/ ) ) {
+const invalidTLDs = /\.(example|invalid|localhost|test)$/;
+
+const invalidIPRanges = [
+	{ subnet: '10.0.0.0', mask: 8 },
+	{ subnet: '127.0.0.0', mask: 8 },
+	{ subnet: '172.16.0.0', mask: 12 },
+	{ subnet: '192.168.0.0', mask: 16 },
+];
+// Check for a known non-public/reserved domain.
+// eslint-disable-next-line require-await
+export async function checkHostname() {
+	const { hostname, port } = global.location;
+
+	if ( port ) {
 		throw ERROR_INVALID_HOSTNAME;
 	}
-};
-// Check for a Site Kit specific meta tag on the page to test for aggressive caching.
-export const registryCheckSetupTag = ( registry ) => async () => {
-	const setupTag = await registry.dispatch( CORE_SITE ).checkForSetupTag();
-	if ( setupTag.error ) {
-		throw ERROR_TOKEN_MISMATCH;
+
+	if ( isIP.test( hostname ) ) {
+		for ( const { mask, subnet } of invalidIPRanges ) {
+			if ( isIPAddressInRange( hostname, subnet, mask ) ) {
+				throw ERROR_INVALID_HOSTNAME;
+			}
+		}
+	} else if ( ! hostname.includes( '.' ) || hostname.match( invalidTLDs ) ) {
+		throw ERROR_INVALID_HOSTNAME;
 	}
-};
+}
+// Check for a Site Kit specific meta tag on the page to test for aggressive caching.
+export function registryCheckSetupTag( registry ) {
+	return async () => {
+		const setupTag = await registry
+			.dispatch( CORE_SITE )
+			.checkForSetupTag();
+		if ( setupTag.error ) {
+			throw ERROR_TOKEN_MISMATCH;
+		}
+	};
+}
 // Check that server can connect to Google's APIs via the core/site/data/health-checks endpoint.
-export const checkHealthChecks = async () => {
-	const response = await API.get( 'core', 'site', 'health-checks', undefined, {
+export async function checkHealthChecks() {
+	const response = await get( 'core', 'site', 'health-checks', undefined, {
 		useCache: false,
-	} ).catch( () => {
-		throw ERROR_FETCH_FAIL;
+	} ).catch( ( error ) => {
+		if ( error.code === 'fetch_error' ) {
+			throw ERROR_FETCH_FAIL;
+		}
+		throw ERROR_API_UNAVAILABLE;
 	} );
 
 	if ( ! response?.checks?.googleAPI?.pass ) {
 		throw ERROR_GOOGLE_API_CONNECTION_FAIL;
 	}
-};
+
+	if ( ! response?.checks?.skService?.pass ) {
+		throw ERROR_SK_SERVICE_CONNECTION_FAIL;
+	}
+}
 // Check that client can connect to AMP Project.
-export const checkAMPConnectivity = async () => {
+export async function checkAMPConnectivity() {
 	const response = await fetch( AMP_PROJECT_TEST_URL ).catch( () => {
 		throw ERROR_AMP_CDN_RESTRICTED;
 	} );
@@ -64,12 +102,4 @@ export const checkAMPConnectivity = async () => {
 	if ( ! response.ok ) {
 		throw ERROR_AMP_CDN_RESTRICTED;
 	}
-};
-// Check that the current version of WordPress is 5.0+.
-export const checkWPVersion = async () => {
-	const { wpVersion } = global._googlesitekitBaseData || {};
-	// Throw only if we can get the current version, otherwise ignore it.
-	if ( wpVersion && wpVersion.major < 5 ) {
-		throw ERROR_WP_PRE_V5;
-	}
-};
+}

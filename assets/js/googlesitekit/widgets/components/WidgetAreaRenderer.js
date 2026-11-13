@@ -23,28 +23,146 @@ import classnames from 'classnames';
 import PropTypes from 'prop-types';
 
 /**
+ * WordPress dependencies
+ */
+import { useEffect, useRef, useState } from '@wordpress/element';
+
+/**
  * Internal dependencies
  */
-import Data from 'googlesitekit-data';
-import { STORE_NAME, WIDGET_AREA_STYLES } from '../datastore/constants';
+import { useSelect } from 'googlesitekit-data';
+import InViewProvider from '@/js/components/InViewProvider';
+import WidgetErrorHandler from '@/js/components/WidgetErrorHandler';
+import {
+	ACTIVE_CONTEXT_ID,
+	CORE_UI,
+	FORCED_IN_VIEW_WIDGET_AREAS,
+} from '@/js/googlesitekit/datastore/ui/constants';
+import { CORE_USER } from '@/js/googlesitekit/datastore/user/constants';
+import {
+	CORE_WIDGETS,
+	WIDGET_AREA_STYLES,
+} from '@/js/googlesitekit/widgets/datastore/constants';
+import {
+	HIDDEN_CLASS,
+	combineWidgets,
+	getWidgetLayout,
+} from '@/js/googlesitekit/widgets/util';
+import {
+	BREAKPOINT_DESKTOP,
+	BREAKPOINT_SMALL,
+	BREAKPOINT_TABLET,
+	BREAKPOINT_XLARGE,
+	useBreakpoint,
+} from '@/js/hooks/useBreakpoint';
+import useLatestIntersection from '@/js/hooks/useLatestIntersection';
+import useViewOnly from '@/js/hooks/useViewOnly';
+import { useWindowWidth } from '@/js/hooks/useWindowSize';
+import { Cell, Grid, Row } from '@/js/material-components';
+import { getStickyHeaderHeight } from '@/js/util/scroll';
+import WidgetAreaHeader from './WidgetAreaHeader';
+import WidgetCellWrapper from './WidgetCellWrapper';
+import { Provider as WidgetContextProvider } from './WidgetContext';
 import WidgetRenderer from './WidgetRenderer';
-import { getWidgetLayout, combineWidgets } from '../util';
-import { Cell, Grid, Row } from '../../../material-components';
-import { isInactiveWidgetState } from '../util/is-inactive-widget-state';
-const { useSelect } = Data;
 
-export default function WidgetAreaRenderer( { slug, totalAreas } ) {
-	const widgetArea = useSelect( ( select ) => select( STORE_NAME ).getWidgetArea( slug ) );
-	const widgets = useSelect( ( select ) => select( STORE_NAME ).getWidgets( slug ) );
-	const widgetStates = useSelect( ( select ) => select( STORE_NAME ).getWidgetStates() );
-	const activeWidgets = widgets.filter( ( widget ) => ! ( widgetStates[ widget.slug ] && isInactiveWidgetState( widgetStates[ widget.slug ] ) ) );
+/**
+ * Gets root margin value for the intersection hook.
+ *
+ * @since 1.69.0
+ *
+ * @param {string} breakpoint The current breakpoint.
+ * @return {string} The root margin.
+ */
+function getRootMargin( breakpoint ) {
+	const gridGaps = {
+		[ BREAKPOINT_XLARGE ]: 48,
+		[ BREAKPOINT_DESKTOP ]: 48,
+		[ BREAKPOINT_TABLET ]: 32,
+		[ BREAKPOINT_SMALL ]: 32,
+	};
+
+	const gap = gridGaps[ breakpoint ];
+	const top = Math.abs( getStickyHeaderHeight( breakpoint ) + gap );
+
+	return `${ -top }px ${ -gap }px ${ -gap }px ${ -gap }px`;
+}
+
+export default function WidgetAreaRenderer( { slug, contextID } ) {
+	const viewOnlyDashboard = useViewOnly();
+
+	const viewableModules = useSelect( ( select ) => {
+		if ( ! viewOnlyDashboard ) {
+			return null;
+		}
+
+		return select( CORE_USER ).getViewableModules();
+	} );
+
+	const windowWidth = useWindowWidth();
+	const breakpoint = useBreakpoint();
+
+	const widgetAreaRef = useRef();
+	const intersectionEntry = useLatestIntersection( widgetAreaRef, {
+		rootMargin: getRootMargin( breakpoint ),
+		threshold: 0, // Trigger "in-view" as soon as one pixel is visible.
+	} );
+
+	const widgetArea = useSelect( ( select ) =>
+		select( CORE_WIDGETS ).getWidgetArea( slug )
+	);
+
+	const { Icon, title, style, subtitle, CTA, Footer } = widgetArea;
+
+	const widgets = useSelect( ( select ) =>
+		select( CORE_WIDGETS ).getWidgets( slug, {
+			modules: viewableModules ? viewableModules : undefined,
+		} )
+	);
+	const widgetStates = useSelect( ( select ) =>
+		select( CORE_WIDGETS ).getWidgetStates()
+	);
+	const isActive = useSelect( ( select ) =>
+		select( CORE_WIDGETS ).isWidgetAreaActive( slug, {
+			modules: viewableModules ? viewableModules : undefined,
+		} )
+	);
+
+	const activeContextID = useSelect( ( select ) =>
+		select( CORE_UI ).getValue( ACTIVE_CONTEXT_ID )
+	);
+	const forcedInViewWidgetAreas = useSelect( ( select ) =>
+		select( CORE_UI ).getValue( FORCED_IN_VIEW_WIDGET_AREAS )
+	);
+
+	const isInView =
+		( activeContextID
+			? activeContextID === contextID
+			: !! intersectionEntry?.intersectionRatio ) ||
+		forcedInViewWidgetAreas?.includes( slug );
+
+	const [ inViewState, setInViewState ] = useState( {
+		key: `WidgetAreaRenderer-${ slug }`,
+		value: isInView,
+	} );
+
+	useEffect( () => {
+		setInViewState( {
+			key: `WidgetAreaRenderer-${ slug }`,
+			value: isInView,
+		} );
+	}, [ slug, isInView ] );
+
+	const ctaWithSmallWindow = CTA && windowWidth <= 782;
+
+	if ( viewableModules === undefined ) {
+		return null;
+	}
 
 	// Compute the layout.
-	const {
-		classNames,
-		columnWidths,
-		rowIndexes,
-	} = getWidgetLayout( widgets, widgetStates );
+	const { columnWidths, rowIndexes } = getWidgetLayout(
+		widgets,
+		widgetStates
+	);
 
 	// Combine widgets with similar CTAs and prepare final props to pass to
 	// `WidgetRenderer` below. Only one consecutive instance of a similar CTA
@@ -52,81 +170,136 @@ export default function WidgetAreaRenderer( { slug, totalAreas } ) {
 	// ones will receive a CSS class to hide them.
 	// A combined CTA will span the combined width of all widgets that it was
 	// combined from.
-	const {
-		gridClassNames,
-		overrideComponents,
-	} = combineWidgets( widgets, widgetStates, {
-		classNames,
-		columnWidths,
-		rowIndexes,
-	} );
+	const { gridColumnWidths, overrideComponents } = combineWidgets(
+		widgets,
+		widgetStates,
+		{
+			columnWidths,
+			rowIndexes,
+		}
+	);
 
 	// Render all widgets.
-	const widgetsOutput = widgets.map( ( widget, i ) => (
-		<WidgetRenderer
-			gridClassName={ classnames( gridClassNames[ i ] ) }
-			OverrideComponent={ overrideComponents[ i ] ? () => {
-				const { Component, metadata } = overrideComponents[ i ];
-				return <Component { ...metadata } />;
-			} : undefined }
-			key={ widget.slug }
-			slug={ widget.slug }
-		/>
+	const widgetsOutput = widgets.map( ( widget, index ) => (
+		<WidgetCellWrapper
+			key={ `${ widget.slug }-wrapper` }
+			gridColumnWidth={ gridColumnWidths[ index ] }
+		>
+			<WidgetContextProvider value={ widget }>
+				<WidgetErrorHandler slug={ widget.slug }>
+					<WidgetRenderer
+						OverrideComponent={
+							overrideComponents[ index ]
+								? () => {
+										const { Component, metadata } =
+											overrideComponents[ index ];
+										return <Component { ...metadata } />;
+								  }
+								: undefined
+						}
+						slug={ widget.slug }
+					/>
+				</WidgetErrorHandler>
+			</WidgetContextProvider>
+		</WidgetCellWrapper>
 	) );
 
-	// Here we render the bare output as it is guaranteed to render empty.
-	// This is important compared to returning `null` so that the area
-	// can maybe render later if conditions change for widgets to become active.
-	// Returning `null` here however would have the side-effect of making
-	// all widgets active again, which is why we must return the "null" output.
-	if ( ! activeWidgets.length ) {
-		return widgetsOutput;
-	}
-
-	const { Icon, title, style, subtitle } = widgetArea;
-
 	return (
-		<Grid className={ `googlesitekit-widget-area googlesitekit-widget-area--${ slug } googlesitekit-widget-area--${ style }` }>
-			{ totalAreas > 1 && (
-				<Row>
-					<Cell className="googlesitekit-widget-area-header" size={ 12 }>
-						{ Icon && (
-							<Icon width={ 33 } height={ 33 } />
-						) }
-
-						{ title && (
-							<h3 className="googlesitekit-widget-area-header__title googlesitekit-heading-3">
-								{ title }
-							</h3>
-						) }
-
-						{ subtitle && (
-							<h4 className="googlesitekit-widget-area-header__subtitle">
-								{ subtitle }
-							</h4>
-						) }
-					</Cell>
-				</Row>
-			) }
-
-			<div className="googlesitekit-widget-area-widgets">
-				<Row>
-					{ style === WIDGET_AREA_STYLES.BOXES && widgetsOutput }
-					{ style === WIDGET_AREA_STYLES.COMPOSITE && (
-						<Cell size={ 12 }>
-							<Grid>
-								<Row>
-									{ widgetsOutput }
-								</Row>
-							</Grid>
-						</Cell>
+		<InViewProvider value={ inViewState }>
+			{ !! isActive && (
+				<Grid
+					className={ classnames(
+						'googlesitekit-widget-area',
+						`googlesitekit-widget-area--${ slug }`,
+						`googlesitekit-widget-area--${ style }`
 					) }
-				</Row>
-			</div>
-		</Grid>
+					ref={ widgetAreaRef }
+				>
+					<Row>
+						<Cell
+							className="googlesitekit-widget-area-header"
+							size={ 12 }
+						>
+							<WidgetAreaHeader
+								slug={ slug }
+								Icon={ Icon }
+								title={ title }
+								subtitle={ subtitle }
+								CTA={ CTA }
+							/>
+						</Cell>
+					</Row>
+
+					<div className="googlesitekit-widget-area-widgets">
+						<Row>
+							{ style === WIDGET_AREA_STYLES.BOXES &&
+								widgetsOutput }
+							{ style === WIDGET_AREA_STYLES.COMPOSITE && (
+								<Cell size={ 12 }>
+									<Grid>
+										<Row>{ widgetsOutput }</Row>
+									</Grid>
+								</Cell>
+							) }
+						</Row>
+					</div>
+					<Row>
+						{ ctaWithSmallWindow && (
+							<Cell
+								className="googlesitekit-widget-area-footer"
+								lgSize={ 12 }
+								mdSize={ 4 }
+								smSize={ 2 }
+							>
+								<div className="googlesitekit-widget-area-footer__cta">
+									<CTA />
+								</div>
+							</Cell>
+						) }
+						{ Footer && (
+							<Cell
+								className="googlesitekit-widget-area-footer"
+								lgSize={ 12 }
+								mdSize={ ctaWithSmallWindow ? 4 : 8 }
+								smSize={ ctaWithSmallWindow ? 2 : 4 }
+							>
+								<Footer />
+							</Cell>
+						) }
+					</Row>
+				</Grid>
+			) }
+			{
+				// Here we render the bare output as it is guaranteed to render empty.
+				// This is important compared to returning `null` so that the area
+				// can maybe render later if conditions change for widgets to become
+				// active.
+				//
+				// Returning `null` here however would have the side-effect of making
+				// all widgets active again, which is why we must return the "null"
+				// output.
+			 }
+			{ ! isActive && (
+				<Grid
+					className={ classnames(
+						HIDDEN_CLASS,
+						'googlesitekit-widget-area',
+						{
+							[ `googlesitekit-widget-area--${ slug }` ]: !! slug,
+							[ `googlesitekit-widget-area--${ style }` ]:
+								!! style,
+						}
+					) }
+					ref={ widgetAreaRef }
+				>
+					{ widgetsOutput }
+				</Grid>
+			) }
+		</InViewProvider>
 	);
 }
 
 WidgetAreaRenderer.propTypes = {
 	slug: PropTypes.string.isRequired,
+	contextID: PropTypes.string,
 };

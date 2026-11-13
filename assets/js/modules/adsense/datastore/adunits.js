@@ -24,27 +24,35 @@ import invariant from 'invariant';
 /**
  * Internal dependencies
  */
-import API from 'googlesitekit-api';
-import Data from 'googlesitekit-data';
-import { STORE_NAME } from './constants';
-import { createFetchStore } from '../../../googlesitekit/data/create-fetch-store';
+import { get } from 'googlesitekit-api';
+import {
+	combineStores,
+	commonActions,
+	createReducer,
+} from 'googlesitekit-data';
+import { createFetchStore } from '@/js/googlesitekit/data/create-fetch-store';
+import { MODULE_SLUG_ADSENSE } from '@/js/modules/adsense/constants';
+import { MODULES_ADSENSE } from './constants';
 
 const fetchGetAdUnitsStore = createFetchStore( {
 	baseName: 'getAdUnits',
 	controlCallback: ( { accountID, clientID } ) => {
-		return API.get( 'modules', 'adsense', 'adunits', { accountID, clientID }, {
-			useCache: false,
-		} );
+		return get(
+			'modules',
+			MODULE_SLUG_ADSENSE,
+			'adunits',
+			{ accountID, clientID },
+			{
+				useCache: false,
+			}
+		);
 	},
-	reducerCallback: ( state, adunits, { accountID, clientID } ) => {
-		return {
-			...state,
-			adunits: {
-				...state.adunits,
-				[ `${ accountID }::${ clientID }` ]: adunits.items,
-			},
-		};
-	},
+	reducerCallback: createReducer(
+		( state, adunits, { accountID, clientID } ) => {
+			state.adunits = state.adunits || {};
+			state.adunits[ `${ accountID }::${ clientID }` ] = adunits;
+		}
+	),
 	argsToParams: ( accountID, clientID ) => {
 		return { accountID, clientID };
 	},
@@ -58,30 +66,32 @@ const baseInitialState = {
 	adunits: {},
 };
 
-const baseActions = {
-};
+const baseActions = {};
 
-const baseReducer = ( state, { type } ) => {
-	switch ( type ) {
-		default: {
-			return state;
-		}
+const baseReducer = createReducer( ( state, action ) => {
+	switch ( action.type ) {
+		default:
+			break;
 	}
-};
-
+} );
 const baseResolvers = {
 	*getAdUnits( accountID, clientID ) {
 		if ( undefined === accountID || undefined === clientID ) {
 			return;
 		}
 
-		const registry = yield Data.commonActions.getRegistry();
-		const existingAdUnits = registry.select( STORE_NAME ).getAdUnits( accountID, clientID );
+		const registry = yield commonActions.getRegistry();
+		const existingAdUnits = registry
+			.select( MODULES_ADSENSE )
+			.getAdUnits( accountID, clientID );
 		if ( existingAdUnits ) {
 			return;
 		}
 
-		yield fetchGetAdUnitsStore.actions.fetchGetAdUnits( accountID, clientID );
+		yield fetchGetAdUnitsStore.actions.fetchGetAdUnits(
+			accountID,
+			clientID
+		);
 	},
 };
 
@@ -105,16 +115,13 @@ const baseSelectors = {
 	},
 };
 
-const store = Data.combineStores(
-	fetchGetAdUnitsStore,
-	{
-		initialState: baseInitialState,
-		actions: baseActions,
-		reducer: baseReducer,
-		resolvers: baseResolvers,
-		selectors: baseSelectors,
-	}
-);
+const store = combineStores( fetchGetAdUnitsStore, {
+	initialState: baseInitialState,
+	actions: baseActions,
+	reducer: baseReducer,
+	resolvers: baseResolvers,
+	selectors: baseSelectors,
+} );
 
 export const initialState = store.initialState;
 export const actions = store.actions;

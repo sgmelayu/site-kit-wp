@@ -24,73 +24,102 @@ import PropTypes from 'prop-types';
 /**
  * WordPress dependencies
  */
+import { createInterpolateElement } from '@wordpress/element';
 import { __, _x } from '@wordpress/i18n';
 
 /**
  * Internal dependencies
  */
-import ReportMetric from './ReportMetric';
+import ErrorNotice from '@/js/components/ErrorNotice';
+import ReportErrorActions from '@/js/components/ReportErrorActions';
+import P from '@/js/components/Typography/P';
+import { getReportErrorMessage } from '@/js/util/errors';
 import MetricsLearnMoreLink from './MetricsLearnMoreLink';
-import { getScoreCategory } from '../../util';
-import ErrorText from '../../../../components/ErrorText';
+import ReportMetric from './ReportMetric';
+import { extractLabMetrics } from './reportMetrics';
 
 export default function LabReportMetrics( { data, error } ) {
-	const totalBlockingTime = data?.lighthouseResult?.audits?.[ 'total-blocking-time' ];
-	const largestContentfulPaint = data?.lighthouseResult?.audits?.[ 'largest-contentful-paint' ];
-	const cumulativeLayoutShift = data?.lighthouseResult?.audits?.[ 'cumulative-layout-shift' ];
+	const { largestContentfulPaint, cumulativeLayoutShift, totalBlockingTime } =
+		extractLabMetrics( data );
 
 	if ( error ) {
+		const errorMessage = getReportErrorMessage( error );
+
 		return (
 			<div className="googlesitekit-pagespeed-insights-web-vitals-metrics">
-				<div className="googlesitekit-pagespeed-report__row googlesitekit-pagespeed-report__row--first">
-					<ErrorText message={ error.message } />
+				<div className="googlesitekit-pagespeed-report__row googlesitekit-pagespeed-report__row--error">
+					<ErrorNotice
+						error={ error }
+						message={ errorMessage }
+						hasButton
+					/>
+					<ReportErrorActions
+						moduleSlug="pagespeed-insights"
+						error={ error }
+					/>
 				</div>
 			</div>
 		);
 	}
 
-	if ( ! totalBlockingTime || ! largestContentfulPaint || ! cumulativeLayoutShift ) {
-		return null;
-	}
-
 	return (
 		<div className="googlesitekit-pagespeed-insights-web-vitals-metrics">
 			<div className="googlesitekit-pagespeed-report__row googlesitekit-pagespeed-report__row--first">
-				<p>
-					{ __( 'Lab data is a snapshot of how your page performs right now, measured in tests we run in a controlled environment.', 'google-site-kit' ) }
-					{ ' ' }
-					<MetricsLearnMoreLink />
-				</p>
+				<P>
+					{ createInterpolateElement(
+						__(
+							'Lab data is a snapshot of how your page performs right now, measured in tests we run in a controlled environment. <LearnMoreLink />',
+							'google-site-kit'
+						),
+						{
+							LearnMoreLink: <MetricsLearnMoreLink />,
+						}
+					) }
+				</P>
 			</div>
 			<table className="googlesitekit-table googlesitekit-table--with-list">
 				<thead>
 					<tr>
-						<th>
-							{ __( 'Metric Name', 'google-site-kit' ) }
-						</th>
-						<th>
-							{ __( 'Metric Value', 'google-site-kit' ) }
-						</th>
+						<th>{ __( 'Metric Name', 'google-site-kit' ) }</th>
+						<th>{ __( 'Metric Value', 'google-site-kit' ) }</th>
 					</tr>
 				</thead>
 				<tbody>
 					<ReportMetric
-						title={ __( 'Total Blocking Time', 'google-site-kit' ) }
-						description={ __( 'How long people had to wait after the page loaded before they could click something', 'google-site-kit' ) }
-						displayValue={ totalBlockingTime.displayValue }
-						category={ getScoreCategory( totalBlockingTime.score ) }
-					/>
-					<ReportMetric
-						title={ _x( 'Largest Contentful Paint', 'core web vitals name', 'google-site-kit' ) }
-						description={ __( 'Time it takes for the page to load', 'google-site-kit' ) }
+						title={ _x(
+							'Largest Contentful Paint',
+							'core web vitals name',
+							'google-site-kit'
+						) }
+						description={ __(
+							'Time it takes for the page to load',
+							'google-site-kit'
+						) }
 						displayValue={ largestContentfulPaint.displayValue }
-						category={ getScoreCategory( largestContentfulPaint.score ) }
+						category={ largestContentfulPaint.category }
 					/>
 					<ReportMetric
-						title={ _x( 'Cumulative Layout Shift', 'core web vitals name', 'google-site-kit' ) }
-						description={ __( 'How stable the elements on the page are', 'google-site-kit' ) }
+						title={ _x(
+							'Cumulative Layout Shift',
+							'core web vitals name',
+							'google-site-kit'
+						) }
+						description={ __(
+							'How stable the elements on the page are',
+							'google-site-kit'
+						) }
 						displayValue={ cumulativeLayoutShift.displayValue }
-						category={ getScoreCategory( cumulativeLayoutShift.score ) }
+						category={ cumulativeLayoutShift.category }
+					/>
+					<ReportMetric
+						title={ __( 'Total Blocking Time', 'google-site-kit' ) }
+						description={ __(
+							'How long people had to wait after the page loaded before they could click something',
+							'google-site-kit'
+						) }
+						displayValue={ totalBlockingTime.displayValue }
+						category={ totalBlockingTime.category }
+						hintText={ <br /> }
 						isLast
 					/>
 				</tbody>

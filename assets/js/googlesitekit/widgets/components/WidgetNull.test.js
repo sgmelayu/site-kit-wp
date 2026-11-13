@@ -19,15 +19,15 @@
 /**
  * Internal dependencies
  */
-import WidgetNull from './WidgetNull';
+import Null from '@/js/components/Null';
+import { CORE_WIDGETS } from '@/js/googlesitekit/widgets/datastore/constants';
 import {
 	createTestRegistry,
 	provideModules,
 	provideUserCapabilities,
 	render,
-} from '../../../../../tests/js/test-utils';
-import { STORE_NAME } from '../datastore/constants';
-import Null from '../../../components/Null';
+} from '@tests/js/test-utils';
+import WidgetNull from './WidgetNull';
 
 describe( 'WidgetNull', () => {
 	let registry;
@@ -38,23 +38,31 @@ describe( 'WidgetNull', () => {
 		provideUserCapabilities( registry );
 	} );
 
-	it( 'should return an empty element', async () => {
+	it( 'should return an empty element', () => {
 		const widgetSlug = 'TestWidget';
 
 		// Initial state should be null.
-		expect( registry.select( STORE_NAME ).getWidgetState( widgetSlug ) ).toBe( null );
+		expect(
+			registry.select( CORE_WIDGETS ).getWidgetState( widgetSlug )
+		).toBe( null );
 
-		const widget = render( <WidgetNull widgetSlug={ widgetSlug } />, { registry } );
+		const widget = render( <WidgetNull widgetSlug={ widgetSlug } />, {
+			registry,
+		} );
 
 		expect( widget.container ).toBeEmptyDOMElement();
 
-		expect( registry.select( STORE_NAME ).getWidgetState( widgetSlug ) ).toMatchObject( {
+		expect(
+			registry.select( CORE_WIDGETS ).getWidgetState( widgetSlug )
+		).toMatchObject( {
 			Component: Null,
 			metadata: {},
 		} );
 
 		// Special state should be unset again upon unmount.
 		widget.unmount();
-		expect( registry.select( STORE_NAME ).getWidgetState( widgetSlug ) ).toBe( null );
+		expect(
+			registry.select( CORE_WIDGETS ).getWidgetState( widgetSlug )
+		).toBe( null );
 	} );
 } );

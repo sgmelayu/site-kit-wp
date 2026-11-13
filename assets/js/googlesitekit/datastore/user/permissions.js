@@ -24,21 +24,42 @@ import invariant from 'invariant';
 /**
  * Internal dependencies
  */
-import Data from 'googlesitekit-data';
-import { STORE_NAME } from './constants';
-const { createRegistrySelector } = Data;
+import { get } from 'googlesitekit-api';
+import {
+	combineStores,
+	commonActions,
+	createReducer,
+	createRegistrySelector,
+} from 'googlesitekit-data';
+import { createFetchStore } from '@/js/googlesitekit/data/create-fetch-store';
+import { getGlobalData } from '@/js/googlesitekit/data/utils';
+import { getMetaCapabilityPropertyName } from '@/js/googlesitekit/datastore/util/permissions';
+import { CORE_MODULES } from '@/js/googlesitekit/modules/datastore/constants';
+import { CORE_USER, PERMISSION_READ_SHARED_MODULE_DATA } from './constants';
 
 // Actions
 const CLEAR_PERMISSION_SCOPE_ERROR = 'CLEAR_PERMISSION_SCOPE_ERROR';
 const SET_PERMISSION_SCOPE_ERROR = 'SET_PERMISSION_SCOPE_ERROR';
 const RECEIVE_CAPABILITIES = 'RECEIVE_CAPABILITIES';
 
-export const initialState = {
+const fetchGetCapabilitiesStore = createFetchStore( {
+	baseName: 'getCapabilities',
+	controlCallback: () => {
+		return get( 'core', 'user', 'permissions', undefined, {
+			useCache: false,
+		} );
+	},
+	reducerCallback: createReducer( ( state, capabilities ) => {
+		state.capabilities = capabilities;
+	} ),
+} );
+
+const baseInitialState = {
 	permissionError: null,
 	capabilities: undefined,
 };
 
-export const actions = {
+const baseActions = {
 	/**
 	 * Clears the permission scope error, if one was previously set.
 	 *
@@ -87,60 +108,84 @@ export const actions = {
 			payload: { capabilities },
 		};
 	},
-};
 
-export const controls = {};
+	/**
+	 * Refreshes user capabilities.
+	 *
+	 * @since 1.82.0
+	 *
+	 * @return {Object} Redux-style action.
+	 */
+	*refreshCapabilities() {
+		const { dispatch } = yield commonActions.getRegistry();
 
-export const reducer = ( state, { type, payload } ) => {
-	switch ( type ) {
-		case CLEAR_PERMISSION_SCOPE_ERROR: {
-			return {
-				...state,
-				permissionError: null,
-			};
+		const { response, error } =
+			yield fetchGetCapabilitiesStore.actions.fetchGetCapabilities();
+
+		if ( error ) {
+			dispatch( CORE_USER ).setPermissionScopeError( error );
 		}
 
-		case SET_PERMISSION_SCOPE_ERROR: {
-			const { permissionError } = payload;
-
-			return {
-				...state,
-				permissionError,
-			};
-		}
-
-		case RECEIVE_CAPABILITIES: {
-			const { capabilities } = payload;
-
-			return {
-				...state,
-				capabilities,
-			};
-		}
-
-		default: {
-			return state;
-		}
-	}
-};
-
-export const resolvers = {
-	*getCapabilities() {
-		const registry = yield Data.commonActions.getRegistry();
-
-		if ( registry.select( STORE_NAME ).getCapabilities() ) {
-			return;
-		}
-
-		if ( ! global._googlesitekitUserData?.permissions ) {
-			global.console.error( 'Could not load core/user permissions.' );
-		}
-
-		yield actions.receiveCapabilities( global._googlesitekitUserData?.permissions );
+		return { response, error };
 	},
 };
 
-export const selectors = {
+const baseControls = {};
+
+const baseReducer = createReducer( ( state, { type, payload } ) => {
+	switch ( type ) {
+		case CLEAR_PERMISSION_SCOPE_ERROR:
+			state.permissionError = null;
+			break;
+
+		case SET_PERMISSION_SCOPE_ERROR:
+			state.permissionError = payload.permissionError;
+			break;
+
+		case RECEIVE_CAPABILITIES:
+			state.capabilities = payload.capabilities;
+			break;
+
+		default:
+			break;
+	}
+} );
+
+const baseResolvers = {
+	*getCapabilities() {
+		const registry = yield commonActions.getRegistry();
+
+		if ( registry.select( CORE_USER ).getCapabilities() ) {
+			return;
+		}
+
+		// Temporary hack to preserve previous behavior when resolved from global.
+		// This is necessary for now to avoid a delay if the preloaded data
+		// has already expired.
+		// We'll still fetch it in case something has changed,
+		// but receive the preloaded right away.
+		let preloadedPermissions;
+
+		try {
+			preloadedPermissions = getGlobalData(
+				"_googlesitekitAPIFetchData.preloadedData['/google-site-kit/v1/core/user/data/permissions'].body"
+			);
+		} catch ( error ) {
+			global.console.error( 'Could not load core/user permissions.' );
+			return;
+		}
+
+		if ( preloadedPermissions ) {
+			yield fetchGetCapabilitiesStore.actions.receiveGetCapabilities( {
+				...preloadedPermissions, // dereference.
+			} );
+		}
+
+		yield fetchGetCapabilitiesStore.actions.fetchGetCapabilities();
+	},
+};
+
+const baseSelectors = {
 	/**
 	 * Gets the most recent permission error encountered by this user.
 	 *
@@ -148,7 +193,7 @@ export const selectors = {
 	 * @private
 	 *
 	 * @param {Object} state Data store's state.
-	 * @return {(Object|undefined)} Permission scope errors. Returns `null` if no error exists.
+	 * @return {(Object|null)} Permission scope errors. Returns `null` if no error exists.
 	 */
 	getPermissionScopeError( state ) {
 		const { permissionError } = state;
@@ -169,29 +214,139 @@ export const selectors = {
 	},
 
 	/**
+	 * Gets viewable module slugs of the current user.
+	 *
+	 * @since 1.72.0
+	 *
+	 * @return {(Array|undefined)} An array of viewable module slugs. `undefined` if `modules` are not loaded yet.
+	 */
+	getViewableModules: createRegistrySelector( ( select ) => () => {
+		const modules = select( CORE_MODULES ).getModules();
+
+		if ( modules === undefined ) {
+			return undefined;
+		}
+
+		// Return an array of module slugs for modules that are
+		// shareable and the user has the "read shared module data"
+		// capability for.
+		return Object.values( modules ).reduce( ( slugs, module ) => {
+			const hasCapability = select( CORE_USER ).hasCapability(
+				PERMISSION_READ_SHARED_MODULE_DATA,
+				module.slug
+			);
+
+			if ( module.shareable && hasCapability ) {
+				return [ ...slugs, module.slug ];
+			}
+
+			return slugs;
+		}, [] );
+	} ),
+
+	/**
 	 * Checks if the current user has the specified capability or not.
 	 *
 	 * @since 1.13.0
 	 *
 	 * @param {Object} state      Data store's state.
 	 * @param {string} capability Capability name to check.
+	 * @param {Array}  args       List of rest of the arguments. Specifically one or many module slugs.
 	 * @return {(boolean|undefined)} TRUE if the current user has this capability, otherwise FALSE. If capabilities ain't loaded yet, returns undefined.
 	 */
-	hasCapability: createRegistrySelector( ( select ) => ( state, capability ) => {
-		const capabilities = select( STORE_NAME ).getCapabilities();
-		if ( capabilities ) {
-			return !! capabilities[ capability ];
+	hasCapability: createRegistrySelector(
+		( select ) =>
+			( state, capability, ...args ) => {
+				const capabilities = select( CORE_USER ).getCapabilities();
+
+				if ( args.length > 0 ) {
+					capability = getMetaCapabilityPropertyName(
+						capability,
+						...args
+					);
+				}
+
+				if ( capabilities ) {
+					return !! capabilities[ capability ];
+				}
+
+				return undefined;
+			}
+	),
+
+	/**
+	 * Checks if the specified module is shareable and viewable by the current user.
+	 *
+	 * @since 1.77.0
+	 *
+	 * @param {Object} state      Data store's state.
+	 * @param {string} moduleSlug Module slug to check.
+	 * @return {(boolean|undefined)} `true` if the module is shareable and viewable by the current user. `false` if the module does not exist, is not shareable or not viewable by the current user. `undefined` if state is not loaded yet.
+	 */
+	canViewSharedModule: createRegistrySelector(
+		( select ) => ( state, moduleSlug ) => {
+			const module = select( CORE_MODULES ).getModule( moduleSlug );
+
+			if ( module === undefined ) {
+				return undefined;
+			}
+
+			if ( module === null || ! module.shareable ) {
+				return false;
+			}
+
+			return select( CORE_USER ).hasCapability(
+				PERMISSION_READ_SHARED_MODULE_DATA,
+				module.slug
+			);
 		}
+	),
 
-		return undefined;
-	} ),
+	/**
+	 * Checks if the current user has access to the specified shareable module.
+	 *
+	 * @since 1.120.0
+	 *
+	 * @param {Object} state      Data store's state.
+	 * @param {string} moduleSlug Module slug to check.
+	 * @return {(boolean|undefined)} `true` if the user is authenticated or if the module is shareable and viewable by the current user. `false` if the module is not shareable or not viewable by the current user. `undefined` if the modules are not loaded yet.
+	 */
+	hasAccessToShareableModule: createRegistrySelector(
+		( select ) => ( state, moduleSlug ) => {
+			const isModuleAvailable =
+				select( CORE_MODULES ).isModuleAvailable( moduleSlug );
+
+			if ( isModuleAvailable === undefined ) {
+				return undefined;
+			}
+
+			if ( isModuleAvailable === false ) {
+				return false;
+			}
+
+			if ( select( CORE_USER ).isAuthenticated() ) {
+				return true;
+			}
+
+			return select( CORE_USER ).canViewSharedModule( moduleSlug );
+		}
+	),
 };
 
-export default {
-	initialState,
-	actions,
-	controls,
-	reducer,
-	resolvers,
-	selectors,
-};
+const store = combineStores( fetchGetCapabilitiesStore, {
+	initialState: baseInitialState,
+	actions: baseActions,
+	controls: baseControls,
+	reducer: baseReducer,
+	resolvers: baseResolvers,
+	selectors: baseSelectors,
+} );
+
+export const initialState = store.initialState;
+export const actions = store.actions;
+export const controls = store.controls;
+export const reducer = store.reducer;
+export const resolvers = store.resolvers;
+export const selectors = store.selectors;
+
+export default store;

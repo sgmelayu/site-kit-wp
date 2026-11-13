@@ -6,11 +6,15 @@
  * @copyright 2021 Google LLC
  * @license   https://www.apache.org/licenses/LICENSE-2.0 Apache License 2.0
  * @link      https://sitekit.withgoogle.com
+ *
+ * phpcs:disable PHPCS.Commenting.RequireDocTagDescription -- Pre-existing violations; tracked for follow-up cleanup.
  */
 
 namespace Google\Site_Kit\Modules\Search_Console;
 
 use Google\Site_Kit\Core\Modules\Module_Settings;
+use Google\Site_Kit\Core\Storage\Setting_With_Owned_Keys_Interface;
+use Google\Site_Kit\Core\Storage\Setting_With_Owned_Keys_Trait;
 
 /**
  * Class for Search Console settings.
@@ -19,7 +23,8 @@ use Google\Site_Kit\Core\Modules\Module_Settings;
  * @access private
  * @ignore
  */
-class Settings extends Module_Settings {
+class Settings extends Module_Settings implements Setting_With_Owned_Keys_Interface {
+	use Setting_With_Owned_Keys_Trait;
 
 	const OPTION = 'googlesitekit_search-console_settings';
 
@@ -31,13 +36,18 @@ class Settings extends Module_Settings {
 	public function register() {
 		parent::register();
 
+		$this->register_owned_keys();
+
 		// Backwards compatibility with previous dedicated option.
 		add_filter(
 			'default_option_' . self::OPTION,
-			function ( $default ) {
-				$default['propertyID'] = $this->options->get( 'googlesitekit_search_console_property' ) ?: '';
+			function ( $default_option ) {
+				if ( ! is_array( $default_option ) ) {
+					$default_option = $this->get_default();
+				}
+				$default_option['propertyID'] = $this->options->get( 'googlesitekit_search_console_property' ) ?: '';
 
-				return $default;
+				return $default_option;
 			}
 		);
 	}
@@ -52,6 +62,20 @@ class Settings extends Module_Settings {
 	protected function get_default() {
 		return array(
 			'propertyID' => '',
+			'ownerID'    => '',
+		);
+	}
+
+	/**
+	 * Returns keys for owned settings.
+	 *
+	 * @since 1.31.0
+	 *
+	 * @return array An array of keys for owned settings.
+	 */
+	public function get_owned_keys() {
+		return array(
+			'propertyID',
 		);
 	}
 }

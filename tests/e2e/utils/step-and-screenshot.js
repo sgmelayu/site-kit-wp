@@ -17,10 +17,10 @@
  */
 
 /**
- * Node dependencies
+ * External dependencies
  */
+import { mkdir, rm } from 'fs/promises';
 import path from 'path';
-import { mkdir } from 'fs/promises';
 
 const screenshotsIndex = new Map();
 
@@ -37,8 +37,15 @@ export async function screenshot( name, options = {} ) {
 	const { currentTestName, testPath } = expect.getState();
 
 	const rootDir = resolve( __dirname, '..' );
-	const testDir = testPath.replace( resolve( rootDir, 'specs' ), '' ).replace( '.test.js', '' );
-	const screenshotsDir = join( rootDir, 'screenshots', testDir, currentTestName.replace( /\W+/g, '-' ) );
+	const testDir = testPath
+		.replace( resolve( rootDir, 'specs' ), '' )
+		.replace( '.test.js', '' );
+	const screenshotsDir = join(
+		rootDir,
+		'screenshots',
+		testDir,
+		currentTestName.replace( /\W+/g, '-' )
+	);
 
 	const screenshotKey = testPath + currentTestName;
 	const screenshotIndex = ( screenshotsIndex.get( screenshotKey ) || 0 ) + 1;
@@ -51,7 +58,9 @@ export async function screenshot( name, options = {} ) {
 	} );
 
 	await page.screenshot( {
-		path: `${ screenshotsDir }/${ screenshotIndex.toString().padStart( 2, '0' ) }-${ name.replace( /\W+/, '-' ) }.png`,
+		path: `${ screenshotsDir }/${ screenshotIndex
+			.toString()
+			.padStart( 2, '0' ) }-${ name.replace( /\W+/, '-' ) }.png`,
 		type: 'png',
 		...options,
 	} );
@@ -68,17 +77,32 @@ export async function screenshot( name, options = {} ) {
  * @param {Object}           options.screenshotArgs Screenshot arguments.
  * @return {Promise} Promise object.
  */
-export function step( name, cb, {
-	screenshotArgs = {},
-} = {} ) {
+export function step( name, cb, { screenshotArgs = {} } = {} ) {
 	return new Promise( async ( resolve, reject ) => {
+		const sceenshotFilename = name.replace( /\W+/g, '_' );
+
 		try {
 			const results = await ( typeof cb === 'function' ? cb() : cb );
-			await screenshot( name, screenshotArgs );
+			await screenshot( `pass-${ sceenshotFilename }`, screenshotArgs );
 			resolve( results );
 		} catch ( err ) {
-			await screenshot( name, screenshotArgs );
+			await screenshot( `fail-${ sceenshotFilename }`, screenshotArgs );
 			reject( err );
 		}
 	} );
+}
+
+/**
+ * Empties the screenshots directory.
+ *
+ * @since 1.89.0
+ */
+export async function clearScreenshots() {
+	const { resolve, join } = path;
+	const rootDir = resolve( __dirname, '..' );
+	const screenshotsDir = join( rootDir, 'screenshots' );
+
+	await rm( screenshotsDir, { recursive: true, force: true } );
+
+	await mkdir( screenshotsDir );
 }

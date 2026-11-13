@@ -19,41 +19,76 @@
 /**
  * External dependencies
  */
+import { intersection } from 'lodash';
 import PropTypes from 'prop-types';
 
 /**
  * WordPress dependencies
  */
-import { Fragment } from '@wordpress/element';
+import { Fragment, useMemo } from '@wordpress/element';
 
 /**
  * Internal dependencies
  */
-import Data from 'googlesitekit-data';
-import { STORE_NAME } from '../datastore/constants';
+import { useSelect } from 'googlesitekit-data';
+import { CORE_MODULES } from '@/js/googlesitekit/modules/datastore/constants';
+import { CORE_WIDGETS } from '@/js/googlesitekit/widgets/datastore/constants';
+import { getWidgetComponentProps } from '@/js/googlesitekit/widgets/util';
+import { HIDDEN_CLASS } from '@/js/googlesitekit/widgets/util/constants';
+import { useBreakpoint } from '@/js/hooks/useBreakpoint';
+import useViewOnly from '@/js/hooks/useViewOnly';
 import BaseWidget from './Widget';
-import { getWidgetComponentProps } from '../util';
-import { HIDDEN_CLASS } from '../util/constants';
+import WidgetRecoverableModules from './WidgetRecoverableModules';
 
-const { useSelect } = Data;
-
-const WidgetRenderer = ( { slug, gridClassName, OverrideComponent } ) => {
-	const widget = useSelect( ( select ) => select( STORE_NAME ).getWidget( slug ) );
+function WidgetRenderer( { slug, OverrideComponent } ) {
+	const widget = useSelect( ( select ) =>
+		select( CORE_WIDGETS ).getWidget( slug )
+	);
+	const breakpoint = useBreakpoint();
 	const widgetComponentProps = getWidgetComponentProps( slug );
 	const { Widget, WidgetNull } = widgetComponentProps;
 
-	if ( ! widget ) {
+	const recoverableModules = useSelect( ( select ) =>
+		select( CORE_MODULES ).getRecoverableModules()
+	);
+
+	const viewOnly = useViewOnly();
+	const widgetRecoverableModules = useMemo(
+		() =>
+			widget &&
+			recoverableModules &&
+			intersection( widget.modules, Object.keys( recoverableModules ) ),
+		[ recoverableModules, widget ]
+	);
+
+	const isWidgetPreloaded = useSelect( ( select ) =>
+		select( CORE_WIDGETS ).isWidgetPreloaded( slug )
+	);
+
+	if (
+		! widget ||
+		widgetRecoverableModules === undefined ||
+		widget?.hideOnBreakpoints?.includes( breakpoint )
+	) {
 		return <WidgetNull />;
 	}
-
 	const { Component, wrapWidget } = widget;
 
 	let widgetElement = <Component { ...widgetComponentProps } />;
 
+	if ( viewOnly && widgetRecoverableModules?.length ) {
+		widgetElement = (
+			<WidgetRecoverableModules
+				widgetSlug={ slug }
+				moduleSlugs={ widgetRecoverableModules }
+			/>
+		);
+	}
+
 	if ( OverrideComponent ) {
 		// If OverrideComponent passed, render it instead of the actual widget.
 		// It always needs to be wrapped as it is expected to be a
-		// widget-agnostic component.
+		// widget-unaware component.
 		// The real widget component will still be rendered, but it will be
 		// hidden via CSS.
 		widgetElement = (
@@ -61,9 +96,7 @@ const WidgetRenderer = ( { slug, gridClassName, OverrideComponent } ) => {
 				<BaseWidget widgetSlug="overridden">
 					<OverrideComponent />
 				</BaseWidget>
-				<div className={ HIDDEN_CLASS }>
-					{ widgetElement }
-				</div>
+				<div className={ HIDDEN_CLASS }>{ widgetElement }</div>
 			</Fragment>
 		);
 	} else if ( wrapWidget ) {
@@ -72,21 +105,16 @@ const WidgetRenderer = ( { slug, gridClassName, OverrideComponent } ) => {
 		widgetElement = <Widget>{ widgetElement }</Widget>;
 	}
 
-	// Wrap the widget into a grid class.
-	if ( gridClassName ) {
-		return (
-			<div className={ gridClassName }>
-				{ widgetElement }
-			</div>
-		);
+	if ( isWidgetPreloaded ) {
+		// If the widget is preloaded, hide it.
+		return <div className={ HIDDEN_CLASS }>{ widgetElement }</div>;
 	}
 
 	return widgetElement;
-};
+}
 
 WidgetRenderer.propTypes = {
 	slug: PropTypes.string.isRequired,
-	gridClassName: PropTypes.string,
 	OverrideComponent: PropTypes.elementType,
 };
 

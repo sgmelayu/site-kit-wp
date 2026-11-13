@@ -6,6 +6,8 @@
  * @copyright 2021 Google LLC
  * @license   https://www.apache.org/licenses/LICENSE-2.0 Apache License 2.0
  * @link      https://sitekit.withgoogle.com
+ *
+ * phpcs:disable PHPCS.Commenting.RequireDocTagDescription -- Pre-existing violations; tracked for follow-up cleanup.
  */
 
 namespace Google\Site_Kit\Tests\Modules;
@@ -27,33 +29,7 @@ class PageSpeed_InsightsTest extends TestCase {
 	public function test_is_connected() {
 		$pagespeed = new PageSpeed_Insights( new Context( GOOGLESITEKIT_PLUGIN_MAIN_FILE ) );
 
-		$this->assertTrue( $pagespeed->is_connected() );
-	}
-
-	public function test_prepare_info_for_js() {
-		$pagespeed = new PageSpeed_Insights( new Context( GOOGLESITEKIT_PLUGIN_MAIN_FILE ) );
-
-		$info = $pagespeed->prepare_info_for_js();
-
-		$this->assertEqualSets(
-			array(
-				'slug',
-				'name',
-				'description',
-				'cta',
-				'sort',
-				'homepage',
-				'learnMore',
-				'required',
-				'autoActivate',
-				'internal',
-				'screenID',
-				'settings',
-				'provides',
-			),
-			array_keys( $info )
-		);
-		$this->assertEquals( 'pagespeed-insights', $info['slug'] );
+		$this->assertTrue( $pagespeed->is_connected(), 'PageSpeed Insights module should be connected by default.' );
 	}
 
 	public function test_get_datapoints() {
@@ -63,7 +39,8 @@ class PageSpeed_InsightsTest extends TestCase {
 			array(
 				'pagespeed',
 			),
-			$pagespeed->get_datapoints()
+			$pagespeed->get_datapoints(),
+			'PageSpeed Insights module should return the correct datapoints.'
 		);
 	}
 

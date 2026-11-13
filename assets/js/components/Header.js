@@ -17,59 +17,126 @@
  */
 
 /**
+ * External dependencies
+ */
+import classnames from 'classnames';
+import PropTypes from 'prop-types';
+import { useMutationObserver } from 'react-use-observer';
+
+/**
  * WordPress dependencies
  */
 import { Fragment } from '@wordpress/element';
+import { __ } from '@wordpress/i18n';
 
 /**
  * Internal dependencies
  */
-import Data from 'googlesitekit-data';
+import { useSelect } from 'googlesitekit-data';
+import { CORE_SITE } from '@/js/googlesitekit/datastore/site/constants';
+import { CORE_USER } from '@/js/googlesitekit/datastore/user/constants';
+import { NOTIFICATION_AREAS } from '@/js/googlesitekit/notifications/constants';
+import useDashboardType from '@/js/hooks/useDashboardType';
+import useViewOnly from '@/js/hooks/useViewOnly';
+import { Cell, Grid, Row } from '@/js/material-components';
+import DashboardNavigation from './DashboardNavigation';
+import EntityHeader from './EntityHeader';
+import Link from './Link';
 import Logo from './Logo';
+import LegacyNotifications from './notifications/LegacyNotifications';
+import Notifications from './notifications/Notifications';
 import UserMenu from './UserMenu';
-import LegacyErrorNotification from './legacy-notifications/error-notification';
-import ErrorNotifications from './notifications/ErrorNotifications';
-import { CORE_USER } from '../googlesitekit/datastore/user/constants';
-import { useFeature } from '../hooks/useFeature';
-const { useSelect } = Data;
+import ViewOnlyMenu from './ViewOnlyMenu';
 
-const Header = ( { children } ) => {
-	const storeErrorNotificationsEnabled = useFeature( 'storeErrorNotifications' );
-	const isAuthenticated = useSelect( ( select ) => select( CORE_USER ).isAuthenticated() );
+function Header( { children, subHeader, showNavigation } ) {
+	const isDashboard = !! useDashboardType();
+	const isViewOnly = useViewOnly();
+
+	const dashboardURL = useSelect( ( select ) =>
+		select( CORE_SITE ).getAdminURL( 'googlesitekit-dashboard' )
+	);
+	const isAuthenticated = useSelect( ( select ) =>
+		select( CORE_USER ).isAuthenticated()
+	);
+	const [ subHeaderRef, subHeaderMutation ] = useMutationObserver( {
+		childList: true,
+	} );
+	const hasSubheader = !! subHeaderMutation.target?.childElementCount;
 
 	return (
 		<Fragment>
-			<header className="googlesitekit-header">
-				<section className="mdc-layout-grid">
-					<div className="mdc-layout-grid__inner">
-						<div className="
-							googlesitekit-header__logo
-							mdc-layout-grid__cell
-							mdc-layout-grid__cell--align-middle
-							mdc-layout-grid__cell--span-1-phone
-							mdc-layout-grid__cell--span-2-tablet
-							mdc-layout-grid__cell--span-4-desktop
-						">
-							<Logo />
-						</div>
-						<div className="
-							mdc-layout-grid__cell
-							mdc-layout-grid__cell--align-middle
-							mdc-layout-grid__cell--align-right-phone
-							mdc-layout-grid__cell--span-3-phone
-							mdc-layout-grid__cell--span-6-tablet
-							mdc-layout-grid__cell--span-8-desktop
-						">
-							{ isAuthenticated && children }
-							{ isAuthenticated && <UserMenu /> }
-						</div>
-					</div>
-				</section>
+			<header
+				className={ classnames( 'googlesitekit-header', {
+					'googlesitekit-header--has-subheader': hasSubheader,
+					'googlesitekit-header--has-navigation': showNavigation,
+				} ) }
+			>
+				<Grid>
+					<Row>
+						<Cell
+							smSize={ 1 }
+							mdSize={ 2 }
+							lgSize={ 2 }
+							className="googlesitekit-header__logo"
+							alignMiddle
+						>
+							<Link
+								aria-label={ __(
+									'Go to dashboard',
+									'google-site-kit'
+								) }
+								className="googlesitekit-header__logo-link"
+								href={ dashboardURL }
+							>
+								<Logo />
+							</Link>
+						</Cell>
+						<Cell
+							smSize={ 3 }
+							mdSize={ 6 }
+							lgSize={ 10 }
+							className="googlesitekit-header__children"
+							alignMiddle
+						>
+							{ children }
+
+							{ ! isAuthenticated &&
+								isDashboard &&
+								isViewOnly && <ViewOnlyMenu /> }
+							{ isAuthenticated && ! isViewOnly && <UserMenu /> }
+						</Cell>
+					</Row>
+				</Grid>
 			</header>
-			<LegacyErrorNotification />
-			{ storeErrorNotificationsEnabled && <ErrorNotifications /> }
+
+			<div className="googlesitekit-subheader" ref={ subHeaderRef }>
+				{ subHeader }
+			</div>
+
+			{ showNavigation && <DashboardNavigation /> }
+
+			<EntityHeader />
+
+			{ /* These notifications are not yet refactored and will be shown
+			in addition to the refactored notifications rendered below. */ }
+			<LegacyNotifications />
+
+			<Notifications areaSlug={ NOTIFICATION_AREAS.HEADER } />
 		</Fragment>
 	);
+}
+
+Header.displayName = 'Header';
+
+Header.propTypes = {
+	children: PropTypes.node,
+	subHeader: PropTypes.element,
+	showNavigation: PropTypes.bool,
+};
+
+Header.defaultProps = {
+	children: null,
+	subHeader: null,
 };
 
 export default Header;

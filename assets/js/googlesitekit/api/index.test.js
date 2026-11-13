@@ -19,7 +19,12 @@
 /**
  * Internal dependencies
  */
-import { unexpectedSuccess } from '../../../../tests/js/test-utils';
+import { MODULE_SLUG_ADSENSE } from '@/js/modules/adsense/constants';
+import { MODULE_SLUG_ANALYTICS_4 } from '@/js/modules/analytics-4/constants';
+import { MODULE_SLUG_SEARCH_CONSOLE } from '@/js/modules/search-console/constants';
+import { enableTracking } from '@/js/util/tracking';
+import { DATA_LAYER } from '@/js/util/tracking/constants';
+import { freezeFetch, unexpectedSuccess } from '@tests/js/test-utils';
 import * as CacheModule from './cache';
 import {
 	createCacheKey,
@@ -30,8 +35,6 @@ import {
 	siteKitRequest,
 	usingCache,
 } from './index';
-import { DATA_LAYER } from '../../util/tracking/constants';
-import { enableTracking } from '../../util/tracking';
 
 describe( 'googlesitekit.api', () => {
 	// We import the entire caching module so we can use
@@ -76,6 +79,7 @@ describe( 'googlesitekit.api', () => {
 		expect( usingCache() ).toEqual( true );
 	} );
 
+	/* eslint-disable consistent-return */
 	describe( 'get', () => {
 		it( 'should throw an error when required arguments are missing', async () => {
 			try {
@@ -83,7 +87,9 @@ describe( 'googlesitekit.api', () => {
 
 				return unexpectedSuccess();
 			} catch ( error ) {
-				expect( error.message ).toEqual( '`type` argument for requests is required.' );
+				expect( error.message ).toEqual(
+					'`type` argument for requests is required.'
+				);
 			}
 
 			try {
@@ -91,15 +97,19 @@ describe( 'googlesitekit.api', () => {
 
 				return unexpectedSuccess();
 			} catch ( error ) {
-				expect( error.message ).toEqual( '`identifier` argument for requests is required.' );
+				expect( error.message ).toEqual(
+					'`identifier` argument for requests is required.'
+				);
 			}
 
 			try {
-				await get( 'core', 'search-console' );
+				await get( 'core', MODULE_SLUG_SEARCH_CONSOLE );
 
 				return unexpectedSuccess();
 			} catch ( error ) {
-				expect( error.message ).toEqual( '`datapoint` argument for requests is required.' );
+				expect( error.message ).toEqual(
+					'`datapoint` argument for requests is required.'
+				);
 			}
 		} );
 
@@ -107,11 +117,17 @@ describe( 'googlesitekit.api', () => {
 			// TODO: Maybe refactor this into a helper once we know how we usually
 			// mock requests.
 			fetchMock.getOnce(
-				/^\/google-site-kit\/v1\/core\/search-console\/data\/users/,
+				new RegExp(
+					'^/google-site-kit/v1/core/search-console/data/users'
+				),
 				{ body: { foo: 'bar' }, status: 200 }
 			);
 
-			const response = await get( 'core', 'search-console', 'users' );
+			const response = await get(
+				'core',
+				MODULE_SLUG_SEARCH_CONSOLE,
+				'users'
+			);
 
 			// Ensure the correct URL was used to make this HTTP fetch request.
 			expect( response ).toEqual( { foo: 'bar' } );
@@ -119,12 +135,18 @@ describe( 'googlesitekit.api', () => {
 
 		it( 'should send query string params from data params', async () => {
 			fetchMock.get(
-				/^\/google-site-kit\/v1\/core\/search-console\/data\/search/,
+				new RegExp(
+					'^/google-site-kit/v1/core/search-console/data/search'
+				),
 				{ body: { foo: 'bar' }, status: 200 }
 			);
 
-			const dataBody = { somethingElse: 'to-set', foo: 1, arrayValue: [ 1, 2 ] };
-			await get( 'core', 'search-console', 'search', dataBody );
+			const dataBody = {
+				somethingElse: 'to-set',
+				foo: 1,
+				arrayValue: [ 1, 2 ],
+			};
+			await get( 'core', MODULE_SLUG_SEARCH_CONSOLE, 'search', dataBody );
 			expect( fetchMock ).toHaveFetched(
 				'/google-site-kit/v1/core/search-console/data/search?somethingElse=to-set&foo=1&arrayValue%5B0%5D=1&arrayValue%5B1%5D=2&_locale=user',
 				{
@@ -141,17 +163,20 @@ describe( 'googlesitekit.api', () => {
 		it( 'should throw an error if the fetch request encounters a 404 error code', async () => {
 			const errorResponse = {
 				code: 'rest_no_route',
-				message: 'No route was found matching the URL and request method',
+				message:
+					'No route was found matching the URL and request method',
 				data: { status: 404 },
 			};
 
 			fetchMock.getOnce(
-				/^\/google-site-kit\/v1\/core\/search-console\/data\/other/,
+				new RegExp(
+					'^/google-site-kit/v1/core/search-console/data/other'
+				),
 				{ body: errorResponse, status: 404 }
 			);
 
 			try {
-				await get( 'core', 'search-console', 'other' );
+				await get( 'core', MODULE_SLUG_SEARCH_CONSOLE, 'other' );
 			} catch ( err ) {
 				expect( console ).toHaveErrored();
 				expect( err ).toEqual( errorResponse );
@@ -166,45 +191,113 @@ describe( 'googlesitekit.api', () => {
 			};
 
 			fetchMock.getOnce(
-				/^\/google-site-kit\/v1\/core\/search-console\/data\/users/,
+				new RegExp(
+					'^/google-site-kit/v1/core/search-console/data/users'
+				),
 				{ body: errorResponse, status: 500 }
 			);
 
 			try {
-				await get( 'core', 'search-console', 'users' );
+				await get( 'core', MODULE_SLUG_SEARCH_CONSOLE, 'users' );
 			} catch ( err ) {
 				expect( console ).toHaveErrored();
 				expect( err ).toEqual( errorResponse );
 			}
 		} );
 
+		it( 'should cache an error carrying a cacheTTL, and not re-issue the request inside the window', async () => {
+			const errorResponse = {
+				code: 429,
+				message: 'Quota exceeded for quota metric.',
+				data: {
+					status: 429,
+					reason: 'rateLimitExceeded',
+					cacheTTL: 600,
+				},
+			};
+
+			fetchMock.get(
+				new RegExp(
+					'^/google-site-kit/v1/core/search-console/data/quota-error'
+				),
+				{ body: errorResponse, status: 429 }
+			);
+
+			await expect(
+				get( 'core', MODULE_SLUG_SEARCH_CONSOLE, 'quota-error' )
+			).rejects.toEqual( errorResponse );
+			expect( console ).toHaveErrored();
+			expect( fetchMock ).toHaveFetchedTimes( 1 );
+
+			// The second request is answered from the cached error.
+			await expect(
+				get( 'core', MODULE_SLUG_SEARCH_CONSOLE, 'quota-error' )
+			).rejects.toEqual( errorResponse );
+			expect( fetchMock ).toHaveFetchedTimes( 1 );
+		} );
+
+		it( 'should not cache an error that carries no cacheTTL', async () => {
+			const errorResponse = {
+				code: 'internal_server_error',
+				message: 'Internal server error',
+				data: { status: 500 },
+			};
+
+			fetchMock.get(
+				new RegExp(
+					'^/google-site-kit/v1/core/search-console/data/plain-error'
+				),
+				{ body: errorResponse, status: 500 }
+			);
+
+			await expect(
+				get( 'core', MODULE_SLUG_SEARCH_CONSOLE, 'plain-error' )
+			).rejects.toEqual( errorResponse );
+			await expect(
+				get( 'core', MODULE_SLUG_SEARCH_CONSOLE, 'plain-error' )
+			).rejects.toEqual( errorResponse );
+
+			expect( console ).toHaveErrored();
+			expect( fetchMock ).toHaveFetchedTimes( 2 );
+		} );
+
 		it( 'should cache requests by default', async () => {
 			expect( fetchMock ).not.toHaveFetched();
 
 			fetchMock.get(
-				/^\/google-site-kit\/v1\/core\/search-console\/data\/users/,
+				new RegExp(
+					'^/google-site-kit/v1/core/search-console/data/users'
+				),
 				{ body: { foo: 'bar' }, status: 200 }
 			);
 
-			const firstResponse = await get( 'core', 'search-console', 'users' );
+			const firstResponse = await get(
+				'core',
+				MODULE_SLUG_SEARCH_CONSOLE,
+				'users'
+			);
 			expect( fetchMock ).toHaveFetchedTimes( 1 );
 			// Ensure the response was saved to the cache.
 			expect( setItemSpy ).toHaveBeenCalledWith(
-				createCacheKey( 'core', 'search-console', 'users' ),
+				createCacheKey( 'core', MODULE_SLUG_SEARCH_CONSOLE, 'users' ),
 				firstResponse,
 				{ ttl: 3600 }
 			);
 
 			// Ensure `fetch()` is not called a second time, because we have a cached
 			// version of this response.
-			const secondResponse = await get( 'core', 'search-console', 'users' );
+			const secondResponse = await get(
+				'core',
+				MODULE_SLUG_SEARCH_CONSOLE,
+				'users'
+			);
 
 			expect( secondResponse ).toEqual( firstResponse );
 			expect( fetchMock ).toHaveFetchedTimes( 1 );
 
 			// Ensure cache functions were used.
 			expect( getItemSpy ).toHaveBeenCalledWith(
-				createCacheKey( 'core', 'search-console', 'users' )
+				createCacheKey( 'core', MODULE_SLUG_SEARCH_CONSOLE, 'users' )
 			);
 		} );
 
@@ -212,24 +305,34 @@ describe( 'googlesitekit.api', () => {
 			setUsingCache( false );
 
 			fetchMock.get(
-				/^\/google-site-kit\/v1\/core\/search-console\/data\/notifications/,
+				new RegExp(
+					'^/google-site-kit/v1/core/search-console/data/notifications'
+				),
 				{ body: { foo: 'bar' }, status: 200 }
 			);
 
-			await get( 'core', 'search-console', 'notifications' );
+			await get( 'core', MODULE_SLUG_SEARCH_CONSOLE, 'notifications' );
 			expect( setItemSpy ).not.toHaveBeenCalledWith(
-				createCacheKey( 'core', 'search-console', 'notifications' ),
+				createCacheKey(
+					'core',
+					MODULE_SLUG_SEARCH_CONSOLE,
+					'notifications'
+				),
 				{ foo: 'bar' }
 			);
 			expect( fetchMock ).toHaveFetchedTimes( 1 );
 
 			// Ensure `fetch()` is called a second time; the cache is disabled.
-			await get( 'core', 'search-console', 'notifications' );
+			await get( 'core', MODULE_SLUG_SEARCH_CONSOLE, 'notifications' );
 			expect( fetchMock ).toHaveFetchedTimes( 2 );
 
 			// Ensure the cache was never used.
 			expect( getItemSpy ).not.toHaveBeenCalledWith(
-				createCacheKey( 'core', 'search-console', 'notifications' ),
+				createCacheKey(
+					'core',
+					MODULE_SLUG_SEARCH_CONSOLE,
+					'notifications'
+				),
 				3600
 			);
 		} );
@@ -239,37 +342,45 @@ describe( 'googlesitekit.api', () => {
 			setUsingCache( true );
 
 			fetchMock.get(
-				/^\/google-site-kit\/v1\/core\/search-console\/data\/other/,
+				new RegExp(
+					'^/google-site-kit/v1/core/search-console/data/other'
+				),
 				{ body: { foo: 'bar' }, status: 200 }
 			);
 
-			await get( 'core', 'search-console', 'other', undefined, { useCache: false } );
+			await get( 'core', MODULE_SLUG_SEARCH_CONSOLE, 'other', undefined, {
+				useCache: false,
+			} );
 			expect( setItemSpy ).not.toHaveBeenCalledWith(
-				createCacheKey( 'core', 'search-console', 'other' ),
+				createCacheKey( 'core', MODULE_SLUG_SEARCH_CONSOLE, 'other' ),
 				{ foo: 'bar' }
 			);
 			expect( fetchMock ).toHaveFetchedTimes( 1 );
 
 			// Ensure `fetch()` is called a second time; the cache is disabled.
-			await get( 'core', 'search-console', 'other', undefined, { useCache: false } );
+			await get( 'core', MODULE_SLUG_SEARCH_CONSOLE, 'other', undefined, {
+				useCache: false,
+			} );
 			expect( fetchMock ).toHaveFetchedTimes( 2 );
 
 			// Ensure the cache was never used.
 			expect( getItemSpy ).not.toHaveBeenCalledWith(
-				createCacheKey( 'core', 'search-console', 'other' ),
+				createCacheKey( 'core', MODULE_SLUG_SEARCH_CONSOLE, 'other' ),
 				3600
 			);
 		} );
 
 		it( 'should not use cache even if cached values exist', async () => {
 			fetchMock.get(
-				/^\/google-site-kit\/v1\/core\/search-console\/data\/cached/,
+				new RegExp(
+					'^/google-site-kit/v1/core/search-console/data/cached'
+				),
 				{ body: { foo: 'bar' }, status: 200 }
 			);
 
-			await get( 'core', 'search-console', 'cached' );
+			await get( 'core', MODULE_SLUG_SEARCH_CONSOLE, 'cached' );
 			expect( setItemSpy ).toHaveBeenCalledWith(
-				createCacheKey( 'core', 'search-console', 'cached' ),
+				createCacheKey( 'core', MODULE_SLUG_SEARCH_CONSOLE, 'cached' ),
 				{ foo: 'bar' },
 				{ ttl: 3600 }
 			);
@@ -277,12 +388,20 @@ describe( 'googlesitekit.api', () => {
 
 			// Ensure `fetch()` is called a second time; the cache is disabled.
 			getItemSpy.mockReset();
-			await get( 'core', 'search-console', 'cached', undefined, { useCache: false } );
+			await get(
+				'core',
+				MODULE_SLUG_SEARCH_CONSOLE,
+				'cached',
+				undefined,
+				{
+					useCache: false,
+				}
+			);
 			expect( fetchMock ).toHaveFetchedTimes( 2 );
 
 			// Ensure the cache was never used.
 			expect( getItemSpy ).not.toHaveBeenCalledWith(
-				createCacheKey( 'core', 'search-console', 'cached' ),
+				createCacheKey( 'core', MODULE_SLUG_SEARCH_CONSOLE, 'cached' ),
 				3600
 			);
 		} );
@@ -295,7 +414,9 @@ describe( 'googlesitekit.api', () => {
 			};
 
 			fetchMock.getOnce(
-				/^\/google-site-kit\/v1\/test-type\/test-identifier\/data\/test-datapoint/,
+				new RegExp(
+					'^/google-site-kit/v1/test-type/test-identifier/data/test-datapoint'
+				),
 				{ body: errorResponse, status: 500 }
 			);
 
@@ -304,16 +425,23 @@ describe( 'googlesitekit.api', () => {
 			} catch ( err ) {
 				expect( console ).toHaveErrored();
 				expect( dataLayerPushSpy ).toHaveBeenCalledTimes( 1 );
-				const [ event, eventName, eventData ] = dataLayerPushSpy.mock.calls[ 0 ][ 0 ];
+				const [ event, eventName, eventData ] =
+					dataLayerPushSpy.mock.calls[ 0 ][ 0 ];
 				expect( event ).toEqual( 'event' );
-				expect( eventName ).toEqual( 'GET:test-type/test-identifier/data/test-datapoint' );
+				expect( eventName ).toEqual(
+					'GET:test-type/test-identifier/data/test-datapoint'
+				);
 				expect( eventData.event_category ).toEqual( 'api_error' );
-				expect( eventData.event_label ).toEqual( 'Internal server error (code: internal_server_error)' );
+				expect( eventData.event_label ).toEqual(
+					'Internal server error (code: internal_server_error)'
+				);
 				expect( eventData.value ).toEqual( 500 );
 			}
 		} );
 	} );
+	/* eslint-enable consistent-return */
 
+	/* eslint-disable consistent-return */
 	describe( 'set', () => {
 		it( 'should throw an error when required arguments are missing', async () => {
 			try {
@@ -321,7 +449,9 @@ describe( 'googlesitekit.api', () => {
 
 				return unexpectedSuccess();
 			} catch ( error ) {
-				expect( error.message ).toEqual( '`type` argument for requests is required.' );
+				expect( error.message ).toEqual(
+					'`type` argument for requests is required.'
+				);
 			}
 
 			try {
@@ -329,26 +459,41 @@ describe( 'googlesitekit.api', () => {
 
 				return unexpectedSuccess();
 			} catch ( error ) {
-				expect( error.message ).toEqual( '`identifier` argument for requests is required.' );
+				expect( error.message ).toEqual(
+					'`identifier` argument for requests is required.'
+				);
 			}
 
 			try {
-				await set( 'core', 'search-console' );
+				await set( 'core', MODULE_SLUG_SEARCH_CONSOLE );
 
 				return unexpectedSuccess();
 			} catch ( error ) {
-				expect( error.message ).toEqual( '`datapoint` argument for requests is required.' );
+				expect( error.message ).toEqual(
+					'`datapoint` argument for requests is required.'
+				);
 			}
 		} );
 
 		it( 'should send request body data from data params', async () => {
 			fetchMock.post(
-				/^\/google-site-kit\/v1\/core\/search-console\/data\/settings/,
+				new RegExp(
+					'^/google-site-kit/v1/core/search-console/data/settings'
+				),
 				{ body: { foo: 'bar' }, status: 200 }
 			);
 
-			const dataBody = { somethingElse: 'to-set', foo: 1, arrayValue: [ 1, 2 ] };
-			await set( 'core', 'search-console', 'settings', dataBody );
+			const dataBody = {
+				somethingElse: 'to-set',
+				foo: 1,
+				arrayValue: [ 1, 2 ],
+			};
+			await set(
+				'core',
+				MODULE_SLUG_SEARCH_CONSOLE,
+				'settings',
+				dataBody
+			);
 			expect( fetchMock ).toHaveFetched(
 				'/google-site-kit/v1/core/search-console/data/settings?_locale=user',
 				{
@@ -365,14 +510,26 @@ describe( 'googlesitekit.api', () => {
 
 		it( 'should send request body data from data params and query params if set', async () => {
 			fetchMock.post(
-				/^\/google-site-kit\/v1\/core\/search-console\/data\/settings/,
+				new RegExp(
+					'^/google-site-kit/v1/core/search-console/data/settings'
+				),
 				{ body: { foo: 'bar' }, status: 200 }
 			);
 
-			const dataBody = { somethingElse: 'to-set', foo: 1, arrayValue: [ 1, 2 ] };
-			await set( 'core', 'search-console', 'settings', dataBody, {
-				queryParams: { foo: 'bar' },
-			} );
+			const dataBody = {
+				somethingElse: 'to-set',
+				foo: 1,
+				arrayValue: [ 1, 2 ],
+			};
+			await set(
+				'core',
+				MODULE_SLUG_SEARCH_CONSOLE,
+				'settings',
+				dataBody,
+				{
+					queryParams: { foo: 'bar' },
+				}
+			);
 
 			expect( fetchMock ).toHaveFetched(
 				'/google-site-kit/v1/core/search-console/data/settings?foo=bar&_locale=user',
@@ -390,15 +547,21 @@ describe( 'googlesitekit.api', () => {
 
 		it( 'should never use the cache for set requests', async () => {
 			fetchMock.post(
-				/^\/google-site-kit\/v1\/core\/search-console\/data\/settings/,
+				new RegExp(
+					'^/google-site-kit/v1/core/search-console/data/settings'
+				),
 				{ body: { foo: 'bar' }, status: 200 }
 			);
 
-			await set( 'core', 'search-console', 'settings', { somethingElse: 'to-set' } );
+			await set( 'core', MODULE_SLUG_SEARCH_CONSOLE, 'settings', {
+				somethingElse: 'to-set',
+			} );
 			expect( fetchMock ).toHaveFetchedTimes( 1 );
 
 			// Ensure `fetch()` is called a second time; the cache is disabled.
-			await set( 'core', 'search-console', 'settings', { something: 'to-set' } );
+			await set( 'core', MODULE_SLUG_SEARCH_CONSOLE, 'settings', {
+				something: 'to-set',
+			} );
 			expect( fetchMock ).toHaveFetchedTimes( 2 );
 
 			// Ensure the cache was not set used.
@@ -409,30 +572,46 @@ describe( 'googlesitekit.api', () => {
 		it( 'should invalidate the cache for matching type+identifier+datapoint combo', async () => {
 			// Mock all requests for this URL.
 			fetchMock.mock(
-				/^\/google-site-kit\/v1\/core\/search-console\/data\/will-cache/,
+				new RegExp(
+					'^/google-site-kit/v1/core/search-console/data/will-cache'
+				),
 				{ body: { foo: 'bar' }, status: 200 }
 			);
 
 			// Contents should not be found in the cache on first request.
 			let cacheData = await getItem(
-				createCacheKey( 'core', 'search-console', 'will-cache' )
+				createCacheKey(
+					'core',
+					MODULE_SLUG_SEARCH_CONSOLE,
+					'will-cache'
+				)
 			);
 			expect( cacheData.cacheHit ).toEqual( false );
 
 			// Make the request to prime the cache
-			await get( 'core', 'search-console', 'will-cache' );
+			await get( 'core', MODULE_SLUG_SEARCH_CONSOLE, 'will-cache' );
 
 			// Now cached data will appear.
 			cacheData = await getItem(
-				createCacheKey( 'core', 'search-console', 'will-cache' )
+				createCacheKey(
+					'core',
+					MODULE_SLUG_SEARCH_CONSOLE,
+					'will-cache'
+				)
 			);
 			expect( cacheData.cacheHit ).toEqual( true );
 			expect( cacheData.value ).toEqual( { foo: 'bar' } );
 
-			await set( 'core', 'search-console', 'will-cache', { somethingElse: 'to-set' } );
+			await set( 'core', MODULE_SLUG_SEARCH_CONSOLE, 'will-cache', {
+				somethingElse: 'to-set',
+			} );
 
 			cacheData = await getItem(
-				createCacheKey( 'core', 'search-console', 'will-cache' )
+				createCacheKey(
+					'core',
+					MODULE_SLUG_SEARCH_CONSOLE,
+					'will-cache'
+				)
 			);
 			expect( cacheData.cacheHit ).toEqual( false );
 		} );
@@ -440,7 +619,9 @@ describe( 'googlesitekit.api', () => {
 		it( 'should invalidate the cache for matching type+identifier+datapoint with query params', async () => {
 			// Mock all requests for this URL.
 			fetchMock.mock(
-				/^\/google-site-kit\/v1\/core\/search-console\/data\/will-cache/,
+				new RegExp(
+					'^/google-site-kit/v1/core/search-console/data/will-cache'
+				),
 				{ body: { foo: 'bar' }, status: 200 }
 			);
 
@@ -448,24 +629,46 @@ describe( 'googlesitekit.api', () => {
 
 			// Contents should not be found in the cache on first request.
 			let cacheData = await getItem(
-				createCacheKey( 'core', 'search-console', 'will-cache', queryParams )
+				createCacheKey(
+					'core',
+					MODULE_SLUG_SEARCH_CONSOLE,
+					'will-cache',
+					queryParams
+				)
 			);
 			expect( cacheData.cacheHit ).toEqual( false );
 
 			// Make the request to prime the cache
-			await get( 'core', 'search-console', 'will-cache', queryParams );
+			await get(
+				'core',
+				MODULE_SLUG_SEARCH_CONSOLE,
+				'will-cache',
+				queryParams
+			);
 
 			// Now cached data will appear.
 			cacheData = await getItem(
-				createCacheKey( 'core', 'search-console', 'will-cache', queryParams )
+				createCacheKey(
+					'core',
+					MODULE_SLUG_SEARCH_CONSOLE,
+					'will-cache',
+					queryParams
+				)
 			);
 			expect( cacheData.cacheHit ).toEqual( true );
 			expect( cacheData.value ).toEqual( { foo: 'bar' } );
 
-			await set( 'core', 'search-console', 'will-cache', { somethingElse: 'to-set' } );
+			await set( 'core', MODULE_SLUG_SEARCH_CONSOLE, 'will-cache', {
+				somethingElse: 'to-set',
+			} );
 
 			cacheData = await getItem(
-				createCacheKey( 'core', 'search-console', 'will-cache', queryParams )
+				createCacheKey(
+					'core',
+					MODULE_SLUG_SEARCH_CONSOLE,
+					'will-cache',
+					queryParams
+				)
 			);
 			expect( cacheData.cacheHit ).toEqual( false );
 		} );
@@ -478,109 +681,188 @@ describe( 'googlesitekit.api', () => {
 			};
 
 			fetchMock.postOnce(
-				/^\/google-site-kit\/v1\/test-type\/test-identifier\/data\/test-datapoint/,
+				new RegExp(
+					'^/google-site-kit/v1/test-type/test-identifier/data/test-datapoint'
+				),
 				{ body: errorResponse, status: 500 }
 			);
 
 			try {
-				await set( 'test-type', 'test-identifier', 'test-datapoint', 'data' );
+				await set(
+					'test-type',
+					'test-identifier',
+					'test-datapoint',
+					'data'
+				);
 			} catch ( err ) {
 				expect( console ).toHaveErrored();
 				expect( dataLayerPushSpy ).toHaveBeenCalledTimes( 1 );
-				const [ event, eventName, eventData ] = dataLayerPushSpy.mock.calls[ 0 ][ 0 ];
+				const [ event, eventName, eventData ] =
+					dataLayerPushSpy.mock.calls[ 0 ][ 0 ];
 				expect( event ).toEqual( 'event' );
-				expect( eventName ).toEqual( 'POST:test-type/test-identifier/data/test-datapoint' );
+				expect( eventName ).toEqual(
+					'POST:test-type/test-identifier/data/test-datapoint'
+				);
 				expect( eventData.event_category ).toEqual( 'api_error' );
-				expect( eventData.event_label ).toEqual( 'Internal server error (code: internal_server_error)' );
+				expect( eventData.event_label ).toEqual(
+					'Internal server error (code: internal_server_error)'
+				);
 				expect( eventData.value ).toEqual( 500 );
 			}
 		} );
 	} );
+	/* eslint-enable consistent-return */
 
 	describe( 'invalidateCache', () => {
 		it( 'should remove all cached items when called', async () => {
 			await setItem(
-				createCacheKey( 'core', 'search-console', 'accounts' ),
+				createCacheKey(
+					'core',
+					MODULE_SLUG_SEARCH_CONSOLE,
+					'accounts'
+				),
 				'data'
 			);
 			await setItem(
-				createCacheKey( 'core', 'search-console', 'accounts', { foo: 'test' } ),
+				createCacheKey(
+					'core',
+					MODULE_SLUG_SEARCH_CONSOLE,
+					'accounts',
+					{
+						foo: 'test',
+					}
+				),
 				'other-data'
 			);
 
-			expect( Object.keys( storageMechanism.__STORE__ ).length ).toBe( 2 );
+			expect( Object.keys( storageMechanism.__STORE__ ).length ).toBe(
+				2
+			);
 
-			await invalidateCache( 'core', 'search-console', 'accounts' );
+			await invalidateCache(
+				'core',
+				MODULE_SLUG_SEARCH_CONSOLE,
+				'accounts'
+			);
 
-			expect( Object.keys( storageMechanism.__STORE__ ).length ).toBe( 0 );
+			expect( Object.keys( storageMechanism.__STORE__ ).length ).toBe(
+				0
+			);
 		} );
 
 		it( 'should remove cached item with query params', async () => {
 			await setItem(
-				createCacheKey( 'core', 'search-console', 'accounts', { foo: 'bar' } ),
+				createCacheKey(
+					'core',
+					MODULE_SLUG_SEARCH_CONSOLE,
+					'accounts',
+					{
+						foo: 'bar',
+					}
+				),
 				'data'
 			);
 
-			expect( Object.keys( storageMechanism.__STORE__ ).length ).toBe( 1 );
+			expect( Object.keys( storageMechanism.__STORE__ ).length ).toBe(
+				1
+			);
 
-			await invalidateCache( 'core', 'search-console', 'accounts' );
+			await invalidateCache(
+				'core',
+				MODULE_SLUG_SEARCH_CONSOLE,
+				'accounts'
+			);
 
-			expect( Object.keys( storageMechanism.__STORE__ ).length ).toBe( 0 );
+			expect( Object.keys( storageMechanism.__STORE__ ).length ).toBe(
+				0
+			);
 		} );
 
 		it( 'should only remove keys in the right scope', async () => {
 			await setItem(
-				createCacheKey( 'core', 'search-console', 'accounts' ),
+				createCacheKey(
+					'core',
+					MODULE_SLUG_SEARCH_CONSOLE,
+					'accounts'
+				),
 				'data'
 			);
 			await setItem(
-				createCacheKey( 'core', 'search-console', 'users' ),
+				createCacheKey( 'core', MODULE_SLUG_SEARCH_CONSOLE, 'users' ),
 				'other-data'
 			);
 
-			expect( Object.keys( storageMechanism.__STORE__ ).length ).toBe( 2 );
+			expect( Object.keys( storageMechanism.__STORE__ ).length ).toBe(
+				2
+			);
 
-			await invalidateCache( 'core', 'search-console', 'accounts' );
+			await invalidateCache(
+				'core',
+				MODULE_SLUG_SEARCH_CONSOLE,
+				'accounts'
+			);
 			const { value } = await getItem(
-				createCacheKey( 'core', 'search-console', 'users' )
+				createCacheKey( 'core', MODULE_SLUG_SEARCH_CONSOLE, 'users' )
 			);
 
 			expect( value ).toEqual( 'other-data' );
-			expect( Object.keys( storageMechanism.__STORE__ ).length ).toBe( 1 );
+			expect( Object.keys( storageMechanism.__STORE__ ).length ).toBe(
+				1
+			);
 		} );
 
 		it( 'should remove all keys when scope is broad', async () => {
 			await setItem(
-				createCacheKey( 'core', 'search-console', 'accounts' ),
+				createCacheKey(
+					'core',
+					MODULE_SLUG_SEARCH_CONSOLE,
+					'accounts'
+				),
 				'data'
 			);
 			await setItem(
-				createCacheKey( 'core', 'search-console', 'users' ),
+				createCacheKey( 'core', MODULE_SLUG_SEARCH_CONSOLE, 'users' ),
 				'other-data'
 			);
 
-			expect( Object.keys( storageMechanism.__STORE__ ).length ).toBe( 2 );
+			expect( Object.keys( storageMechanism.__STORE__ ).length ).toBe(
+				2
+			);
 
-			await invalidateCache( 'core', 'search-console' );
+			await invalidateCache( 'core', MODULE_SLUG_SEARCH_CONSOLE );
 
-			expect( Object.keys( storageMechanism.__STORE__ ).length ).toBe( 0 );
+			expect( Object.keys( storageMechanism.__STORE__ ).length ).toBe(
+				0
+			);
 		} );
 
 		it( 'should remove everything in the cache when called without arguments', async () => {
 			await setItem(
-				createCacheKey( 'core', 'search-console', 'accounts' ),
+				createCacheKey(
+					'core',
+					MODULE_SLUG_SEARCH_CONSOLE,
+					'accounts'
+				),
 				'data'
 			);
 			await setItem(
-				createCacheKey( 'modules', 'analytics', 'something' ),
+				createCacheKey(
+					'modules',
+					MODULE_SLUG_ANALYTICS_4,
+					'something'
+				),
 				'other-data'
 			);
 
-			expect( Object.keys( storageMechanism.__STORE__ ).length ).toBe( 2 );
+			expect( Object.keys( storageMechanism.__STORE__ ).length ).toBe(
+				2
+			);
 
 			await invalidateCache();
 
-			expect( Object.keys( storageMechanism.__STORE__ ).length ).toBe( 0 );
+			expect( Object.keys( storageMechanism.__STORE__ ).length ).toBe(
+				0
+			);
 		} );
 	} );
 
@@ -603,11 +885,11 @@ describe( 'googlesitekit.api', () => {
 	describe( 'createCacheKey', () => {
 		it( 'should create a cache key with all sections in order', () => {
 			expect(
-				createCacheKey( 'core', 'search-console', 'users' )
+				createCacheKey( 'core', MODULE_SLUG_SEARCH_CONSOLE, 'users' )
 			).toEqual( 'core::search-console::users' );
 
 			expect(
-				createCacheKey( 'core', 'adsense', 'accounts' )
+				createCacheKey( 'core', MODULE_SLUG_ADSENSE, 'accounts' )
 			).toEqual( 'core::adsense::accounts' );
 		} );
 
@@ -622,28 +904,50 @@ describe( 'googlesitekit.api', () => {
 				// params via `stringifyObject( queryParams )`.
 				// We manually set the value here to ensure all the external functions
 				// are working as expected. :-)
-				createCacheKey( 'core', 'search-console', 'users', queryParams )
-			).toEqual( 'core::search-console::users::a9e286c390a430f5dd1fbab4b31dd2a6' );
+				createCacheKey(
+					'core',
+					MODULE_SLUG_SEARCH_CONSOLE,
+					'users',
+					queryParams
+				)
+			).toEqual(
+				'core::search-console::users::a9e286c390a430f5dd1fbab4b31dd2a6'
+			);
 		} );
 
 		it( 'should create a cache key without query params when params are empty', () => {
 			const queryParams = {};
 			expect(
-				createCacheKey( 'core', 'search-console', 'users', queryParams )
+				createCacheKey(
+					'core',
+					MODULE_SLUG_SEARCH_CONSOLE,
+					'users',
+					queryParams
+				)
 			).toEqual( 'core::search-console::users' );
 		} );
 
 		it( 'should ignore non-object query params', () => {
 			expect(
-				createCacheKey( 'core', 'search-console', 'users', 0 )
+				createCacheKey( 'core', MODULE_SLUG_SEARCH_CONSOLE, 'users', 0 )
 			).toEqual( 'core::search-console::users' );
 
 			expect(
-				createCacheKey( 'core', 'search-console', 'users', [ 1, 2 ] )
+				createCacheKey(
+					'core',
+					MODULE_SLUG_SEARCH_CONSOLE,
+					'users',
+					[ 1, 2 ]
+				)
 			).toEqual( 'core::search-console::users' );
 
 			expect(
-				createCacheKey( 'core', 'search-console', 'users', new Date() )
+				createCacheKey(
+					'core',
+					MODULE_SLUG_SEARCH_CONSOLE,
+					'users',
+					new Date()
+				)
 			).toEqual( 'core::search-console::users' );
 		} );
 	} );
@@ -651,11 +955,17 @@ describe( 'googlesitekit.api', () => {
 	describe( 'siteKitRequest', () => {
 		it( 'should send a request using fetch', async () => {
 			fetchMock.get(
-				/^\/google-site-kit\/v1\/core\/search-console\/data\/settings/,
+				new RegExp(
+					'^/google-site-kit/v1/core/search-console/data/settings'
+				),
 				{ body: { foo: 'bar' }, status: 200 }
 			);
 
-			await siteKitRequest( 'core', 'search-console', 'settings' );
+			await siteKitRequest(
+				'core',
+				MODULE_SLUG_SEARCH_CONSOLE,
+				'settings'
+			);
 
 			expect( fetchMock ).toHaveFetched(
 				'/google-site-kit/v1/core/search-console/data/settings?_locale=user',
@@ -668,6 +978,49 @@ describe( 'googlesitekit.api', () => {
 					method: 'GET',
 				}
 			);
+		} );
+
+		it( 'should allow aborting the request using the `signal` option', async () => {
+			const controller = new AbortController();
+
+			freezeFetch(
+				new RegExp( '^/google-site-kit/v1/test/frozen/data/request' )
+			);
+
+			try {
+				const promise = siteKitRequest( 'test', 'frozen', 'request', {
+					signal: controller.signal,
+				} );
+				controller.abort();
+				await promise;
+			} catch ( err ) {
+				expect( err.name ).toBe( 'AbortError' );
+				expect( console ).not.toHaveErrored();
+			}
+		} );
+
+		it( 'should dispatch a truthy error when the request rejects with a falsy value', async () => {
+			// An error response with a body that parses to a falsy value, e.g.
+			// `false` or `0`, causes the underlying fetch implementation to
+			// reject with that falsy value rather than an error object.
+			fetchMock.postOnce(
+				new RegExp(
+					'^/google-site-kit/v1/core/modules/data/activation'
+				),
+				{ body: 'false', status: 500 }
+			);
+
+			await expect(
+				siteKitRequest( 'core', 'modules', 'activation', {
+					method: 'POST',
+					bodyParams: { slug: MODULE_SLUG_ANALYTICS_4, active: true },
+				} )
+			).rejects.toEqual( {
+				code: 'unknown_error',
+				message: 'An unknown error occurred.',
+			} );
+
+			expect( console ).toHaveErrored();
 		} );
 	} );
 } );

@@ -6,54 +6,53 @@
  * @copyright 2021 Google LLC
  * @license   https://www.apache.org/licenses/LICENSE-2.0 Apache License 2.0
  * @link      https://sitekit.withgoogle.com
+ *
+ * phpcs:disable PHPCS.Commenting.RequireDocTagDescription -- Pre-existing violations; tracked for follow-up cleanup.
  */
 
 namespace Google\Site_Kit\Tests;
 
 use Closure;
 use Google\Site_Kit\Context;
-use Google\Site_Kit\Core\Util\Build_Mode;
 use Google\Site_Kit\Core\Util\Feature_Flags;
 use Google\Site_Kit\Core\Util\Input;
-use Google\Site_Kit\Core\Util\JSON_File;
 use Google\Site_Kit\Tests\Exception\RedirectException;
 use PHPUnit_Framework_MockObject_MockObject;
+use WP_UnitTestCase;
 
-class TestCase extends \WP_UnitTestCase {
+class TestCase extends WP_UnitTestCase {
 	// Do not preserve global state since it doesn't support closures within globals.
 	protected $preserveGlobalState = false;
 
 	protected static $featureFlagsConfig;
 
-	public static function setUpBeforeClass() {
-		parent::setUpBeforeClass();
+	public static function set_up_before_class() {
+		parent::set_up_before_class();
 
 		if ( ! self::$featureFlagsConfig ) {
-			self::$featureFlagsConfig = new JSON_File( GOOGLESITEKIT_PLUGIN_DIR_PATH . 'feature-flags.json' );
+			self::$featureFlagsConfig = json_decode(
+				file_get_contents( GOOGLESITEKIT_PLUGIN_DIR_PATH . 'feature-flags.json' ),
+				true
+			);
 		}
 
 		self::reset_feature_flags();
 	}
 
-	public static function tearDownAfterClass() {
-		parent::tearDownAfterClass();
+	public static function tear_down_after_class() {
+		parent::tear_down_after_class();
 		self::reset_feature_flags();
-		self::reset_build_mode();
 	}
 
 	protected static function reset_feature_flags() {
 		Feature_Flags::set_features( self::$featureFlagsConfig );
 	}
 
-	protected static function reset_build_mode() {
-		Build_Mode::set_mode( Build_Mode::MODE_PRODUCTION );
-	}
-
 	/**
 	 * Runs the routine before each test is executed.
 	 */
-	public function setUp() {
-		parent::setUp();
+	public function set_up() {
+		parent::set_up();
 
 		// At this point all hooks are isolated between tests.
 
@@ -72,15 +71,24 @@ class TestCase extends \WP_UnitTestCase {
 			10,
 			2
 		);
+
+		// Initialize the global $wp_scripts and $wp_styles, which are cleared in tear_down.
+		wp_scripts();
+		wp_styles();
 	}
 
 	/**
 	 * After a test method runs, reset any state in WordPress the test method might have changed.
 	 */
-	public function tearDown() {
-		parent::tearDown();
+	public function tear_down() {
+		parent::tear_down();
 		// Clear screen related globals.
 		unset( $GLOBALS['current_screen'], $GLOBALS['taxnow'], $GLOBALS['typenow'] );
+
+		// Clean up scripts and styles hooks to avoid interference between tests.
+		global $wp_scripts, $wp_styles;
+		$wp_scripts = null;
+		$wp_styles  = null;
 	}
 
 	/**
@@ -107,32 +115,72 @@ class TestCase extends \WP_UnitTestCase {
 	/**
 	 * Forcibly set a property of an object that would otherwise not be possible.
 	 *
-	 * @param object|string $class Class instance to set the property on, or class name containing the property.
+	 * @param object|string $class_instance Class instance to set the property on, or class name containing the property.
 	 * @param string $property Property name
 	 * @param mixed $value New value to assign the property
 	 *
 	 * @throws \ReflectionException
 	 */
-	protected function force_set_property( $class, $property, $value ) {
-		$reflection_property = new \ReflectionProperty( $class, $property );
-		$reflection_property->setAccessible( true );
-		$reflection_property->setValue( $class, $value );
+	protected function force_set_property( $class_instance, $property, $value ) {
+		$reflection_property = $this->get_accessible_property( $class_instance, $property );
+		$target              = is_string( $class_instance ) ? null : $class_instance;
+		$reflection_property->setValue( $target, $value );
 	}
 
 	/**
 	 * Forcibly get a property's value from an object that would otherwise not be possible.
 	 *
-	 * @param object|string $class Class instance to get the property from, or class name containing the property.
+	 * @param object|string $class_instance Class instance to get the property from, or class name containing the property.
 	 * @param string $property Property name
 	 *
 	 * @return mixed
 	 * @throws \ReflectionException
 	 */
-	protected function force_get_property( $class, $property ) {
-		$reflection_property = new \ReflectionProperty( $class, $property );
-		$reflection_property->setAccessible( true );
+	protected function force_get_property( $class_instance, $property ) {
+		$reflection_property = $this->get_accessible_property( $class_instance, $property );
+		$target              = is_string( $class_instance ) ? null : $class_instance;
 
-		return $reflection_property->getValue( $class );
+		return $reflection_property->getValue( $target );
+	}
+
+	/**
+	 * Gets a reflection of a method that can be invoked even when it is private or protected.
+	 *
+	 * @since 1.190.0
+	 *
+	 * @param object|string $class_instance Class instance, or name of the class that has the method.
+	 * @param string        $method_name    Method name.
+	 * @return \ReflectionMethod Reflection of the method.
+	 * @throws \ReflectionException Thrown if the method does not exist.
+	 */
+	protected function get_accessible_method( $class_instance, $method_name ) {
+		$reflection_method = new \ReflectionMethod( $class_instance, $method_name );
+		// PHP < 8.1 requires this for non-public methods; 8.1+ ignores it; 8.5+ deprecates it.
+		if ( \PHP_VERSION_ID < 80100 ) {
+			$reflection_method->setAccessible( true );
+		}
+
+		return $reflection_method;
+	}
+
+	/**
+	 * Gets a reflection of a property that can be read and written even when it is private or protected.
+	 *
+	 * @since 1.190.0
+	 *
+	 * @param object|string $class_instance Class instance, or name of the class that has the property.
+	 * @param string        $property_name  Property name.
+	 * @return \ReflectionProperty Reflection of the property.
+	 * @throws \ReflectionException Thrown if the property does not exist.
+	 */
+	protected function get_accessible_property( $class_instance, $property_name ) {
+		$reflection_property = new \ReflectionProperty( $class_instance, $property_name );
+		// PHP < 8.1 requires this for non-public properties; 8.1+ ignores it; 8.5+ deprecates it.
+		if ( \PHP_VERSION_ID < 80100 ) {
+			$reflection_property->setAccessible( true );
+		}
+
+		return $reflection_property;
 	}
 
 	/**
@@ -215,6 +263,36 @@ class TestCase extends \WP_UnitTestCase {
 		);
 	}
 
+	/**
+	 * Asserts that the associative array subset is within the given array.
+	 *
+	 * Replacement for PHPUnit's deprecated assertArraySubset in PHPUnit 8.
+	 *
+	 * @param array  $subset            Partial array.
+	 * @param array  $array_to_check    Array to check includes the partial.
+	 * @param string $message Optional. Message to display when the assertion fails.
+	 */
+	protected function assertArrayIntersection( array $subset, array $array_to_check, $message = '' ) {
+		$intersection = array_intersect_key( $array_to_check, $subset );
+
+		$this->assertEqualSetsWithIndex( $subset, $intersection, $message );
+	}
+
+	/**
+	 * Asserts that the non-associative array (list) subset is within the given array.
+	 *
+	 * Replacement for PHPUnit's deprecated assertArraySubset in PHPUnit 8.
+	 *
+	 * @param array  $subset            Partial array.
+	 * @param array  $array_to_check    Array to check includes the partial.
+	 * @param string $message Optional. Message to display when the assertion fails.
+	 */
+	protected function assertListIntersection( array $subset, array $array_to_check, $message = '' ) {
+		$intersection = array_intersect( $array_to_check, $subset );
+
+		$this->assertEqualSets( $subset, $intersection, $message );
+	}
+
 	protected function assertOptionNotExists( $option ) {
 		$this->assertNull(
 			$this->queryOption( $option ),
@@ -229,9 +307,76 @@ class TestCase extends \WP_UnitTestCase {
 		);
 	}
 
+	protected function assertTransientNotExists( $transient ) {
+		$this->assertNull(
+			$this->queryOption( "_transient_$transient" ),
+			"Failed to assert that transient '$transient' does not exist."
+		);
+	}
+
+	protected function assertTransientExists( $transient ) {
+		$this->assertNotNull(
+			$this->queryOption( "_transient_$transient" ),
+			"Failed to assert that transient '$transient' exists."
+		);
+	}
+
 	protected function assertWPErrorWithMessage( $expected_message, $actual ) {
-		$this->assertWPError( $actual );
-		$this->assertEquals( $expected_message, $actual->get_error_message() );
+		$this->assertWPError( $actual, 'Value should be a WP_Error.' );
+		$this->assertEquals( $expected_message, $actual->get_error_message(), 'WP_Error should contain the expected error message.' );
+	}
+
+	protected function assertPostMetaNotExists( $post_id, $meta_key ) {
+		$this->assertNull(
+			$this->queryPostMeta( $post_id, $meta_key ),
+			"Failed to assert that '$meta_key' does not exist for post ID: $post_id."
+		);
+	}
+
+	protected function assertPostMetaExists( $post_id, $meta_key ) {
+		$this->assertNotNull(
+			$this->queryPostMeta( $post_id, $meta_key ),
+			"Failed to assert that '$meta_key' exists for post ID: $post_id."
+		);
+	}
+
+	protected function assertPostMetaHasValue( $post_id, $meta_key, $meta_value ) {
+		$meta = $this->queryPostMeta( $post_id, $meta_key );
+		$this->assertNotNull( $meta, "Post $post_id should have a $meta_key meta entry." );
+		$this->assertEquals( $meta_value, $meta['meta_value'], "Failed to assert that post $post_id has \"$meta_key\" meta with \"$meta_value\" value." );
+	}
+
+	protected function assertTermMetaNotExists( $term_id, $meta_key ) {
+		$this->assertNull(
+			$this->queryTermMeta( $term_id, $meta_key ),
+			"Failed to assert that '$meta_key' does not exist for term ID: $term_id."
+		);
+	}
+
+	protected function queryPostMeta( $post_id, $meta_key ) {
+		global $wpdb;
+
+		return $wpdb->get_row(
+			$wpdb->prepare(
+				"SELECT * FROM {$wpdb->postmeta} WHERE post_id = %d AND meta_key = %s",
+				$post_id,
+				$meta_key
+			),
+			ARRAY_A
+		);
+	}
+
+	protected function queryTermMeta( $term_id, $meta_key ) {
+		global $wpdb;
+
+		return $wpdb->get_row(
+			$wpdb->prepare(
+				"SELECT * FROM {$wpdb->termmeta} WHERE term_id = %d AND meta_key = %s",
+				$term_id,
+				$meta_key
+			),
+			ARRAY_A
+		);
 	}
 
 	protected function queryOption( $option ) {
@@ -264,5 +409,31 @@ class TestCase extends \WP_UnitTestCase {
 			$wp_registered_settings,
 			"Failed to assert that a setting '$name' is not registered."
 		);
+	}
+
+	/**
+	 * Subscribes to HTTP requests made via WP HTTP.
+	 *
+	 * Ideally this should hook on to `http_api_debug` rather than `pre_http_request`
+	 * but the former action doesn't fire for blocked HTTP requests until WP 5.3.
+	 * {@link https://github.com/WordPress/WordPress/commit/eeba1c1244ee17424c8953dc416527a97560f6cc}.
+	 *
+	 * @param Closure $listener Function to be invoked for all WP HTTP requests.
+	 *                          $listener will be called with $url, $args.
+	 * @param mixed   $response Mock response object.
+	 * @return Closure Function to unsubscribe the added listener.
+	 */
+	protected function subscribe_to_wp_http_requests( Closure $listener, $response = null ) {
+		$capture_callback = function ( $_, $args, $url ) use ( $listener, $response ) {
+			$listener( $url, $args );
+
+			return $response ?: $_;
+		};
+
+		add_filter( 'pre_http_request', $capture_callback, 0, 3 );
+
+		return function () use ( $capture_callback ) {
+			remove_filter( 'pre_http_request', $capture_callback, 0 );
+		};
 	}
 }

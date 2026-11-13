@@ -19,81 +19,96 @@
 /**
  * Internal dependencies
  */
-import API from 'googlesitekit-api';
-import { STORE_NAME } from './constants';
+import { get, setUsingCache } from 'googlesitekit-api';
+import { getAdSenseMockResponse } from '@/js/modules/adsense/util/data-mock';
 import {
 	createTestRegistry,
 	subscribeUntil,
-	unsubscribeFromAll,
-} from 'tests/js/utils';
-import * as fixtures from './__fixtures__';
+	untilResolved,
+	waitForDefaultTimeouts,
+} from '@tests/js/utils';
+import { MODULES_ADSENSE } from './constants';
+
+// Spy on `get()`, because `cacheTTL` never reaches the network request.
+jest.mock( 'googlesitekit-api', () =>
+	require( '@tests/js/mock-api-utils' ).mockAPIModuleWithGetSpy()
+);
 
 describe( 'modules/adsense report', () => {
 	let registry;
 
 	beforeAll( () => {
-		API.setUsingCache( false );
+		setUsingCache( false );
 	} );
 
 	beforeEach( () => {
+		get.mockClear();
+
 		registry = createTestRegistry();
 	} );
 
 	afterAll( () => {
-		API.setUsingCache( true );
+		setUsingCache( true );
 	} );
 
-	afterEach( () => {
-		unsubscribeFromAll( registry );
-	} );
-
-	describe( 'actions', () => {
-
-	} );
+	describe( 'actions', () => {} );
 
 	describe( 'selectors', () => {
 		describe( 'getReport', () => {
 			const options = {
-				dateRange: 'last-90-days',
-				metrics: 'test',
+				startDate: '2021-07-01',
+				endDate: '2021-07-28',
+				metrics: [ 'IMPRESSIONS' ],
 				dimensions: [ 'DATE' ],
 			};
 
 			it( 'uses a resolver to make a network request', async () => {
+				const report = getAdSenseMockResponse( options );
+
 				fetchMock.getOnce(
-					/^\/google-site-kit\/v1\/modules\/adsense\/data\/earnings/,
-					{ body: fixtures.report, status: 200 }
-				);
-
-				const initialReport = registry.select( STORE_NAME ).getReport( options );
-
-				expect( initialReport ).toEqual( undefined );
-				await subscribeUntil( registry,
-					() => (
-						registry.select( STORE_NAME ).getReport( options ) !== undefined
+					new RegExp(
+						'^/google-site-kit/v1/modules/adsense/data/report'
 					),
+					{ body: report }
 				);
 
-				const report = registry.select( STORE_NAME ).getReport( options );
+				expect(
+					registry.select( MODULES_ADSENSE ).getReport( options )
+				).toBeUndefined();
+				await subscribeUntil(
+					registry,
+					() =>
+						registry
+							.select( MODULES_ADSENSE )
+							.getReport( options ) !== undefined
+				);
 
+				expect(
+					registry.select( MODULES_ADSENSE ).getReport( options )
+				).toEqual( report );
 				expect( fetchMock ).toHaveFetchedTimes( 1 );
-				expect( report ).toEqual( fixtures.report );
 			} );
 
 			it( 'does not make a network request if report for given options is already present', async () => {
+				const report = getAdSenseMockResponse( options );
+
 				// Load data into this store so there are matches for the data we're about to select,
 				// even though the selector hasn't fulfilled yet.
-				registry.dispatch( STORE_NAME ).receiveGetReport( fixtures.report, { options } );
+				registry
+					.dispatch( MODULES_ADSENSE )
+					.receiveGetReport( report, { options } );
 
-				const report = registry.select( STORE_NAME ).getReport( options );
-
-				await subscribeUntil( registry, () => registry
-					.select( STORE_NAME )
-					.hasFinishedResolution( 'getReport', [ options ] )
+				const initialReport = registry
+					.select( MODULES_ADSENSE )
+					.getReport( options );
+				await subscribeUntil( registry, () =>
+					registry
+						.select( MODULES_ADSENSE )
+						.hasFinishedResolution( 'getReport', [ options ] )
 				);
 
 				expect( fetchMock ).not.toHaveFetched();
-				expect( report ).toEqual( fixtures.report );
+				expect( initialReport ).toEqual( report );
 			} );
 
 			it( 'dispatches an error if the request fails', async () => {
@@ -103,19 +118,184 @@ describe( 'modules/adsense report', () => {
 					data: { status: 500 },
 				};
 				fetchMock.getOnce(
-					/^\/google-site-kit\/v1\/modules\/adsense\/data\/earnings/,
+					new RegExp(
+						'^/google-site-kit/v1/modules/adsense/data/report'
+					),
 					{ body: response, status: 500 }
 				);
 
-				registry.select( STORE_NAME ).getReport( options );
-				await subscribeUntil( registry,
-					() => registry.select( STORE_NAME ).isFetchingGetReport( options ) === false,
+				registry.select( MODULES_ADSENSE ).getReport( options );
+				await subscribeUntil(
+					registry,
+					() =>
+						registry
+							.select( MODULES_ADSENSE )
+							.isFetchingGetReport( options ) === false
 				);
 
 				expect( fetchMock ).toHaveFetchedTimes( 1 );
 
-				const report = registry.select( STORE_NAME ).getReport( options );
+				const report = registry
+					.select( MODULES_ADSENSE )
+					.getReport( options );
 				expect( report ).toEqual( undefined );
+
+				await untilResolved( registry, MODULES_ADSENSE ).getReport(
+					options
+				);
+				expect( console ).toHaveErrored();
+			} );
+
+			it( 'forwards the abort signal from the fetch options to the report request', async () => {
+				fetchMock.getOnce(
+					new RegExp(
+						'^/google-site-kit/v1/modules/adsense/data/report'
+					),
+					{ body: getAdSenseMockResponse( options ) }
+				);
+
+				const { signal } = new AbortController();
+
+				await registry
+					.dispatch( MODULES_ADSENSE )
+					.fetchGetReport( options, { signal } );
+
+				expect( fetchMock ).toHaveFetchedTimes( 1 );
+				expect( fetchMock.lastOptions().signal ).toBe( signal );
+			} );
+
+			it( 'sends no abort signal to the report request when the call has no fetch options', async () => {
+				fetchMock.getOnce(
+					new RegExp(
+						'^/google-site-kit/v1/modules/adsense/data/report'
+					),
+					{ body: getAdSenseMockResponse( options ) }
+				);
+
+				await registry
+					.dispatch( MODULES_ADSENSE )
+					.fetchGetReport( options );
+
+				expect( fetchMock ).toHaveFetchedTimes( 1 );
+				expect( fetchMock.lastOptions().signal ).toBeUndefined();
+			} );
+
+			it( 'passes cacheTTL from the fetch options to the report request', async () => {
+				fetchMock.getOnce(
+					new RegExp(
+						'^/google-site-kit/v1/modules/adsense/data/report'
+					),
+					{ body: getAdSenseMockResponse( options ) }
+				);
+
+				await registry
+					.dispatch( MODULES_ADSENSE )
+					.fetchGetReport( options, { cacheTTL: 300 } );
+
+				expect( fetchMock ).toHaveFetchedTimes( 1 );
+				expect( get.mock.calls[ 0 ][ 4 ] ).toStrictEqual( {
+					cacheTTL: 300,
+				} );
+			} );
+
+			it( 'sends no cacheTTL to the report request when the call has no fetch options', async () => {
+				fetchMock.getOnce(
+					new RegExp(
+						'^/google-site-kit/v1/modules/adsense/data/report'
+					),
+					{ body: getAdSenseMockResponse( options ) }
+				);
+
+				await registry
+					.dispatch( MODULES_ADSENSE )
+					.fetchGetReport( options );
+
+				expect( fetchMock ).toHaveFetchedTimes( 1 );
+				expect( get.mock.calls[ 0 ][ 4 ] ).toBeUndefined();
+			} );
+
+			it( 'forwards the abort signal from a getReport call to the report request', async () => {
+				fetchMock.getOnce(
+					new RegExp(
+						'^/google-site-kit/v1/modules/adsense/data/report'
+					),
+					{ body: getAdSenseMockResponse( options ) }
+				);
+
+				const { signal } = new AbortController();
+
+				await registry
+					.resolveSelect( MODULES_ADSENSE )
+					.getReport( options, { signal } );
+
+				// The registry starts resolver runs from a timeout. Wait for
+				// those timeouts to finish, so a second run with the same
+				// options would send its request inside this test and make
+				// the test fail.
+				await waitForDefaultTimeouts();
+
+				expect( fetchMock ).toHaveFetchedTimes( 1 );
+				expect( fetchMock.lastOptions().signal ).toBe( signal );
+			} );
+
+			it( 'sends one request and no abort signal when a getReport call has no fetch options', async () => {
+				fetchMock.getOnce(
+					new RegExp(
+						'^/google-site-kit/v1/modules/adsense/data/report'
+					),
+					{ body: getAdSenseMockResponse( options ) }
+				);
+
+				await registry
+					.resolveSelect( MODULES_ADSENSE )
+					.getReport( options );
+
+				// The registry starts resolver runs from a timeout. Wait for
+				// those timeouts to finish, so a second run with the same
+				// options would send its request inside this test and make
+				// the test fail.
+				await waitForDefaultTimeouts();
+
+				expect( fetchMock ).toHaveFetchedTimes( 1 );
+				expect( fetchMock.lastOptions().signal ).toBeUndefined();
+			} );
+
+			it( 'stores the error under the report options when a getReport call with an abort signal fails', async () => {
+				const response = {
+					code: 'internal_server_error',
+					message: 'Internal server error',
+					data: { status: 500 },
+				};
+
+				fetchMock.getOnce(
+					new RegExp(
+						'^/google-site-kit/v1/modules/adsense/data/report'
+					),
+					{ body: response, status: 500 }
+				);
+
+				const { signal } = new AbortController();
+
+				await registry
+					.resolveSelect( MODULES_ADSENSE )
+					.getReport( options, { signal } );
+
+				// The registry starts resolver runs from a timeout. Wait for
+				// those timeouts to finish, so a second run with the same
+				// options would send its request inside this test and make
+				// the test fail.
+				await waitForDefaultTimeouts();
+
+				expect( fetchMock ).toHaveFetchedTimes( 1 );
+
+				// The store saves the error under the report options only,
+				// so the same options that read the report also find the
+				// error.
+				expect(
+					registry
+						.select( MODULES_ADSENSE )
+						.getErrorForSelector( 'getReport', [ options ] )
+				).toEqual( response );
 				expect( console ).toHaveErrored();
 			} );
 		} );

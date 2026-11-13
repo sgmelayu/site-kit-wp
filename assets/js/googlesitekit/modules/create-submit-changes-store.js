@@ -19,18 +19,18 @@
 /**
  * Internal dependencies
  */
-import Data from 'googlesitekit-data';
-import { createValidationSelector } from '../data/utils';
-import { actions as errorStoreActions } from '../data/create-error-store';
-const { createRegistryControl } = Data;
+import { createReducer, createRegistryControl } from 'googlesitekit-data';
+import { actions as errorStoreActions } from '@/js/googlesitekit/data/create-error-store';
+import { createValidationSelector } from '@/js/googlesitekit/data/utils';
 
 // Get access to error store action creators.
 // If the parent store doesn't include the error store,
 // yielded error actions will be a no-op.
-const { clearError, receiveError } = errorStoreActions;
+const { clearActionError, setErrorForAction } = errorStoreActions;
 
 // Actions
 const SUBMIT_CHANGES = 'SUBMIT_CHANGES';
+const ROLLBACK_CHANGES = 'ROLLBACK_CHANGES';
 const START_SUBMIT_CHANGES = 'START_SUBMIT_CHANGES';
 const FINISH_SUBMIT_CHANGES = 'FINISH_SUBMIT_CHANGES';
 
@@ -41,13 +41,17 @@ const FINISH_SUBMIT_CHANGES = 'FINISH_SUBMIT_CHANGES';
  *
  * @param {Object}   args                            Arguments for creating the submitChanges store.
  * @param {Function} [args.submitChanges]            Optional. Callback function to issue the submit changes request. Will be used inside the submit changes control.
+ * @param {Function} [args.rollbackChanges]          Optional. Callback function to rollback module settings changes.
  * @param {Function} [args.validateCanSubmitChanges] Optional. A helper function to validate that settings can be submitted.
  * @return {Object} Partial store object with properties 'actions', 'controls', 'reducer', 'resolvers', and 'selectors'.
  */
-export function createSubmitChangesStore( {
-	submitChanges = () => ( {} ),
-	validateCanSubmitChanges = () => {},
-} = {} ) {
+export function createSubmitChangesStore( args ) {
+	const {
+		submitChanges = () => ( {} ),
+		rollbackChanges = () => ( {} ),
+		validateCanSubmitChanges = () => {},
+	} = args || {};
+
 	const initialState = {
 		isDoingSubmitChanges: false,
 	};
@@ -61,7 +65,7 @@ export function createSubmitChangesStore( {
 		 * @return {Object} Empty object on success, object with `error` property on failure.
 		 */
 		*submitChanges() {
-			yield clearError( 'submitChanges', [] );
+			yield clearActionError( 'submitChanges', [] );
 
 			yield {
 				type: START_SUBMIT_CHANGES,
@@ -74,7 +78,7 @@ export function createSubmitChangesStore( {
 			};
 
 			if ( result?.error ) {
-				yield receiveError( result.error, 'submitChanges', [] );
+				yield setErrorForAction( result.error, 'submitChanges', [] );
 			}
 
 			yield {
@@ -84,32 +88,49 @@ export function createSubmitChangesStore( {
 
 			return result;
 		},
+		/**
+		 * Rolls back changes.
+		 *
+		 * @since 1.45.0
+		 *
+		 * @return {Object} Empty object on success, object with `error` property on failure.
+		 */
+		*rollbackChanges() {
+			const result = yield {
+				type: ROLLBACK_CHANGES,
+				payload: {},
+			};
+
+			return result;
+		},
 	};
 
-	const reducer = ( state, { type } ) => {
+	const reducer = createReducer( ( state, { type } ) => {
 		switch ( type ) {
-			case START_SUBMIT_CHANGES: {
-				return {
-					...state,
-					isDoingSubmitChanges: true,
-				};
-			}
+			case START_SUBMIT_CHANGES:
+				state.isDoingSubmitChanges = true;
+				break;
 
-			case FINISH_SUBMIT_CHANGES: {
-				return {
-					...state,
-					isDoingSubmitChanges: false,
-				};
-			}
+			case FINISH_SUBMIT_CHANGES:
+				state.isDoingSubmitChanges = false;
+				break;
 
-			default: {
-				return state;
-			}
+			default:
+				break;
 		}
-	};
+	} );
 
 	const controls = {
-		[ SUBMIT_CHANGES ]: createRegistryControl( ( registry ) => ( ...args ) => submitChanges( registry, ...args ) ),
+		[ SUBMIT_CHANGES ]: createRegistryControl(
+			( registry ) =>
+				( ...actionArgs ) =>
+					submitChanges( registry, ...actionArgs )
+		),
+		[ ROLLBACK_CHANGES ]: createRegistryControl(
+			( registry ) =>
+				( ...actionArgs ) =>
+					rollbackChanges( registry, ...actionArgs )
+		),
 	};
 
 	const resolvers = {};

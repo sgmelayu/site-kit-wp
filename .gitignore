@@ -1,3 +1,43 @@
+# Config files
+/.*
+!.gemini/
+.gemini/*
+!.gemini/config.yml
+!.gemini/styleguide.md
+!.gemini/settings.json
+!.claude/
+.claude/*
+!.claude/settings.json
+!.claude/skills/
+!.claude/skills/**
+!.claude/commands/
+!.claude/commands/**
+!.agents/
+.agents/*
+!.agents/README.md
+!.agents/skills/
+!.agents/skills/**
+!.agents/rules/
+!.agents/rules/**
+!.github
+!.vscode
+.vscode/*
+!.wordpress-org/
+!.vscode/extensions.json
+!.vscode/settings.json
+!.editorconfig
+!.eslintignore
+!.eslintrc.json
+!.eslintrc.staged.json
+!.geminiignore
+!.gitignore
+!.nvmrc
+!.prettierignore
+!.prettierrc.js
+!.stylelintrc
+!.svgo.yml
+
+# Other paths
 node_modules
 bower_components
 vendor
@@ -6,7 +46,6 @@ vendor
 !/php-scoper/composer.*
 !/php-scoper/README.md
 /third-party
-/includes/Core/Assets/Manifest.php
 /release
 phpunit.xml
 .idea
@@ -15,33 +54,37 @@ npm-debug.log
 /languages
 /storybook-static
 google-site-kit*.zip
+.phpunit.result.cache
+/packages/apiclient-services-*.v*
+/*.patch
 
 # Editors
 *.esproj
 *.tmproj
 *.tmproject
 tmtags
-.*.sw[a-z]
 *.un~
 Session.vim
 *.swp
-.vscode/*
-!.vscode/settings.json
-
-# Mac OSX
-.DS_Store
-._*
-.Spotlight-V100
-.Trashes
 
 # Windows
 Thumbs.db
 Desktop.ini
 
-# Backstop
-tests/backstop/html_report/
+# Backstop (replaced by tests/vrt; output from old local runs may remain)
+tests/backstop/*_report/
 tests/backstop/tests/
+
+# Visual regression tests
+tests/vrt/test-results/
+tests/vrt/report/
+tests/vrt/blob-report/
+tests/vrt/all-blob-reports/
 
 # Jest
 coverage/
 tests/e2e/screenshots
+
+# Playwright
+tests/playwright/artifacts
+

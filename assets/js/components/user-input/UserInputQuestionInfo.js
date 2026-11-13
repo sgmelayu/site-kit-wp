@@ -25,70 +25,96 @@ import PropTypes from 'prop-types';
  * WordPress dependencies
  */
 import { Fragment } from '@wordpress/element';
-import { __, sprintf } from '@wordpress/i18n';
+import { __ } from '@wordpress/i18n';
 
 /**
  * Internal dependencies
  */
+import { useSelect } from 'googlesitekit-data';
+import { SIZE_MEDIUM, SIZE_SMALL } from '@/js/components/Typography/constants';
+import P from '@/js/components/Typography/P';
+import { CORE_SITE } from '@/js/googlesitekit/datastore/site/constants';
+import { CORE_USER } from '@/js/googlesitekit/datastore/user/constants';
+import {
+	BREAKPOINT_DESKTOP,
+	BREAKPOINT_XLARGE,
+	useBreakpoint,
+} from '@/js/hooks/useBreakpoint';
+import { Cell } from '@/js/material-components';
+import UserInputQuestionAuthor from './UserInputQuestionAuthor';
 import UserInputQuestionNotice from './UserInputQuestionNotice';
-import { Cell } from '../../material-components';
+import { getUserInputQuestions } from './util/constants';
 
-export default function UserInputQuestionInfo( { title, description, scope, questionNumber, author } ) {
+export default function UserInputQuestionInfo( { slug, questionNumber } ) {
+	const breakpoint = useBreakpoint();
+
+	const hasMultipleUser = useSelect( ( select ) =>
+		select( CORE_SITE ).hasMultipleAdmins()
+	);
+	const scope = useSelect( ( select ) =>
+		select( CORE_USER ).getUserInputSettingScope( slug )
+	);
+	const author = useSelect( ( select ) =>
+		select( CORE_USER ).getUserInputSettingAuthor( slug )
+	);
+
+	const questions = getUserInputQuestions();
+	const description = questions[ questionNumber - 1 ]?.description || '';
+
+	const descriptionSize =
+		BREAKPOINT_XLARGE === breakpoint || BREAKPOINT_DESKTOP === breakpoint
+			? SIZE_MEDIUM
+			: SIZE_SMALL;
+
 	return (
-		<Cell
-			className="googlesitekit-user-input__question-instructions"
-			lgSize={ 5 }
-			mdSize={ 8 }
-			smSize={ 4 }
-		>
-			<p className="googlesitekit-user-input__question-number">
-				{
-					/* translators: %s: the number of the question */
-					sprintf( __( '%s out of 5', 'google-site-kit' ), questionNumber )
-				}
-			</p>
+		<Fragment>
+			<Cell
+				className="googlesitekit-user-input__question-instructions"
+				lgSize={ 6 }
+				mdSize={ 8 }
+				smSize={ 4 }
+			>
+				{ description && (
+					<P
+						className="googlesitekit-user-input__question-instructions--description"
+						size={ descriptionSize }
+					>
+						{ description }
+					</P>
+				) }
 
-			<h1>
-				{ title }
-			</h1>
+				<UserInputQuestionNotice className="googlesitekit-non-desktop-display-none" />
+			</Cell>
+			<Cell
+				className="googlesitekit-user-input__question-info"
+				lgSize={ 5 }
+				mdSize={ 8 }
+				smSize={ 4 }
+				smOrder={ 3 }
+			>
+				<UserInputQuestionNotice className="googlesitekit-desktop-display-none " />
 
-			{ description && (
-				<p>
-					{ description }
-				</p>
-			) }
+				{ scope === 'site' && hasMultipleUser && (
+					<P size={ SIZE_SMALL }>
+						{ author
+							? __(
+									'This answer can be edited by all Site Kit admins',
+									'google-site-kit'
+							  )
+							: __(
+									'Your answer to this question will apply to all Site Kit users. Any other admins with access to Site Kit can see and edit this response.',
+									'google-site-kit'
+							  ) }
+					</P>
+				) }
 
-			<UserInputQuestionNotice />
-
-			{ scope === 'site' && (
-				<p>
-					{ __( 'This question applies to the entire site and may have an effect for other users.', 'google-site-kit' ) }
-				</p>
-			) }
-
-			{ author && author.photo && author.name && (
-				<Fragment>
-					<p>
-						{ __( 'This question has last been answered by:', 'google-site-kit' ) }
-					</p>
-
-					<div className="googlesitekit-user-input__question-instructions--author">
-						<img alt={ author.name } src={ author.photo } />
-						{ author.name }
-					</div>
-				</Fragment>
-			) }
-		</Cell>
+				<UserInputQuestionAuthor slug={ slug } />
+			</Cell>
+		</Fragment>
 	);
 }
 
 UserInputQuestionInfo.propTypes = {
-	title: PropTypes.string.isRequired,
-	description: PropTypes.string,
-	scope: PropTypes.string,
+	slug: PropTypes.string.isRequired,
 	questionNumber: PropTypes.number,
-	author: PropTypes.shape( {
-		photo: PropTypes.string,
-		name: PropTypes.string,
-	} ),
 };

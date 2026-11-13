@@ -17,28 +17,37 @@ use Google\Site_Kit\Core\Storage\Data_Encryption;
 use Google\Site_Kit\Plugin;
 
 /**
- * Provide dummy client configuration, normally provided in step 1 of the set up.
+ * Provide placeholder client configuration, normally provided in step 1 of the set up.
  */
 require_once __DIR__ . '/gcp-credentials.php';
 
 /**
- * Provide a dummy access token to fake an authenticated state.
+ * Provide a placeholder access token to fake an authenticated state.
  */
 add_filter(
 	'get_user_option_googlesitekit_access_token',
 	function () {
-		return ( new Data_Encryption() )->encrypt(
-			serialize( array( 'access_token' => 'test-access-token' ) ) // phpcs:ignore WordPress.PHP.DiscouragedPHPFunctions.serialize_serialize
-		);
+		return ( new Data_Encryption() )->encrypt( 'test-access-token' );
 	}
 );
 
 /**
  * Fake all required scopes have been granted.
  */
-add_filter(
-	'get_user_option_googlesitekit_auth_scopes',
-	function () {
-		return ( new OAuth_Client( Plugin::instance()->context() ) )->get_required_scopes();
-	}
-);
+$_force_all_scopes = function () {
+	global $_force_all_scopes;
+
+	// Remove the filter hook to prevent an infinite loop in the case where the `googlesitekit_auth_scopes`
+	// option is retrieved again during the call to `get_required_scopes()`.
+	remove_filter( 'get_user_option_googlesitekit_auth_scopes', $_force_all_scopes );
+
+	$required_scopes = ( new OAuth_Client( Plugin::instance()->context() ) )->get_required_scopes();
+
+	// Restore the filter hook for future calls to retrieve the option.
+	add_filter( 'get_user_option_googlesitekit_auth_scopes', $_force_all_scopes );
+
+	return $required_scopes;
+};
+
+// Ensure the filter hook is initially applied.
+add_filter( 'get_user_option_googlesitekit_auth_scopes', $_force_all_scopes );

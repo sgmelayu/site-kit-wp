@@ -19,22 +19,14 @@
 .googlesitekit-overlay {
 	align-items: center;
 	background: rgba($c-background, 0.8);
-	bottom: 0;
 	cursor: not-allowed;
 	display: flex;
 	height: 100%;
+	inset: 0 0 0 0;
 	justify-content: center;
-	left: 0;
 	position: absolute;
-	right: 0;
-	top: 0;
 	width: 100%;
 	z-index: 10;
-
-	&--compress .googlesitekit-overlay__wrapper {
-		align-items: center;
-		display: flex;
-	}
 
 	.googlesitekit-overlay__icon {
 		align-items: center;
@@ -45,9 +37,26 @@
 		justify-content: center;
 		margin: 0 auto;
 		width: 60px;
+
+		svg {
+			color: $c-cape-cod;
+		}
 	}
 
-	&--compress .googlesitekit-overlay__icon {
+	.googlesitekit-overlay__title {
+		margin-bottom: 0;
+		padding: 0 $grid-gap-phone;
+		text-align: center;
+	}
+}
+
+.googlesitekit-overlay--compress {
+	.googlesitekit-overlay__wrapper {
+		align-items: center;
+		display: flex;
+	}
+
+	.googlesitekit-overlay__icon {
 		height: 40px;
 		width: 40px;
 
@@ -58,13 +67,6 @@
 	}
 
 	.googlesitekit-overlay__title {
-		margin-bottom: 0;
-		padding: 0 $grid-gap-phone;
-		text-align: center;
-	}
-
-	&--compress .googlesitekit-overlay__title {
-		font-size: 1rem;
 		margin-top: 0;
 		padding-right: 0;
 	}

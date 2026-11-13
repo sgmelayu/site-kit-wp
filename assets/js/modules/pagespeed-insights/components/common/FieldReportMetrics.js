@@ -19,66 +19,94 @@
 /**
  * External dependencies
  */
-import PropTypes from 'prop-types';
 import classnames from 'classnames';
+import PropTypes from 'prop-types';
 
 /**
  * WordPress dependencies
  */
-import { __, _x } from '@wordpress/i18n';
+import { createInterpolateElement } from '@wordpress/element';
+import { __, _x, sprintf } from '@wordpress/i18n';
 
 /**
  * Internal dependencies
  */
-import ReportMetric from './ReportMetric';
+import ErrorNotice from '@/js/components/ErrorNotice';
+import ReportErrorActions from '@/js/components/ReportErrorActions';
+import Typography from '@/js/components/Typography';
+import P from '@/js/components/Typography/P';
+import { CATEGORY_AVERAGE } from '@/js/modules/pagespeed-insights/util/constants';
+import { getReportErrorMessage } from '@/js/util/errors';
+import INPLearnMoreLink from './INPLearnMoreLink';
 import MetricsLearnMoreLink from './MetricsLearnMoreLink';
-import ErrorText from '../../../../components/ErrorText';
+import ReportMetric from './ReportMetric';
+import { extractFieldMetrics } from './reportMetrics';
 
 export default function FieldReportMetrics( { data, error } ) {
-	const {
-		FIRST_INPUT_DELAY_MS: firstInputDelay,
-		LARGEST_CONTENTFUL_PAINT_MS: largestContentfulPaint,
-		CUMULATIVE_LAYOUT_SHIFT_SCORE: cumulativeLayoutShift,
-	} = data?.loadingExperience?.metrics || {};
+	// INP is read from the raw report for the dashboard tile; extractFieldMetrics
+	// also extracts it as interactionToNextPaint for the PDF (LCP / CLS / INP).
+	const { INTERACTION_TO_NEXT_PAINT: interactionToNextPaint } =
+		data?.loadingExperience?.metrics || {};
+
+	// Each field metric is independently optional, so LCP and CLS still render
+	// when other CrUX metrics (e.g. FID) are absent.
+	const fieldMetrics = extractFieldMetrics( data );
+	const largestContentfulPaint = fieldMetrics?.largestContentfulPaint;
+	const cumulativeLayoutShift = fieldMetrics?.cumulativeLayoutShift;
 
 	if ( error ) {
+		const errorMessage = getReportErrorMessage( error );
+
 		return (
 			<div className="googlesitekit-pagespeed-insights-web-vitals-metrics">
-				<div className="googlesitekit-pagespeed-report__row googlesitekit-pagespeed-report__row--first">
-					<ErrorText message={ error.message } />
+				<div className="googlesitekit-pagespeed-report__row googlesitekit-pagespeed-report__row--error">
+					<ErrorNotice message={ errorMessage } />
+
+					<ReportErrorActions
+						moduleSlug="pagespeed-insights"
+						error={ error }
+					/>
 				</div>
 			</div>
 		);
 	}
 
-	if ( ! firstInputDelay || ! largestContentfulPaint || ! cumulativeLayoutShift ) {
+	if (
+		! largestContentfulPaint &&
+		! cumulativeLayoutShift &&
+		! interactionToNextPaint
+	) {
 		return (
 			<div className="googlesitekit-pagespeed-insights-web-vitals-metrics googlesitekit-pagespeed-insights-web-vitals-metrics--field-data-unavailable">
 				<div className="googlesitekit-pagespeed-insights-web-vitals-metrics__field-data-unavailable-content">
-					<h3>
+					<Typography as="h3" type="headline" size="small">
 						{ __( 'Field data unavailable', 'google-site-kit' ) }
-					</h3>
-					<p>
-						{ __( 'Field data shows how real users actually loaded and interacted with your page. We don’t have enough real-world experience and speed data for this page. It may be new, or not enough users with Chrome browsers have visited it yet.', 'google-site-kit' ) }
-					</p>
+					</Typography>
+					<P>
+						{ __(
+							'Field data shows how real users actually loaded and interacted with your page. We don’t have enough real-world experience and speed data for this page. It may be new, or not enough users with Chrome browsers have visited it yet.',
+							'google-site-kit'
+						) }
+					</P>
 				</div>
 			</div>
 		);
 	}
-
-	// Convert milliseconds to seconds with 1 fraction digit.
-	const lcpSeconds = ( Math.round( largestContentfulPaint.percentile / 100 ) / 10 ).toFixed( 1 );
-	// Convert 2 digit score to a decimal between 0 and 1, with 2 fraction digits.
-	const cls = ( cumulativeLayoutShift.percentile / 100 ).toFixed( 2 );
 
 	return (
 		<div className="googlesitekit-pagespeed-insights-web-vitals-metrics">
 			<div className="googlesitekit-pagespeed-report__row googlesitekit-pagespeed-report__row--first">
-				<p>
-					{ __( 'Field data shows how real users actually loaded and interacted with your page over time.', 'google-site-kit' ) }
-					{ ' ' }
-					<MetricsLearnMoreLink />
-				</p>
+				<P>
+					{ createInterpolateElement(
+						__(
+							'Field data shows how real users actually loaded and interacted with your page over time. <LearnMoreLink />',
+							'google-site-kit'
+						),
+						{
+							LearnMoreLink: <MetricsLearnMoreLink />,
+						}
+					) }
+				</P>
 			</div>
 			<table
 				className={ classnames(
@@ -88,32 +116,67 @@ export default function FieldReportMetrics( { data, error } ) {
 			>
 				<thead>
 					<tr>
-						<th>
-							{ __( 'Metric Name', 'google-site-kit' ) }
-						</th>
-						<th>
-							{ __( 'Metric Value', 'google-site-kit' ) }
-						</th>
+						<th>{ __( 'Metric Name', 'google-site-kit' ) }</th>
+						<th>{ __( 'Metric Value', 'google-site-kit' ) }</th>
 					</tr>
 				</thead>
 				<tbody>
 					<ReportMetric
-						title={ _x( 'First Input Delay', 'core web vitals name', 'google-site-kit' ) }
-						description={ __( 'Time it takes for the browser to respond when people first interact with the page', 'google-site-kit' ) }
-						displayValue={ `${ firstInputDelay.percentile } ms` }
-						category={ firstInputDelay.category }
+						title={ _x(
+							'Largest Contentful Paint',
+							'core web vitals name',
+							'google-site-kit'
+						) }
+						description={ __(
+							'Time it takes for the page to load',
+							'google-site-kit'
+						) }
+						displayValue={ largestContentfulPaint?.displayValue }
+						category={ largestContentfulPaint?.category }
+						isUnavailable={ ! largestContentfulPaint }
 					/>
 					<ReportMetric
-						title={ _x( 'Largest Contentful Paint', 'core web vitals name', 'google-site-kit' ) }
-						description={ __( 'Time it takes for the page to load', 'google-site-kit' ) }
-						displayValue={ `${ lcpSeconds } s` }
-						category={ largestContentfulPaint.category }
+						title={ _x(
+							'Cumulative Layout Shift',
+							'core web vitals name',
+							'google-site-kit'
+						) }
+						description={ __(
+							'How stable the elements on the page are',
+							'google-site-kit'
+						) }
+						displayValue={ cumulativeLayoutShift?.displayValue }
+						category={ cumulativeLayoutShift?.category }
+						isUnavailable={ ! cumulativeLayoutShift }
 					/>
 					<ReportMetric
-						title={ _x( 'Cumulative Layout Shift', 'core web vitals name', 'google-site-kit' ) }
-						description={ __( 'How stable the elements on the page are', 'google-site-kit' ) }
-						displayValue={ cls }
-						category={ cumulativeLayoutShift.category }
+						title={ _x(
+							'Interaction to Next Paint',
+							'core web vitals name',
+							'google-site-kit'
+						) }
+						description={ __(
+							'How quickly your page responds when people interact with it',
+							'google-site-kit'
+						) }
+						displayValue={ sprintf(
+							/* translators: %s: number of milliseconds */
+							_x( '%s ms', 'duration', 'google-site-kit' ),
+							interactionToNextPaint?.percentile
+						) }
+						category={
+							interactionToNextPaint?.category || CATEGORY_AVERAGE
+						}
+						isUnavailable={ ! interactionToNextPaint }
+						hintText={ createInterpolateElement(
+							__(
+								'INP is a new Core Web Vital that replaced FID in March 2024. <LearnMoreLink />',
+								'google-site-kit'
+							),
+							{
+								LearnMoreLink: <INPLearnMoreLink />,
+							}
+						) }
 						isLast
 					/>
 				</tbody>

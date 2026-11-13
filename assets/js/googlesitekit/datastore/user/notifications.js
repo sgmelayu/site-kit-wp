@@ -19,8 +19,13 @@
 /**
  * Internal dependencies
  */
-import { createNotificationsStore } from '../../data/create-notifications-store';
+import { createNotificationsStore } from '@/js/googlesitekit/data/create-notifications-store';
 
-const notifications = createNotificationsStore( 'core', 'user', 'notifications', { server: false } );
+const notifications = createNotificationsStore(
+	'core',
+	'user',
+	'notifications',
+	{ server: false }
+);
 
 export default notifications;

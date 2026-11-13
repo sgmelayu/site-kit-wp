@@ -25,8 +25,10 @@ class Tag_Guard extends Module_Tag_Guard {
 	 * Determines whether the guarded tag can be activated or not.
 	 *
 	 * @since 1.24.0
+	 * @since 1.30.0 Update to return FALSE on 404 pages deliberately.
+	 * @since 1.105.0 Extract the check for 404 pages to dedicated Guard.
 	 *
-	 * @return bool|WP_Error TRUE if guarded tag can be activated, otherwise FALSE or an error.
+	 * @return bool|\WP_Error TRUE if guarded tag can be activated, otherwise FALSE or an error.
 	 */
 	public function can_activate() {
 		$settings = $this->settings->get();
@@ -38,5 +40,4 @@ class Tag_Guard extends Module_Tag_Guard {
 
 		return ! empty( $settings['useSnippet'] ) && ! empty( $settings['clientID'] );
 	}
-
 }

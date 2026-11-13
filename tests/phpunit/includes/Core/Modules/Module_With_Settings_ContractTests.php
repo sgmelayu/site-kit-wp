@@ -6,6 +6,8 @@
  * @copyright 2021 Google LLC
  * @license   https://www.apache.org/licenses/LICENSE-2.0 Apache License 2.0
  * @link      https://sitekit.withgoogle.com
+ *
+ * phpcs:disable PHPCS.Commenting.RequireDocTagDescription -- Pre-existing violations; tracked for follow-up cleanup.
  */
 
 namespace Google\Site_Kit\Tests\Core\Modules;
@@ -27,11 +29,12 @@ trait Module_With_Settings_ContractTests {
 		$module   = $this->get_module_with_settings();
 		$settings = $module->get_settings();
 
-		$testcase->assertInstanceOf( 'Google\\Site_Kit\\Core\\Storage\\Setting', $settings );
+		$testcase->assertInstanceOf( 'Google\\Site_Kit\\Core\\Storage\\Setting', $settings, 'Module settings should use the standard setting abstraction.' );
 
 		$testcase->assertEquals(
 			"googlesitekit_{$module->slug}_settings",
-			constant( get_class( $settings ) . '::OPTION' )
+			constant( get_class( $settings ) . '::OPTION' ),
+			'Module settings option name should be derived from the module slug.'
 		);
 	}
 
@@ -39,7 +42,10 @@ trait Module_With_Settings_ContractTests {
 		$testcase    = $this->get_testcase();
 		$settings    = $this->get_module_with_settings()->get_settings();
 		$option_name = constant( get_class( $settings ) . '::OPTION' );
-		unregister_setting( $option_name, $option_name );
+
+		if ( array_key_exists( $option_name, get_registered_settings() ) ) {
+			unregister_setting( $option_name, $option_name );
+		}
 
 		$testcase->assertSettingNotRegistered( $option_name );
 

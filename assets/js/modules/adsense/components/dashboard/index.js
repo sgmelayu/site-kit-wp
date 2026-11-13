@@ -16,14 +16,8 @@
  * limitations under the License.
  */
 
-export { default as AdSenseDashboardWidget } from './AdSenseDashboardWidget';
-export { default as AdSensePerformanceWidget } from './AdSensePerformanceWidget';
-export { default as DashboardAdSenseTopPages } from './DashboardAdSenseTopPages';
-export { default as DashboardZeroData } from './DashboardZeroData';
-export { default as DashboardSummaryWidget } from './DashboardSummaryWidget';
-export { default as DashboardTopEarningPagesWidget } from './DashboardTopEarningPagesWidget';
-export { default as LegacyAdSenseDashboardMainSummary } from './LegacyAdSenseDashboardMainSummary';
-export { default as LegacyDashboardAdSenseTopEarningPagesSmall } from './LegacyDashboardAdSenseTopEarningPagesSmall';
-export { default as LegacyDashboardEarnings } from './LegacyDashboardEarnings';
-export { default as AdSenseDashboardWidgetOverview } from './AdSenseDashboardWidgetOverview';
-export { default as AdSenseDashboardWidgetSiteStats } from './AdSenseDashboardWidgetSiteStats';
+export { default as AdBlockerWarningWidget } from './AdBlockerWarningWidget';
+export { default as AdBlockingRecoverySetupCTAWidget } from './AdBlockingRecoverySetupCTAWidget';
+export { default as AdBlockingRecoverySetupSuccessNotification } from './AdBlockingRecoverySetupSuccessNotification';
+export { default as AdSenseConnectCTAWidget } from './AdSenseConnectCTAWidget';
+export { default as DashboardTopEarningPagesWidgetGA4 } from './DashboardTopEarningPagesWidgetGA4';

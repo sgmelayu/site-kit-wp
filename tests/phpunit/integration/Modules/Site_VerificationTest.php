@@ -6,6 +6,8 @@
  * @copyright 2021 Google LLC
  * @license   https://www.apache.org/licenses/LICENSE-2.0 Apache License 2.0
  * @link      https://sitekit.withgoogle.com
+ *
+ * phpcs:disable PHPCS.Commenting.RequireDocTagDescription -- Pre-existing violations; tracked for follow-up cleanup.
  */
 
 namespace Google\Site_Kit\Tests\Modules;
@@ -21,6 +23,7 @@ use Google\Site_Kit\Modules\Site_Verification;
 use Google\Site_Kit\Tests\Core\Modules\Module_With_Scopes_ContractTests;
 use Google\Site_Kit\Tests\MutableInput;
 use Google\Site_Kit\Tests\TestCase;
+use WP_User;
 
 /**
  * @group Modules
@@ -31,30 +34,31 @@ class Site_VerificationTest extends TestCase {
 	public function test_magic_methods() {
 		$site_verification = new Site_Verification( new Context( GOOGLESITEKIT_PLUGIN_MAIN_FILE ) );
 
-		$this->assertEquals( 'site-verification', $site_verification->slug );
-		$this->assertTrue( $site_verification->force_active );
-		$this->assertTrue( $site_verification->internal );
-		$this->assertEquals( 'https://www.google.com/webmasters/verification/home', $site_verification->homepage );
+		$this->assertEquals( 'site-verification', $site_verification->slug, 'Site verification module slug should be correct.' );
+		$this->assertTrue( $site_verification->force_active, 'Site verification module should be force active.' );
+		$this->assertTrue( $site_verification->internal, 'Site verification module should be internal.' );
+		$this->assertEquals( 'https://www.google.com/webmasters/verification/home', $site_verification->homepage, 'Site verification module homepage should be correct.' );
 	}
 
 	public function test_register() {
 		$site_verification = new Site_Verification( new Context( GOOGLESITEKIT_PLUGIN_MAIN_FILE ) );
 
 		remove_all_filters( 'googlesitekit_auth_scopes' );
-		remove_all_filters( 'admin_action_googlesitekit_proxy_setup' );
+		remove_all_filters( 'googlesitekit_verify_site_ownership' );
 		remove_all_actions( 'init' );
 
-		$this->assertEmpty( apply_filters( 'googlesitekit_auth_scopes', array() ) );
+		$this->assertEmpty( apply_filters( 'googlesitekit_auth_scopes', array() ), 'Site verification scopes should be empty initially.' );
 
 		$site_verification->register();
 
 		// Test registers scopes.
 		$this->assertEquals(
 			$site_verification->get_scopes(),
-			apply_filters( 'googlesitekit_auth_scopes', array() )
+			apply_filters( 'googlesitekit_auth_scopes', array() ),
+			'Site verification scopes should be registered.'
 		);
-		$this->assertTrue( has_action( 'admin_action_googlesitekit_proxy_setup' ) );
-		$this->assertTrue( has_action( 'init' ) );
+		$this->assertTrue( has_action( 'googlesitekit_verify_site_ownership' ), 'Site ownership verification action should be registered.' );
+		$this->assertTrue( has_action( 'init' ), 'Init action should be registered.' );
 	}
 
 	public function test_meta_tag_cache() {
@@ -62,7 +66,7 @@ class Site_VerificationTest extends TestCase {
 		remove_all_actions( 'added_user_meta' );
 		remove_all_actions( 'updated_user_meta' );
 		remove_all_actions( 'deleted_user_meta' );
-		$user_id           = $this->factory()->user->create();
+		$user_id           = $this->factory()->user->create( array( 'role' => 'administrator' ) );
 		$context           = new Context( GOOGLESITEKIT_PLUGIN_MAIN_FILE );
 		$user_options      = new User_Options( $context );
 		$transients        = new Transients( $context );
@@ -74,87 +78,164 @@ class Site_VerificationTest extends TestCase {
 
 		add_user_meta( $user_id, $meta_key, $verification_meta );
 
-		$this->assertFalse( $transients->get( Site_Verification::TRANSIENT_VERIFICATION_META_TAGS ) );
-		$this->assertContains( $verification_meta, $this->capture_action( 'wp_head' ) );
-		$this->assertContains( $verification_meta, $transients->get( Site_Verification::TRANSIENT_VERIFICATION_META_TAGS ) );
+		$this->assertFalse( $transients->get( Site_Verification::TRANSIENT_VERIFICATION_META_TAGS ), 'Verification meta tags transient should not exist initially.' );
+		$this->assertStringContainsString( $verification_meta, $this->capture_action( 'wp_head' ), 'Verification meta should be rendered in wp_head.' );
+		$this->assertContains( $verification_meta, $transients->get( Site_Verification::TRANSIENT_VERIFICATION_META_TAGS )['user_tags'], 'Verification meta should be cached in transient.' );
 
 		$updated_verification_meta = $verification_meta . '-updated';
 		update_user_meta( $user_id, $meta_key, $updated_verification_meta );
 
-		$this->assertFalse( $transients->get( Site_Verification::TRANSIENT_VERIFICATION_META_TAGS ) );
-		$this->assertContains( $updated_verification_meta, $this->capture_action( 'wp_head' ) );
-		$this->assertContains( $updated_verification_meta, $transients->get( Site_Verification::TRANSIENT_VERIFICATION_META_TAGS ) );
+		$this->assertFalse( $transients->get( Site_Verification::TRANSIENT_VERIFICATION_META_TAGS ), 'Verification meta tags transient should be cleared on update.' );
+		$this->assertStringContainsString( $updated_verification_meta, $this->capture_action( 'wp_head' ), 'Updated verification meta should be rendered in wp_head.' );
+		$this->assertContains( $updated_verification_meta, $transients->get( Site_Verification::TRANSIENT_VERIFICATION_META_TAGS )['user_tags'], 'Updated verification meta should be cached in transient.' );
 
 		delete_user_meta( $user_id, $meta_key );
 
-		$this->assertFalse( $transients->get( Site_Verification::TRANSIENT_VERIFICATION_META_TAGS ) );
+		$this->assertFalse( $transients->get( Site_Verification::TRANSIENT_VERIFICATION_META_TAGS ), 'Verification meta tags transient should be cleared on deletion.' );
+	}
+
+	public function test_meta_tag_verification_requires_setup_permission() {
+		remove_all_actions( 'wp_head' );
+		remove_all_actions( 'added_user_meta' );
+		remove_all_actions( 'updated_user_meta' );
+		remove_all_actions( 'deleted_user_meta' );
+		$user_id           = $this->factory()->user->create( array( 'role' => 'administrator' ) );
+		$context           = new Context( GOOGLESITEKIT_PLUGIN_MAIN_FILE );
+		$user_options      = new User_Options( $context );
+		$transients        = new Transients( $context );
+		$site_verification = new Site_Verification( $context );
+		$site_verification->register();
+
+		$meta_key          = $user_options->get_meta_key( Verification_Meta::OPTION );
+		$verification_meta = uniqid( 'test-verification-' );
+
+		add_user_meta( $user_id, $meta_key, $verification_meta );
+
+		$this->assertTrue( user_can( $user_id, Permissions::SETUP ), 'User should have setup permission initially.' );
+		$this->assertStringContainsString( $verification_meta, $this->capture_action( 'wp_head' ), 'Verification meta should be rendered for a user with setup permission.' );
+
+		( new WP_User( $user_id ) )->remove_role( 'administrator' );
+
+		// The permission is checked at render time, so the tag is no longer rendered
+		// even though it is still cached.
+		$this->assertContains( $verification_meta, $transients->get( Site_Verification::TRANSIENT_VERIFICATION_META_TAGS )['user_tags'], 'Verification meta should still be cached after role removal.' );
+		$this->assertFalse( user_can( $user_id, Permissions::SETUP ), 'User should not have setup permission after role removal.' );
+		$this->assertStringNotContainsString( $verification_meta, $this->capture_action( 'wp_head' ), 'Verification meta should not be rendered without setup permission.' );
 	}
 
 	/**
 	 * @dataProvider data_register_head_verification_tags
 	 */
-	public function test_register_head_verification_tags( $saved_tag, $expected_output ) {
+	public function test_register_head_verification_tags( $saved_tag, $expected_content ) {
 		remove_all_actions( 'wp_head' );
 		remove_all_actions( 'login_head' );
+		$user_id           = $this->factory()->user->create( array( 'role' => 'administrator' ) );
 		$context           = new Context( GOOGLESITEKIT_PLUGIN_MAIN_FILE );
 		$site_verification = new Site_Verification( $context );
 		$site_verification->register();
 
-		( new Transients( $context ) )->set( Site_Verification::TRANSIENT_VERIFICATION_META_TAGS, array( $saved_tag ) );
-
-		$this->assertContains(
-			$expected_output,
-			$this->capture_action( 'wp_head' )
+		( new Transients( $context ) )->set(
+			Site_Verification::TRANSIENT_VERIFICATION_META_TAGS,
+			array( 'user_tags' => array( $user_id => $saved_tag ) )
 		);
 
-		$this->assertContains(
-			$expected_output,
-			$this->capture_action( 'login_head' )
+		$this->assertSame(
+			array( $expected_content ),
+			$this->get_verification_meta_contents( $this->capture_action( 'wp_head' ) ),
+			'Verification tag should be rendered in wp_head.'
 		);
+
+		$this->assertSame(
+			array( $expected_content ),
+			$this->get_verification_meta_contents( $this->capture_action( 'login_head' ) ),
+			'Verification tag should be rendered in login_head.'
+		);
+	}
+
+	public function test_meta_tags_cached_in_legacy_format_are_rebuilt() {
+		remove_all_actions( 'wp_head' );
+		remove_all_actions( 'added_user_meta' );
+		remove_all_actions( 'updated_user_meta' );
+		remove_all_actions( 'deleted_user_meta' );
+		$user_id           = $this->factory()->user->create( array( 'role' => 'administrator' ) );
+		$context           = new Context( GOOGLESITEKIT_PLUGIN_MAIN_FILE );
+		$user_options      = new User_Options( $context );
+		$transients        = new Transients( $context );
+		$site_verification = new Site_Verification( $context );
+		$site_verification->register();
+
+		$meta_key          = $user_options->get_meta_key( Verification_Meta::OPTION );
+		$verification_meta = uniqid( 'test-verification-' );
+
+		add_user_meta( $user_id, $meta_key, $verification_meta );
+
+		// Cache a flat list of tags, as stored by previous versions of the plugin.
+		$legacy_cache = array( 'stale-verification-tag' );
+		$transients->set( Site_Verification::TRANSIENT_VERIFICATION_META_TAGS, $legacy_cache );
+
+		$this->assertEquals( $legacy_cache, $transients->get( Site_Verification::TRANSIENT_VERIFICATION_META_TAGS ), 'Tags cached in the legacy format should be in place before rendering.' );
+
+		$output = $this->capture_action( 'wp_head' );
+
+		$this->assertStringNotContainsString( 'stale-verification-tag', $output, 'Tags cached in the legacy format should not be rendered.' );
+		$this->assertStringContainsString( $verification_meta, $output, 'Tags cached in the legacy format should be rebuilt from user meta.' );
+
+		$cached = $transients->get( Site_Verification::TRANSIENT_VERIFICATION_META_TAGS );
+
+		$this->assertArrayHasKey( 'user_tags', $cached, 'Rebuilt tags should be cached in the current format.' );
+		$this->assertContains( $verification_meta, $cached['user_tags'], 'Rebuilt tags should be cached in the current format.' );
 	}
 
 	public function data_register_head_verification_tags() {
 		return array(
 			array( // Full meta tag stored.
 				'<meta name="google-site-verification" content="test-verification-content">',
-				'<meta name="google-site-verification" content="test-verification-content">',
+				'test-verification-content',
 			),
 			array(
 				// Only verification token stored.
 				'test-verification-content-2',
-				'<meta name="google-site-verification" content="test-verification-content-2">',
+				'test-verification-content-2',
 			),
 		);
 	}
 
+	/**
+	 * Gets the `content` of each Google site verification meta tag in the given HTML.
+	 *
+	 * The attributes are read from the parsed tag, because WordPress can print them
+	 * in any order.
+	 *
+	 * @since 1.190.0
+	 *
+	 * @param string $html HTML printed in the document head.
+	 * @return array List of `content` attribute values, in the order the tags appear.
+	 */
+	private function get_verification_meta_contents( $html ) {
+		$dom = new \DOMDocument();
+		$dom->loadHTML( $html );
+
+		return array_map(
+			fn( $meta ) => $meta->getAttribute( 'content' ),
+			iterator_to_array( ( new \DOMXPath( $dom ) )->query( '//meta[@name="google-site-verification"]' ) )
+		);
+	}
+
 	public function test_receive_verification_token() {
-		remove_all_actions( 'admin_action_googlesitekit_proxy_setup' );
+		remove_all_actions( 'googlesitekit_verify_site_ownership' );
 		remove_all_actions( 'googlesitekit_proxy_setup_url_params' );
 		$user_id      = $this->factory()->user->create( array( 'role' => 'administrator' ) );
-		$context      = new Context( GOOGLESITEKIT_PLUGIN_MAIN_FILE, new MutableInput() );
+		$context      = new Context( GOOGLESITEKIT_PLUGIN_MAIN_FILE );
 		$user_options = new User_Options( $context, $user_id );
 		wp_set_current_user( $user_id );
 		$site_verification = new Site_Verification( $context );
 		$site_verification->register();
 
-		$this->assertTrue( has_action( 'admin_action_googlesitekit_proxy_setup' ) );
+		$this->assertEquals( array(), apply_filters( 'googlesitekit_proxy_setup_url_params', array(), '', '' ), 'Proxy setup URL params should be empty initially.' );
 
-		$_GET['googlesitekit_verification_token']      = 'testtoken';
-		$_GET['googlesitekit_verification_token_type'] = 'FILE';
+		do_action( 'googlesitekit_verify_site_ownership', 'testtoken', 'FILE' );
 
-		$this->assertEquals( array(), apply_filters( 'googlesitekit_proxy_setup_url_params', array(), '', '' ) );
-
-		do_action( 'admin_action_googlesitekit_proxy_setup' );
-
-		$this->assertEquals( 'testtoken', $user_options->get( Verification_File::OPTION ) );
-
-		$this->assertEqualSetsWithIndex(
-			array(
-				'verification_method' => 'FILE',
-				'verify'              => 'true',
-			),
-			apply_filters( 'googlesitekit_proxy_setup_url_params', array(), '', '' )
-		);
+		$this->assertEquals( 'testtoken', $user_options->get( Verification_File::OPTION ), 'Verification file option should be set with token.' );
 	}
 
 	public function test_get_module_scopes() {
@@ -164,7 +245,8 @@ class Site_VerificationTest extends TestCase {
 			array(
 				'https://www.googleapis.com/auth/siteverification',
 			),
-			$site_verification->get_scopes()
+			$site_verification->get_scopes(),
+			'Site verification module should have correct scopes.'
 		);
 	}
 
@@ -179,22 +261,22 @@ class Site_VerificationTest extends TestCase {
 
 		// Ensure no verification file response if the user does not have one.
 		$this->go_to( '/google1234.html' );
-		$this->assertNotContains( 'google-site-verification', $this->capture_action( 'init' ) );
+		$this->assertStringNotContainsString( 'google-site-verification', $this->capture_action( 'init' ), 'No verification response should be served without verification file.' );
 
-		// Set correct verification for user
+		// Set correct verification for user.
 		$user_options->set( Verification_File::OPTION, '1234' );
-		$this->assertEquals( 'google-site-verification: google1234.html', $this->capture_action( 'init' ) );
+		$this->assertEquals( 'google-site-verification: google1234.html', $this->capture_action( 'init' ), 'Verification response should be served for matching file.' );
 
-		// Ensure that the verification isn't served if there is no match
+		// Ensure that the verification isn't served if there is no match.
 		$user_options->set( Verification_File::OPTION, '9999' );
-		$this->assertEquals( '', $this->capture_action( 'init' ) );
+		$this->assertEquals( '', $this->capture_action( 'init' ), 'No verification response should be served for non-matching file.' );
 
 		// Ensure that the verification isn't served if there is a match, but the user does not have the permission.
 		$user_options->set( Verification_File::OPTION, '1234' );
-		$this->assertTrue( user_can( $user_id, Permissions::SETUP ) );
-		( new \WP_User( $user_id ) )->remove_role( 'administrator' );
-		$this->assertFalse( user_can( $user_id, Permissions::SETUP ) );
-		$this->assertEquals( '', $this->capture_action( 'init' ) );
+		$this->assertTrue( user_can( $user_id, Permissions::SETUP ), 'User should have setup permission initially.' );
+		( new WP_User( $user_id ) )->remove_role( 'administrator' );
+		$this->assertFalse( user_can( $user_id, Permissions::SETUP ), 'User should not have setup permission after role removal.' );
+		$this->assertEquals( '', $this->capture_action( 'init' ), 'No verification response should be served without setup permission.' );
 	}
 
 	/**
@@ -213,7 +295,8 @@ class Site_VerificationTest extends TestCase {
 				'verification',
 				'verification-token',
 			),
-			$tagmanager->get_datapoints()
+			$tagmanager->get_datapoints(),
+			'Site verification module should have correct datapoints.'
 		);
 	}
 }

@@ -24,17 +24,20 @@ import { useEffect } from '@wordpress/element';
 /**
  * Internal dependencies
  */
-import Data from 'googlesitekit-data';
-import { STORE_NAME } from '../datastore/constants';
-const { useDispatch } = Data;
+import { useDispatch } from 'googlesitekit-data';
+import { CORE_WIDGETS } from '@/js/googlesitekit/widgets/datastore/constants';
 
-export default function useWidgetStateEffect( widgetSlug, Component, metadata ) {
-	const { setWidgetState, unsetWidgetState } = useDispatch( STORE_NAME );
+export default function useWidgetStateEffect(
+	widgetSlug,
+	Component,
+	metadata
+) {
+	const { setWidgetState, unsetWidgetState } = useDispatch( CORE_WIDGETS );
 
 	useEffect( () => {
 		setWidgetState( widgetSlug, Component, metadata );
 		return () => {
 			unsetWidgetState( widgetSlug, Component, metadata );
 		};
-	}, [ widgetSlug, Component, metadata ] );
+	}, [ widgetSlug, Component, metadata, setWidgetState, unsetWidgetState ] );
 }

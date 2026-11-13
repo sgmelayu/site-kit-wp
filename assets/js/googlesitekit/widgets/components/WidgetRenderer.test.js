@@ -19,36 +19,92 @@
 /**
  * Internal dependencies
  */
+import {
+	VIEW_CONTEXT_MAIN_DASHBOARD,
+	VIEW_CONTEXT_MAIN_DASHBOARD_VIEW_ONLY,
+} from '@/js/googlesitekit/constants';
+import { CORE_WIDGETS } from '@/js/googlesitekit/widgets/datastore/constants';
+import { MODULE_SLUG_PAGESPEED_INSIGHTS } from '@/js/modules/pagespeed-insights/constants';
+import { MODULE_SLUG_SEARCH_CONSOLE } from '@/js/modules/search-console/constants';
+import {
+	createTestRegistry,
+	provideModules,
+	render,
+} from '@tests/js/test-utils';
 import WidgetRenderer from './WidgetRenderer';
-import { STORE_NAME } from '../datastore/constants';
-import { render } from '../../../../../tests/js/test-utils';
-
-const setupRegistry = ( { Component = () => <div>Test</div>, wrapWidget = false } = {} ) => {
-	return ( { dispatch } ) => {
-		dispatch( STORE_NAME ).registerWidgetArea( 'dashboard-header', {
-			title: 'Dashboard Header',
-			subtitle: 'Cool stuff for yoursite.com',
-			style: 'boxes',
-		} );
-		dispatch( STORE_NAME ).assignWidgetArea( 'dashboard-header', 'dashboard' );
-		dispatch( STORE_NAME ).registerWidget( 'TestWidget', {
-			Component,
-			wrapWidget,
-		} );
-		dispatch( STORE_NAME ).assignWidget( 'TestWidget', 'dashboard-header' );
-	};
-};
 
 describe( 'WidgetRenderer', () => {
-	it( 'should output children directly', async () => {
-		const { container } = render( <WidgetRenderer slug="TestWidget" />, { setupRegistry: setupRegistry() } );
+	let registry;
+
+	function setupRegistry( {
+		Component = () => <div>Test</div>,
+		wrapWidget = false,
+		preloadWidget = false,
+		recoverableModules = [],
+	} = {} ) {
+		registry = createTestRegistry();
+
+		provideModules(
+			registry,
+			recoverableModules.map( ( slug ) => ( {
+				slug,
+				recoverable: true,
+			} ) )
+		);
+
+		registry
+			.dispatch( CORE_WIDGETS )
+			.registerWidgetArea( 'dashboard-header', {
+				title: 'Dashboard Header',
+				subtitle: 'Cool stuff for yoursite.com',
+				style: 'boxes',
+			} );
+		registry
+			.dispatch( CORE_WIDGETS )
+			.assignWidgetArea( 'dashboard-header', 'dashboard' );
+		registry.dispatch( CORE_WIDGETS ).registerWidget( 'TestWidget', {
+			Component,
+			wrapWidget,
+			isPreloaded: () => preloadWidget,
+			modules: [
+				MODULE_SLUG_SEARCH_CONSOLE,
+				MODULE_SLUG_PAGESPEED_INSIGHTS,
+			],
+		} );
+		registry
+			.dispatch( CORE_WIDGETS )
+			.assignWidget( 'TestWidget', 'dashboard-header' );
+	}
+
+	beforeEach( () => {
+		setupRegistry();
+	} );
+
+	it( 'should output children directly ', async () => {
+		const { container, waitForRegistry } = render(
+			<WidgetRenderer slug="TestWidget" />,
+			{
+				registry,
+			}
+		);
+
+		await waitForRegistry();
 
 		expect( Object.values( container.firstChild.classList ) ).toEqual( [] );
 		expect( container.firstChild ).toMatchSnapshot();
 	} );
 
-	it( 'should wrap children when wrapWidget is true', () => {
-		const { container } = render( <WidgetRenderer slug="TestWidget" />, { setupRegistry: setupRegistry( { wrapWidget: true } ) } );
+	it( 'should wrap children when wrapWidget is true', async () => {
+		setupRegistry( { wrapWidget: true } );
+
+		const { container, waitForRegistry } = render(
+			<WidgetRenderer slug="TestWidget" />,
+			{
+				registry,
+			}
+		);
+
+		await waitForRegistry();
 
 		expect( Object.values( container.firstChild.classList ) ).toEqual( [
 			'googlesitekit-widget',
@@ -58,9 +114,106 @@ describe( 'WidgetRenderer', () => {
 		expect( container.firstChild ).toMatchSnapshot();
 	} );
 
+	it( 'should wrap the widget in a hidden container when the widget is preloaded', async () => {
+		setupRegistry( { preloadWidget: true } );
+
+		const { container, waitForRegistry } = render(
+			<WidgetRenderer slug="TestWidget" />,
+			{
+				registry,
+			}
+		);
+
+		await waitForRegistry();
+
+		expect( Object.values( container.firstChild.classList ) ).toContain(
+			'googlesitekit-hidden'
+		);
+
+		expect( container.firstChild ).toMatchSnapshot();
+	} );
+
 	it( 'should output null when no slug is found', async () => {
-		const { container } = render( <WidgetRenderer slug="NotFound" />, { setupRegistry: setupRegistry() } );
+		const { container, waitForRegistry } = render(
+			<WidgetRenderer slug="NotFound" />,
+			{
+				registry,
+			}
+		);
+
+		await waitForRegistry();
 
 		expect( container.firstChild ).toEqual( null );
+	} );
+
+	it( 'should output the recoverable modules component when the widget depends on a recoverable module in view-only mode', async () => {
+		setupRegistry( {
+			recoverableModules: [ MODULE_SLUG_SEARCH_CONSOLE ],
+		} );
+
+		const { getByText, waitForRegistry } = render(
+			<WidgetRenderer slug="TestWidget" />,
+			{
+				registry,
+				viewContext: VIEW_CONTEXT_MAIN_DASHBOARD_VIEW_ONLY,
+			}
+		);
+
+		await waitForRegistry();
+
+		expect(
+			getByText(
+				/Search Console data was previously shared by an admin who no longer has access/
+			)
+		).toBeInTheDocument();
+	} );
+
+	it( 'should output the recoverable modules component when the widget depends on multiple recoverable modules in view-only mode', async () => {
+		setupRegistry( {
+			recoverableModules: [
+				MODULE_SLUG_SEARCH_CONSOLE,
+				MODULE_SLUG_PAGESPEED_INSIGHTS,
+			],
+		} );
+
+		const { getByText, waitForRegistry } = render(
+			<WidgetRenderer slug="TestWidget" />,
+			{
+				registry,
+				viewContext: VIEW_CONTEXT_MAIN_DASHBOARD_VIEW_ONLY,
+			}
+		);
+
+		await waitForRegistry();
+
+		expect(
+			getByText(
+				/The data for the following modules was previously shared by an admin who no longer has access: Search Console, PageSpeed Insights/
+			)
+		).toBeInTheDocument();
+	} );
+
+	it( 'should not output the recoverable modules component when the widget depends on a recoverable module and is not in view-only mode ', async () => {
+		setupRegistry( {
+			recoverableModules: [ MODULE_SLUG_SEARCH_CONSOLE ],
+		} );
+
+		const { getByText, queryByText, waitForRegistry } = render(
+			<WidgetRenderer slug="TestWidget" />,
+			{
+				registry,
+				viewContext: VIEW_CONTEXT_MAIN_DASHBOARD,
+			}
+		);
+
+		await waitForRegistry();
+
+		expect(
+			queryByText(
+				/Search Console data was previously shared by an admin who no longer has access/
+			)
+		).toBeNull();
+
+		expect( getByText( 'Test' ) ).toBeInTheDocument();
 	} );
 } );

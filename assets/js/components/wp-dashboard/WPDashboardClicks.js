@@ -17,65 +17,89 @@
  */
 
 /**
+ * External dependencies
+ */
+import PropTypes from 'prop-types';
+
+/**
  * WordPress dependencies
  */
 import { __ } from '@wordpress/i18n';
-import { useEffect } from '@wordpress/element';
 
 /**
  * Internal dependencies
  */
-import Data from 'googlesitekit-data';
-import { DATE_RANGE_OFFSET, MODULES_SEARCH_CONSOLE } from '../../modules/search-console/datastore/constants';
-import { CORE_USER } from '../../googlesitekit/datastore/user/constants';
-import { isZeroReport } from '../../modules/search-console/util';
-import { calculateChange, trackEvent } from '../../util';
-import sumObjectListValue from '../../util/sum-object-list-value';
-import DataBlock from '../DataBlock';
-import PreviewBlock from '../PreviewBlock';
-const { useSelect } = Data;
+import { useInViewSelect, useSelect } from 'googlesitekit-data';
+import DataBlock from '@/js/components/DataBlock';
+import { NOTICE_STYLE } from '@/js/components/GatheringDataNotice';
+import PreviewBlock from '@/js/components/PreviewBlock';
+import { CORE_USER } from '@/js/googlesitekit/datastore/user/constants';
+import { MODULES_SEARCH_CONSOLE } from '@/js/modules/search-console/datastore/constants';
+import { calculateChange } from '@/js/util';
+import { partitionReport } from '@/js/util/partition-report';
+import sumObjectListValue from '@/js/util/sum-object-list-value';
 
-const WPDashboardClicks = ( { WidgetReportZero, WidgetReportError } ) => {
-	const { compareStartDate, endDate } = useSelect( ( select ) => select( CORE_USER ).getDateRangeDates( {
-		compare: true,
-		offsetDays: DATE_RANGE_OFFSET,
-	} ) );
+function WPDashboardClicks( { WPDashboardReportError } ) {
+	const isGatheringData = useInViewSelect( ( select ) =>
+		select( MODULES_SEARCH_CONSOLE ).isGatheringData()
+	);
+	const { compareStartDate, endDate } = useSelect( ( select ) =>
+		select( CORE_USER ).getDateRangeDates( {
+			compare: true,
+		} )
+	);
+	const dateRangeLength = useSelect( ( select ) =>
+		select( CORE_USER ).getDateRangeNumberOfDays()
+	);
 
 	const reportArgs = {
 		startDate: compareStartDate,
 		endDate,
 		dimensions: 'date',
+		reportID: 'dashboard_wp-dashboard-clicks_component_reportArgs',
 	};
 
-	const data = useSelect( ( select ) => select( MODULES_SEARCH_CONSOLE ).getReport( reportArgs ) );
-	const error = useSelect( ( select ) => select( MODULES_SEARCH_CONSOLE ).getErrorForSelector( 'getReport', [ reportArgs ] ) );
-	const loading = useSelect( ( select ) => ! select( MODULES_SEARCH_CONSOLE ).hasFinishedResolution( 'getReport', [ reportArgs ] ) );
+	const data = useInViewSelect(
+		( select ) => select( MODULES_SEARCH_CONSOLE ).getReport( reportArgs ),
+		[ reportArgs ]
+	);
+	const error = useSelect( ( select ) =>
+		select( MODULES_SEARCH_CONSOLE ).getErrorForSelector( 'getReport', [
+			reportArgs,
+		] )
+	);
+	const loading = useSelect(
+		( select ) =>
+			! select( MODULES_SEARCH_CONSOLE ).hasFinishedResolution(
+				'getReport',
+				[ reportArgs ]
+			)
+	);
 
-	useEffect( () => {
-		if ( error ) {
-			trackEvent( 'plugin_setup', 'search_console_error', error.message );
-		}
-	}, [ error ] );
-
-	if ( loading ) {
+	if ( loading || isGatheringData === undefined ) {
 		return <PreviewBlock width="48%" height="92px" />;
 	}
 
 	if ( error ) {
-		return <WidgetReportError moduleSlug="search-console" error={ error } />;
+		return (
+			<WPDashboardReportError
+				moduleSlug="search-console"
+				error={ error }
+			/>
+		);
 	}
 
-	if ( isZeroReport( data ) ) {
-		return <WidgetReportZero moduleSlug="search-console" />;
-	}
-
-	const half = Math.floor( data.length / 2 );
-	const latestData = data.slice( half );
-	const olderData = data.slice( 0, half );
-
-	const totalClicks = sumObjectListValue( latestData, 'clicks' );
-	const totalOlderClicks = sumObjectListValue( olderData, 'clicks' );
+	const { compareRange, currentRange } = partitionReport( data, {
+		dateRangeLength,
+	} );
+	const totalClicks = sumObjectListValue( currentRange, 'clicks' );
+	const totalOlderClicks = sumObjectListValue( compareRange, 'clicks' );
 	const totalClicksChange = calculateChange( totalOlderClicks, totalClicks );
+
+	const gatheringDataProps = {
+		gatheringData: isGatheringData,
+		gatheringDataNoticeStyle: NOTICE_STYLE.SMALL,
+	};
 
 	return (
 		<DataBlock
@@ -84,8 +108,13 @@ const WPDashboardClicks = ( { WidgetReportZero, WidgetReportError } ) => {
 			datapoint={ totalClicks }
 			change={ totalClicksChange }
 			changeDataUnit="%"
+			{ ...gatheringDataProps }
 		/>
 	);
+}
+
+WPDashboardClicks.propTypes = {
+	WPDashboardReportError: PropTypes.elementType.isRequired,
 };
 
 export default WPDashboardClicks;

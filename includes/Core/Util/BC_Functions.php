@@ -6,12 +6,13 @@
  * @copyright 2021 Google LLC
  * @license   https://www.apache.org/licenses/LICENSE-2.0 Apache License 2.0
  * @link      https://sitekit.withgoogle.com
+ *
+ * phpcs:disable PHPCS.Commenting.RequireDocTagDescription -- Pre-existing violations; tracked for follow-up cleanup.
  */
 
 namespace Google\Site_Kit\Core\Util;
 
 use BadMethodCallException;
-use WP_REST_Request;
 
 /**
  * Class for providing backwards compatible core functions, without polyfilling.
@@ -19,6 +20,12 @@ use WP_REST_Request;
  * @since 1.7.0
  * @access private
  * @ignore
+ *
+ * @method static void wp_print_script_tag( $attributes )
+ * @method static void wp_print_inline_script_tag( $javascript, $attributes = array() )
+ * @method static bool array_is_list( array $value )
+ * @method static string wp_timezone_string()
+ * @method static \DateTimeZone wp_timezone()
  */
 class BC_Functions {
 
@@ -41,87 +48,163 @@ class BC_Functions {
 			return self::{ $function_name }( ...$arguments );
 		}
 
-		throw new BadMethodCallException( "$function_name does not exist." );
+		throw new BadMethodCallException( sprintf( '%s does not exist.', esc_html( $function_name ) ) );
 	}
 
 	/**
-	 * Append result of internal request to REST API for purpose of preloading data to be attached to a page.
-	 * Expected to be called in the context of `array_reduce`.
+	 * Basic implementation of the wp_sanitize_script_attributes function introduced in the WordPress version 5.7.0.
 	 *
-	 * @since 1.7.0
-	 * @since WP 5.0.0
+	 * @since 1.41.0
 	 *
-	 * @param  array  $memo Reduce accumulator.
-	 * @param  string $path REST API path to preload.
-	 * @return array        Modified reduce accumulator.
+	 * @param array $attributes Key-value pairs representing `<script>` tag attributes.
+	 * @return string String made of sanitized `<script>` tag attributes.
 	 */
-	protected static function rest_preload_api_request( $memo, $path ) {
-		// array_reduce() doesn't support passing an array in PHP 5.2, so we need to make sure we start with one.
-		if ( ! is_array( $memo ) ) {
-			$memo = array();
-		}
+	protected static function wp_sanitize_script_attributes( $attributes ) {
+		$attributes_string = '';
 
-		if ( empty( $path ) ) {
-			return $memo;
-		}
-
-		$method = 'GET';
-		if ( is_array( $path ) && 2 === count( $path ) ) {
-			$method = end( $path );
-			$path   = reset( $path );
-
-			if ( ! in_array( $method, array( 'GET', 'OPTIONS' ), true ) ) {
-				$method = 'GET';
-			}
-		}
-
-		$path_parts = parse_url( $path ); // phpcs:ignore WordPress.WP.AlternativeFunctions.parse_url_parse_url
-		if ( false === $path_parts ) {
-			return $memo;
-		}
-
-		$request = new WP_REST_Request( $method, $path_parts['path'] );
-		if ( ! empty( $path_parts['query'] ) ) {
-			parse_str( $path_parts['query'], $query_params );
-			$request->set_query_params( $query_params );
-		}
-
-		$response = rest_do_request( $request );
-		if ( 200 === $response->status ) {
-			$server = rest_get_server();
-			$data   = (array) $response->get_data();
-			$links  = $server::get_compact_response_links( $response );
-			if ( ! empty( $links ) ) {
-				$data['_links'] = $links;
-			}
-
-			if ( 'OPTIONS' === $method ) {
-				$response = rest_send_allow_header( $response, $server, $request );
-
-				$memo[ $method ][ $path ] = array(
-					'body'    => $data,
-					'headers' => $response->headers,
-				);
+		foreach ( $attributes as $attribute_name => $attribute_value ) {
+			if ( is_bool( $attribute_value ) ) {
+				if ( $attribute_value ) {
+					$attributes_string .= ' ' . esc_attr( $attribute_name );
+				}
 			} else {
-				$memo[ $path ] = array(
-					'body'    => $data,
-					'headers' => $response->headers,
-				);
+				$attributes_string .= sprintf( ' %1$s="%2$s"', esc_attr( $attribute_name ), esc_attr( $attribute_value ) );
 			}
 		}
 
-		return $memo;
+		return $attributes_string;
 	}
 
 	/**
-	 * A fallback for the load_script_textdomain function introduced in the WordPress version 5.0.0.
+	 * A fallback for the wp_get_script_tag function introduced in the WordPress version 5.7.0.
 	 *
-	 * @since 1.21.0
+	 * @since 1.41.0
 	 *
-	 * @return boolean Always returns FALSE.
+	 * @param array $attributes Key-value pairs representing `<script>` tag attributes.
+	 * @return string String containing `<script>` opening and closing tags.
 	 */
-	protected static function load_script_textdomain() {
-		return false;
+	protected static function wp_get_script_tag( $attributes ) {
+		return sprintf( "<script %s></script>\n", self::wp_sanitize_script_attributes( $attributes ) );
 	}
 
+	/**
+	 * A fallback for the wp_print_script_tag function introduced in the WordPress version 5.7.0.
+	 *
+	 * @since 1.41.0
+	 *
+	 * @param array $attributes Key-value pairs representing `<script>` tag attributes.
+	 */
+	protected static function wp_print_script_tag( $attributes ) {
+		echo self::wp_get_script_tag( $attributes ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
+	}
+
+	/**
+	 * A fallback for the wp_get_inline_script_tag function introduced in the WordPress version 5.7.0.
+	 *
+	 * @since 1.41.0
+	 *
+	 * @param string $javascript Inline JavaScript code.
+	 * @param array  $attributes  Optional. Key-value pairs representing `<script>` tag attributes.
+	 * @return string String containing inline JavaScript code wrapped around `<script>` tag.
+	 */
+	protected static function wp_get_inline_script_tag( $javascript, $attributes = array() ) {
+		$javascript = "\n" . trim( $javascript, "\n\r " ) . "\n";
+		return sprintf( "<script%s>%s</script>\n", self::wp_sanitize_script_attributes( $attributes ), $javascript );
+	}
+
+	/**
+	 * A fallback for the wp_get_inline_script_tag function introduced in the WordPress version 5.7.0.
+	 *
+	 * @since 1.41.0
+	 *
+	 * @param string $javascript Inline JavaScript code.
+	 * @param array  $attributes Optional. Key-value pairs representing `<script>` tag attributes.
+	 */
+	protected static function wp_print_inline_script_tag( $javascript, $attributes = array() ) {
+		echo self::wp_get_inline_script_tag( $javascript, $attributes ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
+	}
+
+	/**
+	 * A fallback for the wp_get_sidebar function introduced in the WordPress version 5.9.0.
+	 *
+	 * Retrieves the registered sidebar with the given ID.
+	 *
+	 * @since 1.86.0
+	 *
+	 * @global array $wp_registered_sidebars The registered sidebars.
+	 *
+	 * @param string $id The sidebar ID.
+	 * @return array|null The discovered sidebar, or null if it is not registered.
+	 */
+	protected static function wp_get_sidebar( $id ) {
+		global $wp_registered_sidebars;
+
+		foreach ( (array) $wp_registered_sidebars as $sidebar ) {
+			if ( $sidebar['id'] === $id ) {
+				return $sidebar;
+			}
+		}
+
+		if ( 'wp_inactive_widgets' === $id ) {
+			return array(
+				'id'   => 'wp_inactive_widgets',
+				'name' => __( 'Inactive widgets', 'default' ),
+			);
+		}
+
+		return null;
+	}
+
+	/**
+	 * A fallback for the wp_timezone_string function introduced in WordPress 5.3.0.
+	 *
+	 * @since 1.176.0
+	 *
+	 * @return string PHP timezone string or a ±HH:MM offset.
+	 */
+	protected static function wp_timezone_string() {
+		$timezone_string = get_option( 'timezone_string' );
+
+		if ( $timezone_string ) {
+			return $timezone_string;
+		}
+
+		$offset  = (float) get_option( 'gmt_offset' );
+		$hours   = (int) $offset;
+		$minutes = ( $offset - $hours );
+
+		$sign      = ( $offset < 0 ) ? '-' : '+';
+		$abs_hour  = abs( $hours );
+		$abs_mins  = abs( $minutes * 60 );
+		$tz_offset = sprintf( '%s%02d:%02d', $sign, $abs_hour, $abs_mins );
+
+		return $tz_offset;
+	}
+
+	/**
+	 * A fallback for the wp_timezone function introduced in WordPress 5.3.0.
+	 *
+	 * @since 1.176.0
+	 *
+	 * @return \DateTimeZone Site timezone.
+	 */
+	protected static function wp_timezone() {
+		return new \DateTimeZone( self::wp_timezone_string() );
+	}
+
+	/**
+	 * A fallback for the array_is_list function introduced in PHP 8.1.
+	 *
+	 * @since 1.171.0
+	 *
+	 * @param array $value The array to check.
+	 * @return bool True if the array is a list, false otherwise.
+	 */
+	protected static function array_is_list( array $value ) {
+		if ( array() === $value ) {
+			return true;
+		}
+
+		return array_keys( $value ) === range( 0, count( $value ) - 1 );
+	}
 }

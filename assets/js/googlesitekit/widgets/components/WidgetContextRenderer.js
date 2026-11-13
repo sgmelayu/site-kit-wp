@@ -1,5 +1,5 @@
 /**
- * WidgetContext component.
+ * WidgetContextRenderer component.
  *
  * Site Kit by Google, Copyright 2021 Google LLC
  *
@@ -19,28 +19,63 @@
 /**
  * External dependencies
  */
-import PropTypes from 'prop-types';
 import classnames from 'classnames';
+import PropTypes from 'prop-types';
 
 /**
  * Internal dependencies
  */
-import Data from 'googlesitekit-data';
+import { useSelect } from 'googlesitekit-data';
+import { CORE_USER } from '@/js/googlesitekit/datastore/user/constants';
+import { CORE_WIDGETS } from '@/js/googlesitekit/widgets/datastore/constants';
+import useViewOnly from '@/js/hooks/useViewOnly';
+import { Cell, Grid, Row } from '@/js/material-components';
 import WidgetAreaRenderer from './WidgetAreaRenderer';
-import { STORE_NAME } from '../datastore/constants';
-import { Grid, Row, Cell } from '../../../material-components';
 
-const { useSelect } = Data;
+function WidgetContextRenderer( props ) {
+	const { id, slug, className, Header, Footer } = props;
 
-const WidgetContextRenderer = ( props ) => {
-	const { slug, className, Header, Footer } = props;
+	const viewOnlyDashboard = useViewOnly();
 
-	const widgetAreas = useSelect( ( select ) => select( STORE_NAME ).getWidgetAreas( slug ) );
-	const widgetAreasLength = widgetAreas?.length;
+	const viewableModules = useSelect( ( select ) => {
+		if ( ! viewOnlyDashboard ) {
+			return null;
+		}
+
+		return select( CORE_USER ).getViewableModules();
+	} );
+
+	const widgetAreas = useSelect( ( select ) => {
+		if ( slug ) {
+			return select( CORE_WIDGETS ).getWidgetAreas( slug );
+		}
+		return null;
+	} );
+
+	const isActive = useSelect(
+		( select ) =>
+			!! slug &&
+			select( CORE_WIDGETS ).isWidgetContextActive( slug, {
+				modules: viewableModules ? viewableModules : undefined,
+			} )
+	);
+
+	if ( viewableModules === undefined ) {
+		return null;
+	}
 
 	return (
-		<div className={ classnames( 'googlesitekit-widget-context', className ) }>
-			{ Header && (
+		<div
+			id={ id }
+			className={ classnames(
+				'googlesitekit-widget-context',
+				{
+					'googlesitekit-hidden': ! isActive,
+				},
+				className
+			) }
+		>
+			{ Header && isActive && (
 				<Grid>
 					<Row>
 						<Cell size={ 12 }>
@@ -49,10 +84,17 @@ const WidgetContextRenderer = ( props ) => {
 					</Row>
 				</Grid>
 			) }
-			{ widgetAreas.map( ( area ) => {
-				return <WidgetAreaRenderer slug={ area.slug } key={ area.slug } totalAreas={ widgetAreasLength } />;
-			} ) }
-			{ Footer && (
+			{ widgetAreas &&
+				widgetAreas.map( ( area ) => {
+					return (
+						<WidgetAreaRenderer
+							key={ area.slug }
+							slug={ area.slug }
+							contextID={ id }
+						/>
+					);
+				} ) }
+			{ Footer && isActive && (
 				<Grid>
 					<Row>
 						<Cell size={ 12 }>
@@ -63,10 +105,11 @@ const WidgetContextRenderer = ( props ) => {
 			) }
 		</div>
 	);
-};
+}
 
 WidgetContextRenderer.propTypes = {
-	slug: PropTypes.string.isRequired,
+	id: PropTypes.string,
+	slug: PropTypes.string,
 	className: PropTypes.string,
 	Header: PropTypes.elementType,
 	Footer: PropTypes.elementType,

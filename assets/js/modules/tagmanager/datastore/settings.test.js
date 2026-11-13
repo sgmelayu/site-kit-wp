@@ -17,44 +17,60 @@
  */
 
 /**
+ * External dependencies
+ */
+import fetchMock from 'fetch-mock';
+
+/**
  * Internal dependencies
  */
-import API from 'googlesitekit-api';
-import { STORE_NAME, ACCOUNT_CREATE, CONTAINER_CREATE, CONTEXT_WEB, CONTEXT_AMP, FORM_SETUP } from './constants';
-import { CORE_SITE, AMP_MODE_SECONDARY, AMP_MODE_PRIMARY } from '../../../googlesitekit/datastore/site/constants';
-import { CORE_FORMS } from '../../../googlesitekit/datastore/forms/constants';
-import { CORE_MODULES } from '../../../googlesitekit/modules/datastore/constants';
-import { MODULES_ANALYTICS } from '../../analytics/datastore/constants';
-import defaultModules, * as modulesFixtures from '../../../googlesitekit/modules/datastore/__fixtures__';
-import * as fixtures from './__fixtures__';
+import { setUsingCache } from 'googlesitekit-api';
+import { createCacheKey } from '@/js/googlesitekit/api';
+import { getItem, setItem } from '@/js/googlesitekit/api/cache';
+import { CORE_FORMS } from '@/js/googlesitekit/datastore/forms/constants';
 import {
-	accountBuilder,
-	containerBuilder,
-	buildAccountWithContainers,
-	buildLiveContainerVersionWeb,
-	buildLiveContainerVersionAMP,
-} from './__factories__';
+	AMP_MODE_PRIMARY,
+	AMP_MODE_SECONDARY,
+	CORE_SITE,
+} from '@/js/googlesitekit/datastore/site/constants';
+import { CORE_USER } from '@/js/googlesitekit/datastore/user/constants';
+import defaultModules from '@/js/googlesitekit/modules/datastore/__fixtures__';
+import { CORE_MODULES } from '@/js/googlesitekit/modules/datastore/constants';
+import { GTG_SETUP_CTA_BANNER_NOTIFICATION } from '@/js/googlesitekit/notifications/constants';
+import { MODULE_SLUG_ANALYTICS_4 } from '@/js/modules/analytics-4/constants';
+import { MODULES_ANALYTICS_4 } from '@/js/modules/analytics-4/datastore/constants';
+import { MODULE_SLUG_TAGMANAGER } from '@/js/modules/tagmanager/constants';
+import { getNormalizedContainerName } from '@/js/modules/tagmanager/util';
 import {
 	createTestRegistry,
-	unsubscribeFromAll,
 	muteFetch,
 	provideModules,
-} from '../../../../../tests/js/utils';
-import { getItem, setItem } from '../../../googlesitekit/api/cache';
-import { createCacheKey } from '../../../googlesitekit/api';
-import fetchMock from 'fetch-mock';
-import { parseLiveContainerVersionIDs, createBuildAndReceivers } from './__factories__/utils';
-import { getNormalizedContainerName } from '../util';
+	provideNotifications,
+	provideUserAuthentication,
+	subscribeUntil,
+} from '@tests/js/utils';
 import {
-	INVARIANT_INSUFFICIENT_EXISTING_TAG_PERMISSION,
-	INVARIANT_GTM_GA_PROPERTY_ID_MISMATCH,
-	INVARIANT_MULTIPLE_ANALYTICS_PROPERTY_IDS,
+	accountBuilder,
+	buildAccountWithContainers,
+	containerBuilder,
+} from './__factories__';
+import { createBuildAndReceivers } from './__factories__/utils';
+import * as fixtures from './__fixtures__';
+import {
+	ACCOUNT_CREATE,
+	CONTAINER_CREATE,
+	CONTEXT_AMP,
+	CONTEXT_WEB,
+	FORM_SETUP,
+	MODULES_TAGMANAGER,
+} from './constants';
+import {
 	INVARIANT_INVALID_ACCOUNT_ID,
 	INVARIANT_INVALID_AMP_CONTAINER_SELECTION,
 	INVARIANT_INVALID_AMP_INTERNAL_CONTAINER_ID,
+	INVARIANT_INVALID_CONTAINER_NAME,
 	INVARIANT_INVALID_CONTAINER_SELECTION,
 	INVARIANT_INVALID_INTERNAL_CONTAINER_ID,
-	INVARIANT_INVALID_CONTAINER_NAME,
 } from './settings';
 
 describe( 'modules/tagmanager settings', () => {
@@ -90,44 +106,62 @@ describe( 'modules/tagmanager settings', () => {
 	};
 
 	beforeAll( () => {
-		API.setUsingCache( false );
+		setUsingCache( false );
 	} );
 
 	beforeEach( () => {
 		registry = createTestRegistry();
 		// TODO: the analytics module should not be connected by default in the module fixtures assets/js/googlesitekit/modules/datastore/fixtures.json
-		provideModules( registry, [ {
-			slug: 'analytics',
-			active: false,
-		} ] );
+		provideModules( registry, [
+			{
+				slug: MODULE_SLUG_ANALYTICS_4,
+				active: false,
+			},
+		] );
 		registry.dispatch( CORE_SITE ).receiveSiteInfo( {} );
 	} );
 
-	afterEach( () => {
-		unsubscribeFromAll( registry );
-	} );
-
 	afterAll( () => {
-		API.setUsingCache( true );
+		setUsingCache( true );
 	} );
 
 	function setPrimaryAMP() {
-		registry.dispatch( CORE_SITE ).receiveSiteInfo( { ampMode: AMP_MODE_PRIMARY } );
+		registry
+			.dispatch( CORE_SITE )
+			.receiveSiteInfo( { ampMode: AMP_MODE_PRIMARY } );
 	}
 	function setSecondaryAMP() {
-		registry.dispatch( CORE_SITE ).receiveSiteInfo( { ampMode: AMP_MODE_SECONDARY } );
+		registry
+			.dispatch( CORE_SITE )
+			.receiveSiteInfo( { ampMode: AMP_MODE_SECONDARY } );
 	}
 
 	describe( 'actions', () => {
 		beforeEach( () => {
 			// Receive empty settings to prevent unexpected fetch by resolver.
-			registry.dispatch( STORE_NAME ).receiveGetSettings( {} );
+			registry.dispatch( MODULES_TAGMANAGER ).receiveGetSettings( {} );
 		} );
 
 		describe( 'submitChanges', () => {
+			const settingsEndpoint = new RegExp(
+				'^/google-site-kit/v1/modules/tagmanager/data/settings'
+			);
+			const gtgSettingsEndpoint = new RegExp(
+				'^/google-site-kit/v1/core/site/data/gtg-settings'
+			);
+			const dismissItemEndpoint = new RegExp(
+				'^/google-site-kit/v1/core/user/data/dismiss-item'
+			);
+
+			const errorResponse = {
+				code: 'internal_error',
+				message: 'Something wrong happened.',
+				data: { status: 500 },
+			};
+
 			describe( 'with no AMP', () => {
 				it( 'dispatches createContainer if the "set up a new container" option is chosen', async () => {
-					registry.dispatch( STORE_NAME ).setSettings( {
+					registry.dispatch( MODULES_TAGMANAGER ).setSettings( {
 						...validSettings,
 						accountID: '12345',
 						containerID: CONTAINER_CREATE,
@@ -142,11 +176,15 @@ describe( 'modules/tagmanager settings', () => {
 					};
 
 					fetchMock.postOnce(
-						/^\/google-site-kit\/v1\/modules\/tagmanager\/data\/create-container/,
+						new RegExp(
+							'^/google-site-kit/v1/modules/tagmanager/data/create-container'
+						),
 						{ body: createdContainer, status: 200 }
 					);
 					fetchMock.postOnce(
-						/^\/google-site-kit\/v1\/modules\/tagmanager\/data\/settings/,
+						new RegExp(
+							'^/google-site-kit/v1/modules/tagmanager/data/settings'
+						),
 						( url, opts ) => {
 							const { data } = JSON.parse( opts.body );
 							// Return the same settings passed to the API.
@@ -154,10 +192,14 @@ describe( 'modules/tagmanager settings', () => {
 						}
 					);
 
-					const result = await registry.dispatch( STORE_NAME ).submitChanges();
+					const result = await registry
+						.dispatch( MODULES_TAGMANAGER )
+						.submitChanges();
 
 					expect( fetchMock ).toHaveFetched(
-						/^\/google-site-kit\/v1\/modules\/tagmanager\/data\/create-container/,
+						new RegExp(
+							'^/google-site-kit/v1/modules/tagmanager/data/create-container'
+						),
 						{
 							body: {
 								data: {
@@ -170,14 +212,20 @@ describe( 'modules/tagmanager settings', () => {
 					);
 
 					expect( result.error ).toBeFalsy();
-					// eslint-disable-next-line sitekit/acronym-case
-					expect( registry.select( STORE_NAME ).getContainerID() ).toBe( createdContainer.publicId );
-					// eslint-disable-next-line sitekit/acronym-case
-					expect( registry.select( STORE_NAME ).getInternalContainerID() ).toBe( createdContainer.containerId );
+					expect(
+						registry.select( MODULES_TAGMANAGER ).getContainerID()
+						// eslint-disable-next-line sitekit/acronym-case
+					).toBe( createdContainer.publicId );
+					expect(
+						registry
+							.select( MODULES_TAGMANAGER )
+							.getInternalContainerID()
+						// eslint-disable-next-line sitekit/acronym-case
+					).toBe( createdContainer.containerId );
 				} );
 
 				it( 'handles an error if set while creating a container', async () => {
-					registry.dispatch( STORE_NAME ).setSettings( {
+					registry.dispatch( MODULES_TAGMANAGER ).setSettings( {
 						...validSettings,
 						accountID: '12345',
 						containerID: CONTAINER_CREATE,
@@ -188,14 +236,20 @@ describe( 'modules/tagmanager settings', () => {
 					} );
 
 					fetchMock.postOnce(
-						/^\/google-site-kit\/v1\/modules\/tagmanager\/data\/create-container/,
+						new RegExp(
+							'^/google-site-kit/v1/modules/tagmanager/data/create-container'
+						),
 						{ body: WPError, status: 500 }
 					);
 
-					await registry.dispatch( STORE_NAME ).submitChanges();
+					await registry
+						.dispatch( MODULES_TAGMANAGER )
+						.submitChanges();
 
 					expect( fetchMock ).toHaveFetched(
-						/^\/google-site-kit\/v1\/modules\/tagmanager\/data\/create-container/,
+						new RegExp(
+							'^/google-site-kit/v1/modules/tagmanager/data/create-container'
+						),
 						{
 							body: {
 								data: {
@@ -207,43 +261,69 @@ describe( 'modules/tagmanager settings', () => {
 						}
 					);
 
-					expect( registry.select( STORE_NAME ).getContainerID() ).toBe( CONTAINER_CREATE );
-					expect( registry.select( STORE_NAME ).getErrorForAction( 'submitChanges' ) ).toEqual( WPError );
+					expect(
+						registry.select( MODULES_TAGMANAGER ).getContainerID()
+					).toBe( CONTAINER_CREATE );
+					expect(
+						registry
+							.select( MODULES_TAGMANAGER )
+							.getErrorForAction( 'submitChanges' )
+					).toEqual( WPError );
 					expect( console ).toHaveErrored();
 				} );
 
 				it( 'dispatches saveSettings', async () => {
-					registry.dispatch( STORE_NAME ).setSettings( validSettings );
+					registry
+						.dispatch( MODULES_TAGMANAGER )
+						.setSettings( validSettings );
 
 					fetchMock.postOnce(
-						/^\/google-site-kit\/v1\/modules\/tagmanager\/data\/settings/,
+						new RegExp(
+							'^/google-site-kit/v1/modules/tagmanager/data/settings'
+						),
 						{ body: validSettings, status: 200 }
 					);
 
-					await registry.dispatch( STORE_NAME ).submitChanges();
+					await registry
+						.dispatch( MODULES_TAGMANAGER )
+						.submitChanges();
 
 					expect( fetchMock ).toHaveFetched(
-						/^\/google-site-kit\/v1\/modules\/tagmanager\/data\/settings/,
+						new RegExp(
+							'^/google-site-kit/v1/modules/tagmanager/data/settings'
+						),
 						{
 							body: { data: validSettings },
 						}
 					);
 
-					expect( registry.select( STORE_NAME ).haveSettingsChanged() ).toBe( false );
+					expect(
+						registry
+							.select( MODULES_TAGMANAGER )
+							.haveSettingsChanged()
+					).toBe( false );
 				} );
 
 				it( 'returns an error if saveSettings fails', async () => {
-					registry.dispatch( STORE_NAME ).setSettings( validSettings );
+					registry
+						.dispatch( MODULES_TAGMANAGER )
+						.setSettings( validSettings );
 
 					fetchMock.postOnce(
-						/^\/google-site-kit\/v1\/modules\/tagmanager\/data\/settings/,
+						new RegExp(
+							'^/google-site-kit/v1/modules/tagmanager/data/settings'
+						),
 						{ body: WPError, status: 500 }
 					);
 
-					const result = await registry.dispatch( STORE_NAME ).submitChanges();
+					const result = await registry
+						.dispatch( MODULES_TAGMANAGER )
+						.submitChanges();
 
 					expect( fetchMock ).toHaveFetched(
-						/^\/google-site-kit\/v1\/modules\/tagmanager\/data\/settings/,
+						new RegExp(
+							'^/google-site-kit/v1/modules/tagmanager/data/settings'
+						),
 						{
 							body: { data: validSettings },
 						}
@@ -253,14 +333,30 @@ describe( 'modules/tagmanager settings', () => {
 				} );
 
 				it( 'invalidates module cache on success', async () => {
-					registry.dispatch( STORE_NAME ).setSettings( validSettings );
+					registry
+						.dispatch( MODULES_TAGMANAGER )
+						.setSettings( validSettings );
 
-					muteFetch( /^\/google-site-kit\/v1\/modules\/tagmanager\/data\/settings/ );
-					const cacheKey = createCacheKey( 'modules', 'tagmanager', 'arbitrary-datapoint' );
-					expect( await setItem( cacheKey, 'test-value' ) ).toBe( true );
-					expect( ( await getItem( cacheKey ) ).value ).not.toBeFalsy();
+					muteFetch(
+						new RegExp(
+							'^/google-site-kit/v1/modules/tagmanager/data/settings'
+						)
+					);
+					const cacheKey = createCacheKey(
+						'modules',
+						MODULE_SLUG_TAGMANAGER,
+						'arbitrary-datapoint'
+					);
+					expect( await setItem( cacheKey, 'test-value' ) ).toBe(
+						true
+					);
+					expect(
+						( await getItem( cacheKey ) ).value
+					).not.toBeFalsy();
 
-					await registry.dispatch( STORE_NAME ).submitChanges();
+					await registry
+						.dispatch( MODULES_TAGMANAGER )
+						.submitChanges();
 
 					expect( ( await getItem( cacheKey ) ).value ).toBeFalsy();
 				} );
@@ -270,7 +366,7 @@ describe( 'modules/tagmanager settings', () => {
 				beforeEach( () => setPrimaryAMP() );
 
 				it( 'dispatches createContainer if the "set up a new container" option is chosen', async () => {
-					registry.dispatch( STORE_NAME ).setSettings( {
+					registry.dispatch( MODULES_TAGMANAGER ).setSettings( {
 						...validSettings,
 						accountID: '12345',
 						ampContainerID: CONTAINER_CREATE,
@@ -280,16 +376,23 @@ describe( 'modules/tagmanager settings', () => {
 						ampContainerName: 'Sitekit AMP',
 					} );
 
-					// eslint-disable-next-line sitekit/acronym-case
-					const createdAMPContainer = containerBuilder( { accountId: '12345', usageContext: [ CONTEXT_AMP ] } );
+					const createdAMPContainer = containerBuilder( {
+						// eslint-disable-next-line sitekit/acronym-case
+						accountId: '12345',
+						usageContext: [ CONTEXT_AMP ],
+					} );
 
 					fetchMock.postOnce(
-						/^\/google-site-kit\/v1\/modules\/tagmanager\/data\/create-container/,
+						new RegExp(
+							'^/google-site-kit/v1/modules/tagmanager/data/create-container'
+						),
 						{ body: createdAMPContainer, status: 200 }
 					);
 
 					fetchMock.postOnce(
-						/^\/google-site-kit\/v1\/modules\/tagmanager\/data\/settings/,
+						new RegExp(
+							'^/google-site-kit/v1/modules/tagmanager/data/settings'
+						),
 						( url, opts ) => {
 							const { data } = JSON.parse( opts.body );
 							// Return the same settings passed to the API.
@@ -297,10 +400,14 @@ describe( 'modules/tagmanager settings', () => {
 						}
 					);
 
-					await registry.dispatch( STORE_NAME ).submitChanges();
+					await registry
+						.dispatch( MODULES_TAGMANAGER )
+						.submitChanges();
 
 					expect( fetchMock ).toHaveFetched(
-						/^\/google-site-kit\/v1\/modules\/tagmanager\/data\/create-container/,
+						new RegExp(
+							'^/google-site-kit/v1/modules/tagmanager/data/create-container'
+						),
 						{
 							body: {
 								data: {
@@ -312,8 +419,12 @@ describe( 'modules/tagmanager settings', () => {
 						}
 					);
 
-					// eslint-disable-next-line sitekit/acronym-case
-					expect( registry.select( STORE_NAME ).getAMPContainerID() ).toBe( createdAMPContainer.publicId );
+					expect(
+						registry
+							.select( MODULES_TAGMANAGER )
+							.getAMPContainerID()
+						// eslint-disable-next-line sitekit/acronym-case
+					).toBe( createdAMPContainer.publicId );
 				} );
 			} );
 
@@ -321,7 +432,7 @@ describe( 'modules/tagmanager settings', () => {
 				beforeEach( () => setSecondaryAMP() );
 
 				it( 'dispatches createContainer for both web and AMP containers when selected', async () => {
-					registry.dispatch( STORE_NAME ).setSettings( {
+					registry.dispatch( MODULES_TAGMANAGER ).setSettings( {
 						...validSettings,
 						containerID: CONTAINER_CREATE,
 						ampContainerID: CONTAINER_CREATE,
@@ -333,14 +444,22 @@ describe( 'modules/tagmanager settings', () => {
 					} );
 
 					const account = accountBuilder();
-					// eslint-disable-next-line sitekit/acronym-case
-					const createdWebContainer = containerBuilder( { accountId: account.accountId, usageContext: [ CONTEXT_WEB ] } );
-					// eslint-disable-next-line sitekit/acronym-case
-					const createdAMPContainer = containerBuilder( { accountId: account.accountId, usageContext: [ CONTEXT_AMP ] } );
+					const createdWebContainer = containerBuilder( {
+						// eslint-disable-next-line sitekit/acronym-case
+						accountId: account.accountId,
+						usageContext: [ CONTEXT_WEB ],
+					} );
+					const createdAMPContainer = containerBuilder( {
+						// eslint-disable-next-line sitekit/acronym-case
+						accountId: account.accountId,
+						usageContext: [ CONTEXT_AMP ],
+					} );
 
 					fetchMock.postOnce(
 						{
-							url: /^\/google-site-kit\/v1\/modules\/tagmanager\/data\/create-container/,
+							url: new RegExp(
+								'^/google-site-kit/v1/modules/tagmanager/data/create-container'
+							),
 							body: { data: { usageContext: CONTEXT_WEB } },
 						},
 						{ body: createdWebContainer, status: 200 },
@@ -348,14 +467,18 @@ describe( 'modules/tagmanager settings', () => {
 					);
 					fetchMock.postOnce(
 						{
-							url: /^\/google-site-kit\/v1\/modules\/tagmanager\/data\/create-container/,
+							url: new RegExp(
+								'^/google-site-kit/v1/modules/tagmanager/data/create-container'
+							),
 							body: { data: { usageContext: CONTEXT_AMP } },
 						},
 						{ body: createdAMPContainer, status: 200 },
 						{ matchPartialBody: true }
 					);
 					fetchMock.postOnce(
-						/^\/google-site-kit\/v1\/modules\/tagmanager\/data\/settings/,
+						new RegExp(
+							'^/google-site-kit/v1/modules/tagmanager/data/settings'
+						),
 						( url, opts ) => {
 							const { data } = JSON.parse( opts.body );
 							// Return the same settings passed to the API.
@@ -363,33 +486,381 @@ describe( 'modules/tagmanager settings', () => {
 						}
 					);
 
-					const { error } = await registry.dispatch( STORE_NAME ).submitChanges();
+					const { error } = await registry
+						.dispatch( MODULES_TAGMANAGER )
+						.submitChanges();
 
 					expect( error ).toBe( undefined );
-					// eslint-disable-next-line sitekit/acronym-case
-					expect( registry.select( STORE_NAME ).getContainerID() ).toBe( createdWebContainer.publicId );
-					// eslint-disable-next-line sitekit/acronym-case
-					expect( registry.select( STORE_NAME ).getAMPContainerID() ).toBe( createdAMPContainer.publicId );
+					expect(
+						registry.select( MODULES_TAGMANAGER ).getContainerID()
+						// eslint-disable-next-line sitekit/acronym-case
+					).toBe( createdWebContainer.publicId );
+					expect(
+						registry
+							.select( MODULES_TAGMANAGER )
+							.getAMPContainerID()
+						// eslint-disable-next-line sitekit/acronym-case
+					).toBe( createdAMPContainer.publicId );
 				} );
+			} );
+
+			it( 'should send a POST request to the GTG settings endpoint when the toggle state is changed', async () => {
+				provideUserAuthentication( registry );
+
+				registry
+					.dispatch( CORE_SITE )
+					.receiveGetGoogleTagGatewaySettings( {
+						isEnabled: false,
+						isGTGHealthy: true,
+						isScriptAccessEnabled: true,
+					} );
+
+				registry
+					.dispatch( CORE_USER )
+					.receiveGetDismissedItems( [
+						GTG_SETUP_CTA_BANNER_NOTIFICATION,
+					] );
+
+				provideNotifications( registry );
+
+				fetchMock.postOnce( settingsEndpoint, ( url, opts ) => ( {
+					body: JSON.parse( opts.body )?.data,
+					status: 200,
+				} ) );
+
+				fetchMock.postOnce( gtgSettingsEndpoint, ( url, opts ) => {
+					const {
+						data: {
+							settings: { isEnabled },
+						},
+					} = JSON.parse( opts.body );
+
+					return {
+						body: {
+							isEnabled, // Return the `isEnabled` value passed to the API.
+							isGTGHealthy: true,
+							isScriptAccessEnabled: true,
+						},
+						status: 200,
+					};
+				} );
+
+				registry
+					.dispatch( CORE_SITE )
+					.setGoogleTagGatewayEnabled( true );
+				await registry.dispatch( MODULES_TAGMANAGER ).submitChanges();
+
+				expect( fetchMock ).toHaveFetched( gtgSettingsEndpoint, {
+					body: {
+						data: {
+							settings: { isEnabled: true },
+						},
+					},
+				} );
+			} );
+
+			it( 'should handle an error when sending a POST request to the GTG settings endpoint', async () => {
+				registry
+					.dispatch( CORE_SITE )
+					.receiveGetGoogleTagGatewaySettings( {
+						isEnabled: false,
+						isGTGHealthy: true,
+						isScriptAccessEnabled: true,
+					} );
+
+				fetchMock.postOnce( settingsEndpoint, ( url, opts ) => ( {
+					body: JSON.parse( opts.body ).data,
+					status: 200,
+				} ) );
+
+				fetchMock.postOnce( gtgSettingsEndpoint, {
+					body: errorResponse,
+					status: 500,
+				} );
+
+				registry
+					.dispatch( CORE_SITE )
+					.setGoogleTagGatewayEnabled( true );
+				const { error: submitChangesError } = await registry
+					.dispatch( MODULES_TAGMANAGER )
+					.submitChanges();
+
+				expect( submitChangesError ).toEqual( errorResponse );
+
+				expect( console ).toHaveErrored();
+			} );
+
+			it( 'should not send a POST request to the GTG settings endpoint when the toggle state is not changed', async () => {
+				registry
+					.dispatch( CORE_SITE )
+					.receiveGetGoogleTagGatewaySettings( {
+						isEnabled: false,
+						isGTGHealthy: true,
+						isScriptAccessEnabled: true,
+					} );
+
+				fetchMock.postOnce( settingsEndpoint, ( url, opts ) => ( {
+					body: JSON.parse( opts.body )?.data,
+					status: 200,
+				} ) );
+
+				await registry.dispatch( MODULES_TAGMANAGER ).submitChanges();
+
+				expect( fetchMock ).not.toHaveFetched( gtgSettingsEndpoint );
+			} );
+
+			it( 'should dismiss the GTG setup CTA banner when the GTG `isEnabled` setting is changed to `true`', async () => {
+				provideUserAuthentication( registry );
+				provideNotifications( registry );
+
+				registry
+					.dispatch( CORE_SITE )
+					.receiveGetGoogleTagGatewaySettings( {
+						isEnabled: false,
+						isGTGHealthy: true,
+						isScriptAccessEnabled: true,
+					} );
+
+				registry.dispatch( CORE_USER ).receiveGetDismissedItems( [] );
+
+				fetchMock.postOnce( settingsEndpoint, ( url, opts ) => ( {
+					body: JSON.parse( opts.body ).data,
+					status: 200,
+				} ) );
+
+				fetchMock.postOnce( gtgSettingsEndpoint, ( url, opts ) => {
+					const {
+						data: {
+							settings: { isEnabled },
+						},
+					} = JSON.parse( opts.body );
+
+					return {
+						body: {
+							isEnabled, // Return the `isEnabled` value passed to the API.
+							isGTGHealthy: true,
+							isScriptAccessEnabled: true,
+						},
+						status: 200,
+					};
+				} );
+
+				fetchMock.postOnce( dismissItemEndpoint, {
+					body: [ GTG_SETUP_CTA_BANNER_NOTIFICATION ],
+					status: 200,
+				} );
+
+				registry
+					.dispatch( CORE_SITE )
+					.setGoogleTagGatewayEnabled( true );
+				await registry.dispatch( MODULES_TAGMANAGER ).submitChanges();
+
+				expect( fetchMock ).toHaveFetched( dismissItemEndpoint, {
+					body: {
+						data: {
+							slug: GTG_SETUP_CTA_BANNER_NOTIFICATION,
+							expiration: 0,
+						},
+					},
+				} );
+			} );
+
+			it( 'should handle an error when dismissing the GTG setup CTA banner', async () => {
+				provideUserAuthentication( registry );
+				provideNotifications( registry );
+
+				registry
+					.dispatch( CORE_SITE )
+					.receiveGetGoogleTagGatewaySettings( {
+						isEnabled: false,
+						isGTGHealthy: true,
+						isScriptAccessEnabled: true,
+					} );
+
+				registry.dispatch( CORE_USER ).receiveGetDismissedItems( [] );
+
+				fetchMock.postOnce( settingsEndpoint, ( url, opts ) => ( {
+					body: JSON.parse( opts.body ).data,
+					status: 200,
+				} ) );
+
+				fetchMock.postOnce( gtgSettingsEndpoint, ( url, opts ) => {
+					const {
+						data: {
+							settings: { isEnabled },
+						},
+					} = JSON.parse( opts.body );
+
+					return {
+						body: {
+							isEnabled, // Return the `isEnabled` value passed to the API.
+							isGTGHealthy: true,
+							isScriptAccessEnabled: true,
+						},
+						status: 200,
+					};
+				} );
+
+				fetchMock.postOnce( dismissItemEndpoint, {
+					body: errorResponse,
+					status: 500,
+				} );
+
+				registry
+					.dispatch( CORE_SITE )
+					.setGoogleTagGatewayEnabled( true );
+				const { error: submitChangesError } = await registry
+					.dispatch( MODULES_TAGMANAGER )
+					.submitChanges();
+
+				expect( submitChangesError ).toEqual( errorResponse );
+				expect( console ).toHaveErrored();
+			} );
+
+			it( 'should not dismiss the GTG setup CTA banner when the GTG `isEnabled` setting is changed to `false`', async () => {
+				provideNotifications( registry );
+
+				registry
+					.dispatch( CORE_SITE )
+					.receiveGetGoogleTagGatewaySettings( {
+						isEnabled: true,
+						isGTGHealthy: true,
+						isScriptAccessEnabled: true,
+					} );
+
+				registry.dispatch( CORE_USER ).receiveGetDismissedItems( [] );
+
+				fetchMock.postOnce( settingsEndpoint, ( url, opts ) => ( {
+					body: JSON.parse( opts.body ).data,
+					status: 200,
+				} ) );
+
+				fetchMock.postOnce( gtgSettingsEndpoint, ( url, opts ) => {
+					const {
+						data: {
+							settings: { isEnabled },
+						},
+					} = JSON.parse( opts.body );
+
+					return {
+						body: {
+							isEnabled, // Return the `isEnabled` value passed to the API.
+							isGTGHealthy: true,
+							isScriptAccessEnabled: true,
+						},
+						status: 200,
+					};
+				} );
+
+				registry
+					.dispatch( CORE_SITE )
+					.setGoogleTagGatewayEnabled( false );
+				await registry.dispatch( MODULES_TAGMANAGER ).submitChanges();
+
+				expect( fetchMock ).not.toHaveFetched( dismissItemEndpoint );
+				expect( fetchMock ).toHaveFetchedTimes( 2 );
+			} );
+		} );
+
+		describe( 'rollbackChanges', () => {
+			it( 'should revert to the original settings', () => {
+				const tagManagerSettings = {
+					ownerID: 0,
+					accountID: '12345',
+					ampContainerID: 'GTM-ABC123',
+					containerID: 'GTM-DEF567',
+					internalContainerID: '23456',
+					internalAMPContainerID: '34567',
+					useSnippet: true,
+				};
+
+				const googleTagGatewaySettings = {
+					isEnabled: false,
+					isGTGHealthy: true,
+					isScriptAccessEnabled: true,
+				};
+
+				registry.dispatch( MODULES_TAGMANAGER ).receiveGetSettings( {
+					...tagManagerSettings,
+				} );
+				registry.dispatch( MODULES_TAGMANAGER ).setAccountID( '54321' );
+
+				registry
+					.dispatch( CORE_SITE )
+					.receiveGetGoogleTagGatewaySettings( {
+						...googleTagGatewaySettings,
+					} );
+
+				registry
+					.dispatch( CORE_SITE )
+					.setGoogleTagGatewayEnabled( true );
+
+				registry.dispatch( MODULES_TAGMANAGER ).rollbackChanges();
+
+				expect(
+					registry.select( MODULES_TAGMANAGER ).getSettings()
+				).toEqual( tagManagerSettings );
+
+				expect(
+					registry.select( CORE_SITE ).getGoogleTagGatewaySettings()
+				).toEqual( googleTagGatewaySettings );
 			} );
 		} );
 	} );
 
 	describe( 'selectors', () => {
+		describe( 'areSettingsEditDependenciesLoaded', () => {
+			it( 'should return false if getAccounts selector has not resolved', () => {
+				registry
+					.dispatch( MODULES_TAGMANAGER )
+					.startResolution( 'getAccounts', [] );
+
+				expect(
+					registry
+						.select( MODULES_TAGMANAGER )
+						.areSettingsEditDependenciesLoaded()
+				).toBe( false );
+			} );
+
+			it( 'should return true if getAccounts selector has resolved', () => {
+				registry
+					.dispatch( MODULES_TAGMANAGER )
+					.finishResolution( 'getAccounts', [] );
+
+				expect(
+					registry
+						.select( MODULES_TAGMANAGER )
+						.areSettingsEditDependenciesLoaded()
+				).toBe( true );
+			} );
+		} );
+
 		describe( 'isDoingSubmitChanges', () => {
 			it( 'returns true while submitting changes', async () => {
-				registry.dispatch( STORE_NAME ).receiveGetSettings( validSettings );
+				registry
+					.dispatch( MODULES_TAGMANAGER )
+					.receiveGetSettings( validSettings );
 
-				expect( registry.select( STORE_NAME ).haveSettingsChanged() ).toBe( false );
-				expect( registry.select( STORE_NAME ).isDoingSubmitChanges() ).toBe( false );
+				expect(
+					registry.select( MODULES_TAGMANAGER ).haveSettingsChanged()
+				).toBe( false );
+				expect(
+					registry.select( MODULES_TAGMANAGER ).isDoingSubmitChanges()
+				).toBe( false );
 
-				const promise = registry.dispatch( STORE_NAME ).submitChanges();
+				const promise = registry
+					.dispatch( MODULES_TAGMANAGER )
+					.submitChanges();
 
-				expect( registry.select( STORE_NAME ).isDoingSubmitChanges() ).toBe( true );
+				expect(
+					registry.select( MODULES_TAGMANAGER ).isDoingSubmitChanges()
+				).toBe( true );
 
 				await promise;
 
-				expect( registry.select( STORE_NAME ).isDoingSubmitChanges() ).toBe( false );
+				expect(
+					registry.select( MODULES_TAGMANAGER ).isDoingSubmitChanges()
+				).toBe( false );
 			} );
 		} );
 
@@ -397,184 +868,280 @@ describe( 'modules/tagmanager settings', () => {
 			beforeEach( () => {
 				// Preload default settings to prevent the resolver from making unexpected requests
 				// as this is covered in settings store tests.
-				registry.dispatch( STORE_NAME ).receiveGetSettings( defaultSettings );
+				registry
+					.dispatch( MODULES_TAGMANAGER )
+					.receiveGetSettings( defaultSettings );
 			} );
 
 			describe( 'with no AMP', () => {
 				beforeEach( () => {
 					const { accountID, internalContainerID } = validSettings;
-					registry.dispatch( CORE_SITE ).receiveSiteInfo( { ampMode: false } );
-					registry.dispatch( STORE_NAME ).setSettings( validSettings );
-					registry.dispatch( STORE_NAME ).receiveGetExistingTag( null );
-					registry.dispatch( STORE_NAME ).receiveGetLiveContainerVersion( fixtures.liveContainerVersion, { accountID, internalContainerID } );
-					registry.dispatch( CORE_MODULES ).receiveGetModules( defaultModules );
+					registry
+						.dispatch( CORE_SITE )
+						.receiveSiteInfo( { ampMode: false } );
+					registry
+						.dispatch( MODULES_TAGMANAGER )
+						.setSettings( validSettings );
+					registry
+						.dispatch( MODULES_TAGMANAGER )
+						.receiveGetExistingTag( null );
+					registry
+						.dispatch( MODULES_TAGMANAGER )
+						.receiveGetLiveContainerVersion(
+							fixtures.liveContainerVersion,
+							{ accountID, internalContainerID }
+						);
+					registry
+						.dispatch( CORE_MODULES )
+						.receiveGetModules( defaultModules );
 				} );
 
 				it( 'requires a valid accountID', () => {
-					expect( registry.select( STORE_NAME ).canSubmitChanges() ).toBe( true );
+					expect(
+						registry.select( MODULES_TAGMANAGER ).canSubmitChanges()
+					).toBe( true );
 
-					registry.dispatch( STORE_NAME ).setAccountID( '0' );
+					registry.dispatch( MODULES_TAGMANAGER ).setAccountID( '0' );
 
-					expect( registry.select( STORE_NAME ).canSubmitChanges() ).toBe( false );
-					expect( () => registry.select( STORE_NAME ).__dangerousCanSubmitChanges() )
-						.toThrow( INVARIANT_INVALID_ACCOUNT_ID );
+					expect(
+						registry.select( MODULES_TAGMANAGER ).canSubmitChanges()
+					).toBe( false );
+					expect( () =>
+						registry
+							.select( MODULES_TAGMANAGER )
+							.__dangerousCanSubmitChanges()
+					).toThrow( INVARIANT_INVALID_ACCOUNT_ID );
 				} );
 
 				it( 'requires a valid containerID', () => {
-					expect( registry.select( STORE_NAME ).canSubmitChanges() ).toBe( true );
+					expect(
+						registry.select( MODULES_TAGMANAGER ).canSubmitChanges()
+					).toBe( true );
 
-					registry.dispatch( STORE_NAME ).setContainerID( '0' );
+					registry
+						.dispatch( MODULES_TAGMANAGER )
+						.setContainerID( '0' );
 
-					expect( registry.select( STORE_NAME ).canSubmitChanges() ).toBe( false );
-					expect( () => registry.select( STORE_NAME ).__dangerousCanSubmitChanges() )
-						.toThrow( INVARIANT_INVALID_CONTAINER_SELECTION );
+					expect(
+						registry.select( MODULES_TAGMANAGER ).canSubmitChanges()
+					).toBe( false );
+					expect( () =>
+						registry
+							.select( MODULES_TAGMANAGER )
+							.__dangerousCanSubmitChanges()
+					).toThrow( INVARIANT_INVALID_CONTAINER_SELECTION );
 				} );
 
 				it( 'requires a valid internal container ID', () => {
-					expect( registry.select( STORE_NAME ).canSubmitChanges() ).toBe( true );
+					expect(
+						registry.select( MODULES_TAGMANAGER ).canSubmitChanges()
+					).toBe( true );
 
-					registry.dispatch( STORE_NAME ).setInternalContainerID( '0' );
+					registry
+						.dispatch( MODULES_TAGMANAGER )
+						.setInternalContainerID( '0' );
 
-					expect( registry.select( STORE_NAME ).canSubmitChanges() ).toBe( false );
-					expect( () => registry.select( STORE_NAME ).__dangerousCanSubmitChanges() )
-						.toThrow( INVARIANT_INVALID_INTERNAL_CONTAINER_ID );
-				} );
-
-				it( 'requires permissions for an existing tag when present', () => {
-					registry.dispatch( STORE_NAME ).receiveGetExistingTag( validSettings.containerID );
-					registry.dispatch( STORE_NAME ).receiveGetTagPermission( { permission: true }, { containerID: validSettings.containerID } );
-
-					expect( registry.select( STORE_NAME ).canSubmitChanges() ).toBe( true );
-
-					registry.dispatch( STORE_NAME ).receiveGetTagPermission( { permission: false }, { containerID: validSettings.containerID } );
-
-					expect( registry.select( STORE_NAME ).canSubmitChanges() ).toBe( false );
-					expect( () => registry.select( STORE_NAME ).__dangerousCanSubmitChanges() )
-						.toThrow( INVARIANT_INSUFFICIENT_EXISTING_TAG_PERMISSION );
+					expect(
+						registry.select( MODULES_TAGMANAGER ).canSubmitChanges()
+					).toBe( false );
+					expect( () =>
+						registry
+							.select( MODULES_TAGMANAGER )
+							.__dangerousCanSubmitChanges()
+					).toThrow( INVARIANT_INVALID_INTERNAL_CONTAINER_ID );
 				} );
 
 				it( 'should throw if a new container name is invalid', () => {
-					const { account, containers } = buildAccountWithContainers( {
-						container: { usageContext: [ CONTEXT_WEB ] },
-						count: 2,
-					} );
+					const { account, containers } = buildAccountWithContainers(
+						{
+							container: { usageContext: [ CONTEXT_WEB ] },
+							count: 2,
+						}
+					);
 					const accountID = account.accountId; // eslint-disable-line sitekit/acronym-case
 
-					registry.dispatch( STORE_NAME ).setAccountID( accountID );
-					registry.dispatch( STORE_NAME ).receiveGetContainers( containers, { accountID } );
+					registry
+						.dispatch( MODULES_TAGMANAGER )
+						.setAccountID( accountID );
+					registry
+						.dispatch( MODULES_TAGMANAGER )
+						.receiveGetContainers( containers, { accountID } );
 
-					registry.dispatch( STORE_NAME ).setContainerID( CONTAINER_CREATE );
-					registry.dispatch( STORE_NAME ).setInternalContainerID( '' );
-					registry.dispatch( CORE_FORMS ).setValues( FORM_SETUP, { containerName: '     ' } );
+					registry
+						.dispatch( MODULES_TAGMANAGER )
+						.setContainerID( CONTAINER_CREATE );
+					registry
+						.dispatch( MODULES_TAGMANAGER )
+						.setInternalContainerID( '' );
+					registry
+						.dispatch( CORE_FORMS )
+						.setValues( FORM_SETUP, { containerName: '     ' } );
 
-					expect( () => registry.select( STORE_NAME ).__dangerousCanSubmitChanges() )
-						.toThrow( INVARIANT_INVALID_CONTAINER_NAME );
+					expect( () =>
+						registry
+							.select( MODULES_TAGMANAGER )
+							.__dangerousCanSubmitChanges()
+					).toThrow( INVARIANT_INVALID_CONTAINER_NAME );
 				} );
 
 				it( 'should require a unique container name when creating a new web container', () => {
-					const { account, containers } = buildAccountWithContainers( {
-						container: { usageContext: [ CONTEXT_WEB ] },
-						count: 2,
-					} );
+					const { account, containers } = buildAccountWithContainers(
+						{
+							container: { usageContext: [ CONTEXT_WEB ] },
+							count: 2,
+						}
+					);
 					const accountID = account.accountId; // eslint-disable-line sitekit/acronym-case
 
-					registry.dispatch( STORE_NAME ).setAccountID( accountID );
-					registry.dispatch( STORE_NAME ).receiveGetContainers( containers, { accountID } );
+					registry
+						.dispatch( MODULES_TAGMANAGER )
+						.setAccountID( accountID );
+					registry
+						.dispatch( MODULES_TAGMANAGER )
+						.receiveGetContainers( containers, { accountID } );
 
-					registry.dispatch( STORE_NAME ).setContainerID( CONTAINER_CREATE );
-					registry.dispatch( STORE_NAME ).setInternalContainerID( '' );
-					registry.dispatch( CORE_FORMS ).setValues( FORM_SETUP, { containerName: containers[ 0 ].name } );
+					registry
+						.dispatch( MODULES_TAGMANAGER )
+						.setContainerID( CONTAINER_CREATE );
+					registry
+						.dispatch( MODULES_TAGMANAGER )
+						.setInternalContainerID( '' );
+					registry.dispatch( CORE_FORMS ).setValues( FORM_SETUP, {
+						containerName: containers[ 0 ].name,
+					} );
 
-					const normalizedContainerName = getNormalizedContainerName( containers[ 0 ].name );
-					expect( () => registry.select( STORE_NAME ).__dangerousCanSubmitChanges() )
-						.toThrow( `a container with "${ normalizedContainerName }" name already exists` );
+					const normalizedContainerName = getNormalizedContainerName(
+						containers[ 0 ].name
+					);
+					expect( () =>
+						registry
+							.select( MODULES_TAGMANAGER )
+							.__dangerousCanSubmitChanges()
+					).toThrow(
+						`a container with "${ normalizedContainerName }" name already exists`
+					);
 
-					registry.dispatch( CORE_FORMS ).setValues( FORM_SETUP, { containerName: 'SiteKit' } );
-					expect( registry.select( STORE_NAME ).canSubmitChanges() ).toBe( true );
+					registry
+						.dispatch( CORE_FORMS )
+						.setValues( FORM_SETUP, { containerName: 'SiteKit' } );
+					expect(
+						registry.select( MODULES_TAGMANAGER ).canSubmitChanges()
+					).toBe( true );
 				} );
 
 				it( 'does not support creating an account', () => {
-					registry.dispatch( STORE_NAME ).setAccountID( ACCOUNT_CREATE );
+					registry
+						.dispatch( MODULES_TAGMANAGER )
+						.setAccountID( ACCOUNT_CREATE );
 
-					expect( registry.select( STORE_NAME ).canSubmitChanges() ).toBe( false );
-				} );
-
-				it( 'requires Analytics propertyID setting to match the propertyID in the web container', () => {
-					const modules = modulesFixtures.withActive( 'analytics' );
-					registry.dispatch( CORE_MODULES ).receiveGetModules( modules );
-					registry.dispatch( MODULES_ANALYTICS ).receiveGetSettings( { propertyID: '' } );
-					const liveContainerVersion = buildLiveContainerVersionWeb( { propertyID: 'UA-12345-1' } );
-					parseLiveContainerVersionIDs( liveContainerVersion, ( { accountID, containerID, internalContainerID } ) => {
-						registry.dispatch( STORE_NAME ).setSettings( { ...validSettings, accountID, containerID, internalContainerID } );
-						registry.dispatch( STORE_NAME ).receiveGetLiveContainerVersion( liveContainerVersion, { accountID, internalContainerID } );
-					} );
-
-					// No property ID set in Analytics
-					registry.select( STORE_NAME ).__dangerousCanSubmitChanges();
-					expect( registry.select( STORE_NAME ).canSubmitChanges() ).toBe( true );
-					// Matching property ID in Analytics and GTM
-					registry.dispatch( MODULES_ANALYTICS ).setPropertyID( 'UA-12345-1' );
-					registry.select( STORE_NAME ).__dangerousCanSubmitChanges();
-					expect( registry.select( STORE_NAME ).canSubmitChanges() ).toBe( true );
-					// Non-matching property IDs
-					registry.dispatch( MODULES_ANALYTICS ).setPropertyID( 'UA-99999-9' );
-					expect( () => registry.select( STORE_NAME ).__dangerousCanSubmitChanges() )
-						.toThrow( INVARIANT_GTM_GA_PROPERTY_ID_MISMATCH );
-					expect( registry.select( STORE_NAME ).canSubmitChanges() ).toBe( false );
+					expect(
+						registry.select( MODULES_TAGMANAGER ).canSubmitChanges()
+					).toBe( false );
 				} );
 			} );
 
 			describe( 'with primary AMP', () => {
 				beforeEach( () => {
 					setPrimaryAMP();
-					const { accountID, internalAMPContainerID: internalContainerID } = validSettingsAMP;
-					registry.dispatch( STORE_NAME ).setSettings( validSettingsAMP );
-					registry.dispatch( STORE_NAME ).receiveGetExistingTag( null );
-					registry.dispatch( STORE_NAME ).receiveGetLiveContainerVersion( fixtures.liveContainerVersion, { accountID, internalContainerID } );
-					registry.dispatch( CORE_MODULES ).receiveGetModules( defaultModules );
+					const {
+						accountID,
+						internalAMPContainerID: internalContainerID,
+					} = validSettingsAMP;
+					registry
+						.dispatch( MODULES_TAGMANAGER )
+						.setSettings( validSettingsAMP );
+					registry
+						.dispatch( MODULES_TAGMANAGER )
+						.receiveGetExistingTag( null );
+					registry
+						.dispatch( MODULES_TAGMANAGER )
+						.receiveGetLiveContainerVersion(
+							fixtures.liveContainerVersion,
+							{ accountID, internalContainerID }
+						);
+					registry
+						.dispatch( CORE_MODULES )
+						.receiveGetModules( defaultModules );
 				} );
 
 				it( 'requires a valid accountID', () => {
-					expect( registry.select( STORE_NAME ).canSubmitChanges() ).toBe( true );
+					expect(
+						registry.select( MODULES_TAGMANAGER ).canSubmitChanges()
+					).toBe( true );
 
-					registry.dispatch( STORE_NAME ).setAccountID( '0' );
+					registry.dispatch( MODULES_TAGMANAGER ).setAccountID( '0' );
 
-					expect( registry.select( STORE_NAME ).canSubmitChanges() ).toBe( false );
-					expect( () => registry.select( STORE_NAME ).__dangerousCanSubmitChanges() )
-						.toThrow( INVARIANT_INVALID_ACCOUNT_ID );
+					expect(
+						registry.select( MODULES_TAGMANAGER ).canSubmitChanges()
+					).toBe( false );
+					expect( () =>
+						registry
+							.select( MODULES_TAGMANAGER )
+							.__dangerousCanSubmitChanges()
+					).toThrow( INVARIANT_INVALID_ACCOUNT_ID );
 				} );
 
 				it( 'requires a valid AMP containerID', () => {
-					expect( registry.select( STORE_NAME ).canSubmitChanges() ).toBe( true );
+					expect(
+						registry.select( MODULES_TAGMANAGER ).canSubmitChanges()
+					).toBe( true );
 
 					// Invalid web container ID is allowed (although technically not possible).
-					registry.dispatch( STORE_NAME ).setContainerID( '0' );
-					expect( registry.select( STORE_NAME ).canSubmitChanges() ).toBe( true );
+					registry
+						.dispatch( MODULES_TAGMANAGER )
+						.setContainerID( '0' );
+					expect(
+						registry.select( MODULES_TAGMANAGER ).canSubmitChanges()
+					).toBe( true );
 
-					registry.dispatch( STORE_NAME ).setAMPContainerID( '0' );
+					registry
+						.dispatch( MODULES_TAGMANAGER )
+						.setAMPContainerID( '0' );
 
-					expect( registry.select( STORE_NAME ).canSubmitChanges() ).toBe( false );
-					expect( () => registry.select( STORE_NAME ).__dangerousCanSubmitChanges() )
-						.toThrow( INVARIANT_INVALID_AMP_CONTAINER_SELECTION );
+					expect(
+						registry.select( MODULES_TAGMANAGER ).canSubmitChanges()
+					).toBe( false );
+					expect( () =>
+						registry
+							.select( MODULES_TAGMANAGER )
+							.__dangerousCanSubmitChanges()
+					).toThrow( INVARIANT_INVALID_AMP_CONTAINER_SELECTION );
 				} );
 
 				it( 'requires a valid internal AMP container ID', () => {
-					expect( registry.select( STORE_NAME ).canSubmitChanges() ).toBe( true );
+					expect(
+						registry.select( MODULES_TAGMANAGER ).canSubmitChanges()
+					).toBe( true );
 
 					// Invalid internal web container ID is allowed (although technically not possible).
-					registry.dispatch( STORE_NAME ).setInternalContainerID( '0' );
-					expect( registry.select( STORE_NAME ).canSubmitChanges() ).toBe( true );
+					registry
+						.dispatch( MODULES_TAGMANAGER )
+						.setInternalContainerID( '0' );
+					expect(
+						registry.select( MODULES_TAGMANAGER ).canSubmitChanges()
+					).toBe( true );
 
-					registry.dispatch( STORE_NAME ).setInternalAMPContainerID( '0' );
+					registry
+						.dispatch( MODULES_TAGMANAGER )
+						.setInternalAMPContainerID( '0' );
 
-					expect( registry.select( STORE_NAME ).canSubmitChanges() ).toBe( false );
-					expect( () => registry.select( STORE_NAME ).__dangerousCanSubmitChanges() )
-						.toThrow( INVARIANT_INVALID_AMP_INTERNAL_CONTAINER_ID );
+					expect(
+						registry.select( MODULES_TAGMANAGER ).canSubmitChanges()
+					).toBe( false );
+					expect( () =>
+						registry
+							.select( MODULES_TAGMANAGER )
+							.__dangerousCanSubmitChanges()
+					).toThrow( INVARIANT_INVALID_AMP_INTERNAL_CONTAINER_ID );
 				} );
 
 				it( 'should throw if a new container name is invalid', () => {
-					const { buildAndReceiveWebAndAMP } = createBuildAndReceivers( registry );
-					const { accountID } = buildAndReceiveWebAndAMP( { webPropertyID: 'UA-12345-1', ampPropertyID: 'UA-12345-1' } );
+					const { buildAndReceiveWebAndAMP } =
+						createBuildAndReceivers( registry );
+					const { accountID } = buildAndReceiveWebAndAMP( {
+						webPropertyID: 'UA-12345-1',
+						ampPropertyID: 'UA-12345-1',
+					} );
 
 					const { containers } = buildAccountWithContainers( {
 						account: { accountId: accountID }, // eslint-disable-line sitekit/acronym-case
@@ -582,20 +1149,37 @@ describe( 'modules/tagmanager settings', () => {
 						count: 2,
 					} );
 
-					registry.dispatch( STORE_NAME ).setAccountID( accountID );
-					registry.dispatch( STORE_NAME ).receiveGetContainers( containers, { accountID } );
+					registry
+						.dispatch( MODULES_TAGMANAGER )
+						.setAccountID( accountID );
+					registry
+						.dispatch( MODULES_TAGMANAGER )
+						.receiveGetContainers( containers, { accountID } );
 
-					registry.dispatch( STORE_NAME ).setAMPContainerID( CONTAINER_CREATE );
-					registry.dispatch( STORE_NAME ).setInternalAMPContainerID( '' );
-					registry.dispatch( CORE_FORMS ).setValues( FORM_SETUP, { ampContainerName: '___' } );
+					registry
+						.dispatch( MODULES_TAGMANAGER )
+						.setAMPContainerID( CONTAINER_CREATE );
+					registry
+						.dispatch( MODULES_TAGMANAGER )
+						.setInternalAMPContainerID( '' );
+					registry
+						.dispatch( CORE_FORMS )
+						.setValues( FORM_SETUP, { ampContainerName: '___' } );
 
-					expect( () => registry.select( STORE_NAME ).__dangerousCanSubmitChanges() )
-						.toThrow( INVARIANT_INVALID_CONTAINER_NAME );
+					expect( () =>
+						registry
+							.select( MODULES_TAGMANAGER )
+							.__dangerousCanSubmitChanges()
+					).toThrow( INVARIANT_INVALID_CONTAINER_NAME );
 				} );
 
 				it( 'supports creating an AMP container', () => {
-					const { buildAndReceiveWebAndAMP } = createBuildAndReceivers( registry );
-					const { accountID } = buildAndReceiveWebAndAMP( { webPropertyID: 'UA-12345-1', ampPropertyID: 'UA-12345-1' } );
+					const { buildAndReceiveWebAndAMP } =
+						createBuildAndReceivers( registry );
+					const { accountID } = buildAndReceiveWebAndAMP( {
+						webPropertyID: 'UA-12345-1',
+						ampPropertyID: 'UA-12345-1',
+					} );
 
 					const { containers } = buildAccountWithContainers( {
 						account: { accountId: accountID }, // eslint-disable-line sitekit/acronym-case
@@ -603,185 +1187,276 @@ describe( 'modules/tagmanager settings', () => {
 						count: 2,
 					} );
 
-					registry.dispatch( STORE_NAME ).setAccountID( accountID );
-					registry.dispatch( STORE_NAME ).receiveGetContainers( containers, { accountID } );
+					registry
+						.dispatch( MODULES_TAGMANAGER )
+						.setAccountID( accountID );
+					registry
+						.dispatch( MODULES_TAGMANAGER )
+						.receiveGetContainers( containers, { accountID } );
 
-					registry.dispatch( STORE_NAME ).setAMPContainerID( CONTAINER_CREATE );
-					registry.dispatch( STORE_NAME ).setInternalAMPContainerID( '' );
-					registry.dispatch( CORE_FORMS ).setValues( FORM_SETUP, { ampContainerName: containers[ 0 ].name } );
+					registry
+						.dispatch( MODULES_TAGMANAGER )
+						.setAMPContainerID( CONTAINER_CREATE );
+					registry
+						.dispatch( MODULES_TAGMANAGER )
+						.setInternalAMPContainerID( '' );
+					registry.dispatch( CORE_FORMS ).setValues( FORM_SETUP, {
+						ampContainerName: containers[ 0 ].name,
+					} );
 
-					const normalizedContainerName = getNormalizedContainerName( containers[ 0 ].name );
-					expect( () => registry.select( STORE_NAME ).__dangerousCanSubmitChanges() )
-						.toThrow( `an AMP container with "${ normalizedContainerName }" name already exists` );
+					const normalizedContainerName = getNormalizedContainerName(
+						containers[ 0 ].name
+					);
+					expect( () =>
+						registry
+							.select( MODULES_TAGMANAGER )
+							.__dangerousCanSubmitChanges()
+					).toThrow(
+						`an AMP container with "${ normalizedContainerName }" name already exists`
+					);
 
-					registry.dispatch( CORE_FORMS ).setValues( FORM_SETUP, { ampContainerName: 'Sitekit AMP' } );
-					expect( registry.select( STORE_NAME ).canSubmitChanges() ).toBe( true );
-				} );
-
-				it( 'requires permissions for an existing tag when present', () => {
-					registry.dispatch( STORE_NAME ).receiveGetExistingTag( validSettings.containerID );
-					registry.dispatch( STORE_NAME ).receiveGetTagPermission( { permission: true }, { containerID: validSettings.containerID } );
-
-					expect( registry.select( STORE_NAME ).canSubmitChanges() ).toBe( true );
-
-					registry.dispatch( STORE_NAME ).receiveGetTagPermission( { permission: false }, { containerID: validSettings.containerID } );
-
-					expect( registry.select( STORE_NAME ).canSubmitChanges() ).toBe( false );
-					expect( () => registry.select( STORE_NAME ).__dangerousCanSubmitChanges() )
-						.toThrow( INVARIANT_INSUFFICIENT_EXISTING_TAG_PERMISSION );
+					registry.dispatch( CORE_FORMS ).setValues( FORM_SETUP, {
+						ampContainerName: 'Sitekit AMP',
+					} );
+					expect(
+						registry.select( MODULES_TAGMANAGER ).canSubmitChanges()
+					).toBe( true );
 				} );
 
 				it( 'does not support creating an account', () => {
-					registry.dispatch( STORE_NAME ).setAccountID( ACCOUNT_CREATE );
+					registry
+						.dispatch( MODULES_TAGMANAGER )
+						.setAccountID( ACCOUNT_CREATE );
 
-					expect( registry.select( STORE_NAME ).canSubmitChanges() ).toBe( false );
-					expect( () => registry.select( STORE_NAME ).__dangerousCanSubmitChanges() )
-						.toThrow( INVARIANT_INVALID_ACCOUNT_ID );
-				} );
-
-				it( 'requires Analytics propertyID setting to match the propertyID in the AMP container', () => {
-					const modules = modulesFixtures.withActive( 'analytics' );
-					registry.dispatch( CORE_MODULES ).receiveGetModules( modules );
-					registry.dispatch( MODULES_ANALYTICS ).receiveGetSettings( { propertyID: '' } );
-					const liveContainerVersion = buildLiveContainerVersionAMP( { propertyID: 'UA-12345-1' } );
-					parseLiveContainerVersionIDs( liveContainerVersion, ( { accountID, internalContainerID, ampContainerID, internalAMPContainerID } ) => {
-						registry.dispatch( STORE_NAME ).setSettings( { ...validSettings, accountID, ampContainerID, internalAMPContainerID } );
-						registry.dispatch( STORE_NAME ).receiveGetLiveContainerVersion( liveContainerVersion, { accountID, internalContainerID } );
-					} );
-
-					// No property ID set in Analytics
-					registry.select( STORE_NAME ).__dangerousCanSubmitChanges();
-					expect( registry.select( STORE_NAME ).canSubmitChanges() ).toBe( true );
-					// Matching property ID in Analytics and GTM
-					registry.dispatch( MODULES_ANALYTICS ).setPropertyID( 'UA-12345-1' );
-					registry.select( STORE_NAME ).__dangerousCanSubmitChanges();
-					expect( registry.select( STORE_NAME ).canSubmitChanges() ).toBe( true );
-					// Non-matching property IDs
-					registry.dispatch( MODULES_ANALYTICS ).setPropertyID( 'UA-99999-9' );
-					expect( () => registry.select( STORE_NAME ).__dangerousCanSubmitChanges() )
-						.toThrow( INVARIANT_GTM_GA_PROPERTY_ID_MISMATCH );
-					expect( registry.select( STORE_NAME ).canSubmitChanges() ).toBe( false );
+					expect(
+						registry.select( MODULES_TAGMANAGER ).canSubmitChanges()
+					).toBe( false );
+					expect( () =>
+						registry
+							.select( MODULES_TAGMANAGER )
+							.__dangerousCanSubmitChanges()
+					).toThrow( INVARIANT_INVALID_ACCOUNT_ID );
 				} );
 			} );
 
 			describe( 'with secondary AMP', () => {
 				beforeEach( () => {
 					setSecondaryAMP();
-					registry.dispatch( STORE_NAME ).setSettings( {
+					registry.dispatch( MODULES_TAGMANAGER ).setSettings( {
 						...validSettings,
 						...validSettingsAMP,
 					} );
 					const { accountID, internalContainerID } = validSettings;
 					const { internalAMPContainerID } = validSettingsAMP;
-					registry.dispatch( STORE_NAME ).receiveGetExistingTag( null );
-					registry.dispatch( STORE_NAME ).receiveGetExistingTag( null );
-					registry.dispatch( CORE_MODULES ).receiveGetModules( defaultModules );
-					registry.dispatch( STORE_NAME ).receiveGetLiveContainerVersion(
-						fixtures.liveContainerVersions.web.noGAWithVariable,
-						{ accountID, internalContainerID }
-					);
-					registry.dispatch( STORE_NAME ).receiveGetLiveContainerVersion(
-						fixtures.liveContainerVersions.amp.noGA,
-						{ accountID, internalContainerID: internalAMPContainerID }
-					);
+					registry
+						.dispatch( MODULES_TAGMANAGER )
+						.receiveGetExistingTag( null );
+					registry
+						.dispatch( MODULES_TAGMANAGER )
+						.receiveGetExistingTag( null );
+					registry
+						.dispatch( CORE_MODULES )
+						.receiveGetModules( defaultModules );
+					registry
+						.dispatch( MODULES_TAGMANAGER )
+						.receiveGetLiveContainerVersion(
+							fixtures.liveContainerVersions.web.noGAWithVariable,
+							{ accountID, internalContainerID }
+						);
+					registry
+						.dispatch( MODULES_TAGMANAGER )
+						.receiveGetLiveContainerVersion(
+							fixtures.liveContainerVersions.amp.noGA,
+							{
+								accountID,
+								internalContainerID: internalAMPContainerID,
+							}
+						);
 				} );
 
 				it( 'requires a valid accountID', () => {
-					expect( registry.select( STORE_NAME ).canSubmitChanges() ).toBe( true );
+					expect(
+						registry.select( MODULES_TAGMANAGER ).canSubmitChanges()
+					).toBe( true );
 
-					registry.dispatch( STORE_NAME ).setAccountID( '0' );
+					registry.dispatch( MODULES_TAGMANAGER ).setAccountID( '0' );
 
-					expect( registry.select( STORE_NAME ).canSubmitChanges() ).toBe( false );
-					expect( () => registry.select( STORE_NAME ).__dangerousCanSubmitChanges() )
-						.toThrow( INVARIANT_INVALID_ACCOUNT_ID );
+					expect(
+						registry.select( MODULES_TAGMANAGER ).canSubmitChanges()
+					).toBe( false );
+					expect( () =>
+						registry
+							.select( MODULES_TAGMANAGER )
+							.__dangerousCanSubmitChanges()
+					).toThrow( INVARIANT_INVALID_ACCOUNT_ID );
 				} );
 
 				it( 'requires valid containerID', () => {
-					expect( registry.select( STORE_NAME ).canSubmitChanges() ).toBe( true );
+					expect(
+						registry.select( MODULES_TAGMANAGER ).canSubmitChanges()
+					).toBe( true );
 
-					registry.dispatch( STORE_NAME ).setContainerID( '0' );
+					registry
+						.dispatch( MODULES_TAGMANAGER )
+						.setContainerID( '0' );
 
-					expect( registry.select( STORE_NAME ).canSubmitChanges() ).toBe( false );
-					expect( () => registry.select( STORE_NAME ).__dangerousCanSubmitChanges() )
-						.toThrow( INVARIANT_INVALID_CONTAINER_SELECTION );
+					expect(
+						registry.select( MODULES_TAGMANAGER ).canSubmitChanges()
+					).toBe( false );
+					expect( () =>
+						registry
+							.select( MODULES_TAGMANAGER )
+							.__dangerousCanSubmitChanges()
+					).toThrow( INVARIANT_INVALID_CONTAINER_SELECTION );
 				} );
 
 				it( 'requires a valid AMP containerID', () => {
-					expect( registry.select( STORE_NAME ).canSubmitChanges() ).toBe( true );
+					expect(
+						registry.select( MODULES_TAGMANAGER ).canSubmitChanges()
+					).toBe( true );
 
-					registry.dispatch( STORE_NAME ).setAMPContainerID( '0' );
+					registry
+						.dispatch( MODULES_TAGMANAGER )
+						.setAMPContainerID( '0' );
 
-					expect( registry.select( STORE_NAME ).canSubmitChanges() ).toBe( false );
-					expect( () => registry.select( STORE_NAME ).__dangerousCanSubmitChanges() )
-						.toThrow( INVARIANT_INVALID_AMP_CONTAINER_SELECTION );
+					expect(
+						registry.select( MODULES_TAGMANAGER ).canSubmitChanges()
+					).toBe( false );
+					expect( () =>
+						registry
+							.select( MODULES_TAGMANAGER )
+							.__dangerousCanSubmitChanges()
+					).toThrow( INVARIANT_INVALID_AMP_CONTAINER_SELECTION );
 				} );
 
 				it( 'requires a valid internal container ID', () => {
-					expect( registry.select( STORE_NAME ).canSubmitChanges() ).toBe( true );
+					expect(
+						registry.select( MODULES_TAGMANAGER ).canSubmitChanges()
+					).toBe( true );
 
-					registry.dispatch( STORE_NAME ).setInternalContainerID( '0' );
+					registry
+						.dispatch( MODULES_TAGMANAGER )
+						.setInternalContainerID( '0' );
 
-					expect( registry.select( STORE_NAME ).canSubmitChanges() ).toBe( false );
-					expect( () => registry.select( STORE_NAME ).__dangerousCanSubmitChanges() )
-						.toThrow( INVARIANT_INVALID_INTERNAL_CONTAINER_ID );
+					expect(
+						registry.select( MODULES_TAGMANAGER ).canSubmitChanges()
+					).toBe( false );
+					expect( () =>
+						registry
+							.select( MODULES_TAGMANAGER )
+							.__dangerousCanSubmitChanges()
+					).toThrow( INVARIANT_INVALID_INTERNAL_CONTAINER_ID );
 				} );
 
 				it( 'requires a valid internal AMP container ID', () => {
-					expect( registry.select( STORE_NAME ).canSubmitChanges() ).toBe( true );
+					expect(
+						registry.select( MODULES_TAGMANAGER ).canSubmitChanges()
+					).toBe( true );
 
-					registry.dispatch( STORE_NAME ).setInternalAMPContainerID( '0' );
+					registry
+						.dispatch( MODULES_TAGMANAGER )
+						.setInternalAMPContainerID( '0' );
 
-					expect( registry.select( STORE_NAME ).canSubmitChanges() ).toBe( false );
-					expect( () => registry.select( STORE_NAME ).__dangerousCanSubmitChanges() )
-						.toThrow( INVARIANT_INVALID_AMP_INTERNAL_CONTAINER_ID );
+					expect(
+						registry.select( MODULES_TAGMANAGER ).canSubmitChanges()
+					).toBe( false );
+					expect( () =>
+						registry
+							.select( MODULES_TAGMANAGER )
+							.__dangerousCanSubmitChanges()
+					).toThrow( INVARIANT_INVALID_AMP_INTERNAL_CONTAINER_ID );
 				} );
 
 				it( 'supports creating a web container', () => {
-					const { buildAndReceiveWebAndAMP } = createBuildAndReceivers( registry );
-					const { accountID } = buildAndReceiveWebAndAMP( { webPropertyID: 'UA-12345-1', ampPropertyID: 'UA-12345-1' } );
+					const { buildAndReceiveWebAndAMP } =
+						createBuildAndReceivers( registry );
+					const { accountID } = buildAndReceiveWebAndAMP( {
+						webPropertyID: 'UA-12345-1',
+						ampPropertyID: 'UA-12345-1',
+					} );
 
-					registry.dispatch( STORE_NAME ).setAccountID( accountID );
-					registry.dispatch( STORE_NAME ).receiveGetContainers( [], { accountID } );
+					registry
+						.dispatch( MODULES_TAGMANAGER )
+						.setAccountID( accountID );
+					registry
+						.dispatch( MODULES_TAGMANAGER )
+						.receiveGetContainers( [], { accountID } );
 
-					registry.dispatch( STORE_NAME ).setContainerID( CONTAINER_CREATE );
-					registry.dispatch( STORE_NAME ).setInternalContainerID( '' );
+					registry
+						.dispatch( MODULES_TAGMANAGER )
+						.setContainerID( CONTAINER_CREATE );
+					registry
+						.dispatch( MODULES_TAGMANAGER )
+						.setInternalContainerID( '' );
 					registry.dispatch( CORE_FORMS ).setValues( FORM_SETUP, {
 						containerName: 'Sitekit',
 					} );
 
-					expect( registry.select( STORE_NAME ).canSubmitChanges() ).toBe( true );
+					expect(
+						registry.select( MODULES_TAGMANAGER ).canSubmitChanges()
+					).toBe( true );
 				} );
 
 				it( 'supports creating an AMP container', () => {
-					const { buildAndReceiveWebAndAMP } = createBuildAndReceivers( registry );
-					const { accountID } = buildAndReceiveWebAndAMP( { webPropertyID: 'UA-12345-1', ampPropertyID: 'UA-12345-1' } );
+					const { buildAndReceiveWebAndAMP } =
+						createBuildAndReceivers( registry );
+					const { accountID } = buildAndReceiveWebAndAMP( {
+						webPropertyID: 'UA-12345-1',
+						ampPropertyID: 'UA-12345-1',
+					} );
 
-					registry.dispatch( STORE_NAME ).setAccountID( accountID );
-					registry.dispatch( STORE_NAME ).receiveGetContainers( [], { accountID } );
+					registry
+						.dispatch( MODULES_TAGMANAGER )
+						.setAccountID( accountID );
+					registry
+						.dispatch( MODULES_TAGMANAGER )
+						.receiveGetContainers( [], { accountID } );
 
-					registry.dispatch( STORE_NAME ).setAMPContainerID( CONTAINER_CREATE );
-					registry.dispatch( STORE_NAME ).setInternalAMPContainerID( '' );
+					registry
+						.dispatch( MODULES_TAGMANAGER )
+						.setAMPContainerID( CONTAINER_CREATE );
+					registry
+						.dispatch( MODULES_TAGMANAGER )
+						.setInternalAMPContainerID( '' );
 					registry.dispatch( CORE_FORMS ).setValues( FORM_SETUP, {
 						ampContainerName: 'Sitekit AMP',
 					} );
 
-					expect( registry.select( STORE_NAME ).canSubmitChanges() ).toBe( true );
+					expect(
+						registry.select( MODULES_TAGMANAGER ).canSubmitChanges()
+					).toBe( true );
 				} );
 
 				it( 'supports creating an AMP container and a web container', () => {
-					const { account, containers } = buildAccountWithContainers( {
-						container: { usageContext: [ CONTEXT_WEB, CONTEXT_AMP ] },
-						count: 2,
-					} );
+					const { account, containers } = buildAccountWithContainers(
+						{
+							container: {
+								usageContext: [ CONTEXT_WEB, CONTEXT_AMP ],
+							},
+							count: 2,
+						}
+					);
 					const accountID = account.accountId; // eslint-disable-line sitekit/acronym-case
 
-					registry.dispatch( STORE_NAME ).setAccountID( accountID );
-					registry.dispatch( STORE_NAME ).receiveGetContainers( containers, { accountID } );
+					registry
+						.dispatch( MODULES_TAGMANAGER )
+						.setAccountID( accountID );
+					registry
+						.dispatch( MODULES_TAGMANAGER )
+						.receiveGetContainers( containers, { accountID } );
 
-					registry.dispatch( STORE_NAME ).setContainerID( CONTAINER_CREATE );
-					registry.dispatch( STORE_NAME ).setInternalContainerID( '' );
-					registry.dispatch( STORE_NAME ).setAMPContainerID( CONTAINER_CREATE );
-					registry.dispatch( STORE_NAME ).setInternalAMPContainerID( '' );
+					registry
+						.dispatch( MODULES_TAGMANAGER )
+						.setContainerID( CONTAINER_CREATE );
+					registry
+						.dispatch( MODULES_TAGMANAGER )
+						.setInternalContainerID( '' );
+					registry
+						.dispatch( MODULES_TAGMANAGER )
+						.setAMPContainerID( CONTAINER_CREATE );
+					registry
+						.dispatch( MODULES_TAGMANAGER )
+						.setInternalAMPContainerID( '' );
 
 					// Creating a web container requires a unique container name.
 					registry.dispatch( CORE_FORMS ).setValues( FORM_SETUP, {
@@ -789,11 +1464,20 @@ describe( 'modules/tagmanager settings', () => {
 						ampContainerName: 'Sitekit AMP',
 					} );
 
-					expect( registry.select( STORE_NAME ).canSubmitChanges() ).toBe( false );
+					expect(
+						registry.select( MODULES_TAGMANAGER ).canSubmitChanges()
+					).toBe( false );
 
-					const normalizedContainerName = getNormalizedContainerName( containers[ 0 ].name );
-					expect( () => registry.select( STORE_NAME ).__dangerousCanSubmitChanges() )
-						.toThrow( `a container with "${ normalizedContainerName }" name already exists` );
+					const normalizedContainerName = getNormalizedContainerName(
+						containers[ 0 ].name
+					);
+					expect( () =>
+						registry
+							.select( MODULES_TAGMANAGER )
+							.__dangerousCanSubmitChanges()
+					).toThrow(
+						`a container with "${ normalizedContainerName }" name already exists`
+					);
 
 					// Creating an AMP container requires a unique container name.
 					registry.dispatch( CORE_FORMS ).setValues( FORM_SETUP, {
@@ -801,11 +1485,19 @@ describe( 'modules/tagmanager settings', () => {
 						ampContainerName: containers[ 1 ].name,
 					} );
 
-					expect( registry.select( STORE_NAME ).canSubmitChanges() ).toBe( false );
+					expect(
+						registry.select( MODULES_TAGMANAGER ).canSubmitChanges()
+					).toBe( false );
 
-					const normalizedAMPContainerName = getNormalizedContainerName( containers[ 1 ].name );
-					expect( () => registry.select( STORE_NAME ).__dangerousCanSubmitChanges() )
-						.toThrow( `an AMP container with "${ normalizedAMPContainerName }" name already exists` );
+					const normalizedAMPContainerName =
+						getNormalizedContainerName( containers[ 1 ].name );
+					expect( () =>
+						registry
+							.select( MODULES_TAGMANAGER )
+							.__dangerousCanSubmitChanges()
+					).toThrow(
+						`an AMP container with "${ normalizedAMPContainerName }" name already exists`
+					);
 
 					// Creating containers with unique names.
 					registry.dispatch( CORE_FORMS ).setValues( FORM_SETUP, {
@@ -813,71 +1505,99 @@ describe( 'modules/tagmanager settings', () => {
 						ampContainerName: 'Sitekit AMP',
 					} );
 
-					expect( registry.select( STORE_NAME ).canSubmitChanges() ).toBe( true );
-				} );
-
-				it( 'requires permissions for an existing tag when present', () => {
-					registry.dispatch( STORE_NAME ).receiveGetExistingTag( validSettings.containerID );
-					registry.dispatch( STORE_NAME ).receiveGetTagPermission( { permission: true }, { containerID: validSettings.containerID } );
-
-					expect( registry.select( STORE_NAME ).canSubmitChanges() ).toBe( true );
-
-					registry.dispatch( STORE_NAME ).receiveGetTagPermission( { permission: false }, { containerID: validSettings.containerID } );
-
-					expect( registry.select( STORE_NAME ).canSubmitChanges() ).toBe( false );
-					expect( () => registry.select( STORE_NAME ).__dangerousCanSubmitChanges() )
-						.toThrow( INVARIANT_INSUFFICIENT_EXISTING_TAG_PERMISSION );
+					expect(
+						registry.select( MODULES_TAGMANAGER ).canSubmitChanges()
+					).toBe( true );
 				} );
 
 				it( 'does not support creating an account', () => {
-					registry.dispatch( STORE_NAME ).setAccountID( ACCOUNT_CREATE );
+					registry
+						.dispatch( MODULES_TAGMANAGER )
+						.setAccountID( ACCOUNT_CREATE );
 
-					expect( registry.select( STORE_NAME ).canSubmitChanges() ).toBe( false );
-					expect( () => registry.select( STORE_NAME ).__dangerousCanSubmitChanges() )
-						.toThrow( INVARIANT_INVALID_ACCOUNT_ID );
+					expect(
+						registry.select( MODULES_TAGMANAGER ).canSubmitChanges()
+					).toBe( false );
+					expect( () =>
+						registry
+							.select( MODULES_TAGMANAGER )
+							.__dangerousCanSubmitChanges()
+					).toThrow( INVARIANT_INVALID_ACCOUNT_ID );
 				} );
 
 				it( 'requires both containers to reference the same propertyID when an Analytics tag is present', () => {
-					registry.dispatch( MODULES_ANALYTICS ).receiveGetSettings( { propertyID: '' } );
-					const { buildAndReceiveWebAndAMP } = createBuildAndReceivers( registry );
+					registry
+						.dispatch( MODULES_ANALYTICS_4 )
+						.receiveGetSettings( { propertyID: '' } );
+					const { buildAndReceiveWebAndAMP } =
+						createBuildAndReceivers( registry );
 
 					// Matching property IDs
-					buildAndReceiveWebAndAMP( { webPropertyID: 'UA-12345-1', ampPropertyID: 'UA-12345-1' } );
-					registry.select( STORE_NAME ).__dangerousCanSubmitChanges();
-					expect( registry.select( STORE_NAME ).canSubmitChanges() ).toBe( true );
+					buildAndReceiveWebAndAMP( {
+						webPropertyID: 'UA-12345-1',
+						ampPropertyID: 'UA-12345-1',
+					} );
+					registry
+						.select( MODULES_TAGMANAGER )
+						.__dangerousCanSubmitChanges();
+					expect(
+						registry.select( MODULES_TAGMANAGER ).canSubmitChanges()
+					).toBe( true );
+				} );
+			} );
+		} );
 
-					// Non-matching property IDs
-					buildAndReceiveWebAndAMP( { webPropertyID: 'UA-12345-1', ampPropertyID: 'UA-12345-99' } );
-					expect( () => registry.select( STORE_NAME ).__dangerousCanSubmitChanges() )
-						.toThrow( INVARIANT_MULTIPLE_ANALYTICS_PROPERTY_IDS );
-					expect( registry.select( STORE_NAME ).canSubmitChanges() ).toBe( false );
+		describe( 'haveSettingsChanged', () => {
+			const googleTagGatewaySettingsEndpointRegExp = new RegExp(
+				'^/google-site-kit/v1/core/site/data/gtg-settings'
+			);
+
+			it( 'should return true when GTG settings have changed', async () => {
+				registry
+					.dispatch( CORE_SITE )
+					.receiveGetGoogleTagGatewaySettings( {
+						isEnabled: false,
+					} );
+
+				// Initially false.
+				expect(
+					registry.select( MODULES_TAGMANAGER ).haveSettingsChanged()
+				).toEqual( false );
+
+				fetchMock.getOnce( googleTagGatewaySettingsEndpointRegExp, {
+					body: { isEnabled: false },
+					status: 200,
 				} );
 
-				it( 'requires Analytics propertyID setting to match the propertyID in both containers', () => {
-					const modules = modulesFixtures.withActive( 'analytics' );
-					registry.dispatch( CORE_MODULES ).receiveGetModules( modules );
-					registry.dispatch( MODULES_ANALYTICS ).receiveGetSettings( { propertyID: '' } );
-					const { buildAndReceiveWebAndAMP } = createBuildAndReceivers( registry );
-					buildAndReceiveWebAndAMP( { webPropertyID: 'UA-12345-1', ampPropertyID: 'UA-12345-1' } );
+				registry.select( CORE_SITE ).getGoogleTagGatewaySettings();
+				await subscribeUntil(
+					registry,
+					() =>
+						registry
+							.select( CORE_SITE )
+							.getGoogleTagGatewaySettings() !== undefined
+				);
 
-					// This test only checks matching between the singular propertyID in containers
-					// and the Analytics propertyID setting. This is because the check for
-					// multiple property IDs (non-matching IDs between containers) happens before this
-					// and results in a different validation error (see above).
+				// Still false after fetching settings from server.
+				expect(
+					registry.select( MODULES_TAGMANAGER ).haveSettingsChanged()
+				).toEqual( false );
 
-					// No property ID set in Analytics
-					registry.select( STORE_NAME ).__dangerousCanSubmitChanges();
-					expect( registry.select( STORE_NAME ).canSubmitChanges() ).toBe( true );
-					// Matching property ID in Analytics and GTM
-					registry.dispatch( MODULES_ANALYTICS ).setPropertyID( 'UA-12345-1' );
-					registry.select( STORE_NAME ).__dangerousCanSubmitChanges();
-					expect( registry.select( STORE_NAME ).canSubmitChanges() ).toBe( true );
-					// Non-matching property IDs
-					registry.dispatch( MODULES_ANALYTICS ).setPropertyID( 'UA-99999-9' );
-					expect( () => registry.select( STORE_NAME ).__dangerousCanSubmitChanges() )
-						.toThrow( INVARIANT_GTM_GA_PROPERTY_ID_MISMATCH );
-					expect( registry.select( STORE_NAME ).canSubmitChanges() ).toBe( false );
-				} );
+				// True after updating settings on client.
+				registry
+					.dispatch( CORE_SITE )
+					.setGoogleTagGatewayEnabled( true );
+				expect(
+					registry.select( MODULES_TAGMANAGER ).haveSettingsChanged()
+				).toEqual( true );
+
+				// Verify the selector returns false after reverting to the original value.
+				registry
+					.dispatch( CORE_SITE )
+					.setGoogleTagGatewayEnabled( false );
+				expect(
+					registry.select( MODULES_TAGMANAGER ).haveSettingsChanged()
+				).toEqual( false );
 			} );
 		} );
 	} );

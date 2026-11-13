@@ -16,16 +16,13 @@
  * limitations under the License.
  */
 
-.googlesitekit-chart-loading,
-.googlesitekit-chart-v2-loading {
-	align-items: center;
+.googlesitekit-chart-loading {
 	display: flex;
 	flex-wrap: wrap;
 	height: 100%;
-	justify-items: center;
+	place-items: center center;
 	width: 100%;
 
-	.googlesitekit-chart-v2-loading__wrapper,
 	.googlesitekit-chart-loading__wrapper {
 		margin: 0 auto;
 		text-align: center;

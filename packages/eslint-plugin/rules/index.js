@@ -1,7 +1,7 @@
 /**
  * ESLint rules: custom rules for Site Kit.
  *
- * Site Kit by Google, Copyright 2021 Google LLC
+ * Site Kit by Google, Copyright 2023 Google LLC
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,13 +16,27 @@
  * limitations under the License.
  */
 
+/**
+ * Register `esbuild-register` so Node can `require()` TypeScript rule files at
+ * lint time (e.g. via the pre-commit hook or `npm run lint:js`). Jest is
+ * unaffected because it transforms TypeScript files via its own Babel transformer.
+ */
+require( 'esbuild-register/dist/node' ).register();
+
 module.exports = {
 	'acronym-case': require( './acronym-case' ),
+	'function-declaration-consistency': require( './function-declaration-consistency' ),
 	'jsdoc-capitalization': require( './jsdoc-capitalization' ),
 	'jsdoc-fullstop': require( './jsdoc-fullstop' ),
 	'jsdoc-newlines': require( './jsdoc-newlines' ),
-	'jsdoc-requires-since': require( './jsdoc-requires-since.js' ),
+	'jsdoc-no-unnamed-boolean-params': require( './jsdoc-no-unnamed-boolean-params' ),
+	'jsdoc-requires-since': require( './jsdoc-requires-since' ),
 	'jsdoc-tag-grouping': require( './jsdoc-tag-grouping' ),
 	'jsdoc-tag-order': require( './jsdoc-tag-order' ),
 	'jsdoc-third-person': require( './jsdoc-third-person' ),
+	'no-boolean-props-before-values': require( './no-boolean-props-before-values' ),
+	'no-direct-date': require( './no-direct-date' ),
+	'no-storybook-scenario-label': require( './no-storybook-scenario-label' ),
+	'no-yield-dispatch': require( './no-yield-dispatch' ),
+	'sort-import-groups': require( './sort-import-groups' ).default,
 };

@@ -17,20 +17,17 @@
  */
 
 /**
- * WordPress dependencies
- */
-import { addQueryArgs } from '@wordpress/url';
-
-/**
  *
  * Internal dependencies
  */
+import { CORE_SITE } from '@/js/googlesitekit/datastore/site/constants';
+import { decodeServiceURL } from '@tests/js/mock-accountChooserURL-utils';
 import {
 	createTestRegistry,
-	unsubscribeFromAll,
-} from '../../../../../tests/js/utils';
-import { STORE_NAME } from './constants';
-import { CORE_USER } from '../../../googlesitekit/datastore/user/constants';
+	provideSiteInfo,
+	provideUserInfo,
+} from '@tests/js/utils';
+import { MODULES_SEARCH_CONSOLE } from './constants';
 
 describe( 'module/search-console service store', () => {
 	const userData = {
@@ -39,61 +36,189 @@ describe( 'module/search-console service store', () => {
 		name: 'admin',
 		picture: 'https://path/to/image',
 	};
+
 	const baseURI = 'https://search.google.com/search-console';
+
+	const propertyID = 'https://example.com';
+	const domainPropertyID = 'sc-domain:example.com';
 
 	let registry;
 
-	beforeAll( () => {
+	beforeEach( () => {
 		registry = createTestRegistry();
-		registry.dispatch( CORE_USER ).receiveUserInfo( userData );
-	} );
-
-	afterAll( () => {
-		unsubscribeFromAll( registry );
+		provideUserInfo( registry, userData );
+		provideSiteInfo( registry );
 	} );
 
 	describe( 'selectors', () => {
 		describe( 'getServiceURL', () => {
-			it( 'retrieves the correct URL with no arguments', async () => {
-				const serviceURL = registry.select( STORE_NAME ).getServiceURL();
-				expect( serviceURL ).toBe( addQueryArgs( baseURI, { authuser: userData.email } ) );
+			it( 'retrieves the correct URL with no arguments', () => {
+				const serviceURL = registry
+					.select( MODULES_SEARCH_CONSOLE )
+					.getServiceURL();
+
+				expect( new URL( serviceURL ) ).toMatchObject( {
+					origin: 'https://accounts.google.com',
+					pathname: '/accountchooser',
+				} );
+				expect( serviceURL ).toMatchQueryParameters( {
+					continue:
+						'https://search.google.com/search-console?utm_source=sitekit',
+					Email: 'admin@example.com',
+					utm_source: 'sitekit',
+				} );
 			} );
 
-			it( 'adds the path parameter', () => {
-				const expectedURL = addQueryArgs( `${ baseURI }/test/path/to/deeplink`, { authuser: userData.email } );
-				const serviceURLNoSlashes = registry.select( STORE_NAME ).getServiceURL( { path: 'test/path/to/deeplink' } );
-				expect( serviceURLNoSlashes ).toEqual( expectedURL );
-				const serviceURLWithLeadingSlash = registry.select( STORE_NAME ).getServiceURL( { path: '/test/path/to/deeplink' } );
-				expect( serviceURLWithLeadingSlash ).toEqual( expectedURL );
+			it( 'appends the given path (without leading slash) to the path of the base URL', () => {
+				const serviceURL = registry
+					.select( MODULES_SEARCH_CONSOLE )
+					.getServiceURL( { path: 'test/path/to/deeplink' } );
+
+				expect(
+					new URL( decodeServiceURL( serviceURL ) ).pathname
+				).toMatch( new RegExp( '/test/path/to/deeplink$' ) );
 			} );
 
-			it( 'adds query args', async () => {
-				const path = '/test/path/to/deeplink';
-				const query = {
-					param1: '1',
-					param2: '2',
-				};
-				const serviceURL = registry.select( STORE_NAME ).getServiceURL( { path, query } );
-				expect( serviceURL.startsWith( baseURI ) ).toBe( true );
-				expect( serviceURL.split( '?' )[ 0 ].endsWith( path ) ).toBe( true );
-				expect( serviceURL ).toMatchQueryParameters( query );
+			it( 'appends the given path (with leading slash) to the path of the base URL', () => {
+				const serviceURL = registry
+					.select( MODULES_SEARCH_CONSOLE )
+					.getServiceURL( { path: '/test/path/to/deeplink' } );
+
+				expect(
+					new URL( decodeServiceURL( serviceURL ) ).pathname
+				).toMatch( new RegExp( '/test/path/to/deeplink$' ) );
+			} );
+
+			it( 'merges given query args to the base service URL args', () => {
+				const foo = 'bar';
+				const baz = 'buzz';
+				const serviceURL = registry
+					.select( MODULES_SEARCH_CONSOLE )
+					.getServiceURL( { query: { foo, baz } } );
+
+				const decodedServiceURL = decodeServiceURL( serviceURL );
+
+				expect( decodedServiceURL.startsWith( baseURI ) ).toBe( true );
+				expect( decodedServiceURL ).toMatchQueryParameters( {
+					foo,
+					baz,
+				} );
 			} );
 		} );
+
+		describe( 'getServiceReportURL', () => {
+			beforeEach( () => {
+				registry
+					.dispatch( MODULES_SEARCH_CONSOLE )
+					.setPropertyID( propertyID );
+			} );
+
+			it( 'returns a deep link to a search-analytics report', () => {
+				const serviceURL = registry
+					.select( MODULES_SEARCH_CONSOLE )
+					.getServiceReportURL();
+
+				const decodedServiceURL = decodeServiceURL( serviceURL );
+
+				expect( new URL( decodedServiceURL ).pathname ).toMatch(
+					new RegExp( '/performance/search-analytics$' )
+				);
+			} );
+
+			it( 'adds the `resource_id` query arg for the current property ID', () => {
+				const serviceURL = registry
+					.select( MODULES_SEARCH_CONSOLE )
+					.getServiceReportURL();
+
+				const decodedServiceURL = decodeServiceURL( serviceURL );
+
+				expect( decodedServiceURL ).toMatchQueryParameters( {
+					resource_id: propertyID,
+				} );
+			} );
+
+			it( 'sets a default `page` query arg for domain properties', () => {
+				registry
+					.dispatch( MODULES_SEARCH_CONSOLE )
+					.setPropertyID( domainPropertyID );
+				expect(
+					registry.select( MODULES_SEARCH_CONSOLE ).isDomainProperty()
+				).toBe( true );
+				const serviceURL = registry
+					.select( MODULES_SEARCH_CONSOLE )
+					.getServiceReportURL();
+
+				const decodedServiceURL = decodeServiceURL( serviceURL );
+
+				const referenceSiteURL = registry
+					.select( CORE_SITE )
+					.getReferenceSiteURL();
+
+				expect( decodedServiceURL ).toMatchQueryParameters( {
+					resource_id: domainPropertyID,
+					page: `*${ referenceSiteURL }`,
+				} );
+			} );
+
+			it( 'sets a default `page` query arg for domain properties that takes precedence over an `undefined` page report arg', () => {
+				registry
+					.dispatch( MODULES_SEARCH_CONSOLE )
+					.setPropertyID( domainPropertyID );
+				expect(
+					registry.select( MODULES_SEARCH_CONSOLE ).isDomainProperty()
+				).toBe( true );
+				const serviceURL = registry
+					.select( MODULES_SEARCH_CONSOLE )
+					.getServiceReportURL( { page: undefined } );
+
+				const decodedServiceURL = decodeServiceURL( serviceURL );
+
+				const referenceSiteURL = registry
+					.select( CORE_SITE )
+					.getReferenceSiteURL();
+
+				expect( decodedServiceURL ).toMatchQueryParameters( {
+					resource_id: domainPropertyID,
+					page: `*${ referenceSiteURL }`,
+				} );
+			} );
+		} );
+
+		describe( 'getServiceEntityAccessURL', () => {
+			beforeEach( () => {
+				registry
+					.dispatch( MODULES_SEARCH_CONSOLE )
+					.setPropertyID( domainPropertyID );
+			} );
+
+			it( 'adds the `resource_id` query arg for the current property ID', () => {
+				const serviceURL = registry
+					.select( MODULES_SEARCH_CONSOLE )
+					.getServiceEntityAccessURL();
+
+				const decodedServiceURL = decodeServiceURL( serviceURL );
+
+				expect( decodedServiceURL ).toMatchQueryParameters( {
+					resource_id: domainPropertyID,
+				} );
+			} );
+		} );
+
 		describe( 'isDomainProperty', () => {
-			it( 'should identify if property is search console domain property', async () => {
-				registry.dispatch( STORE_NAME ).setSettings( {
-					propertyID: 'http://sitekit.google.com',
-				} );
+			it( 'should identify if property is search console domain property', () => {
+				registry
+					.dispatch( MODULES_SEARCH_CONSOLE )
+					.setPropertyID( propertyID );
+				expect(
+					registry.select( MODULES_SEARCH_CONSOLE ).isDomainProperty()
+				).toBe( false );
 
-				let isDomainProperty = registry.select( STORE_NAME ).isDomainProperty();
-				expect( isDomainProperty ).toBe( false );
-
-				registry.dispatch( STORE_NAME ).setSettings( {
-					propertyID: 'sc-domain:sitekit.google.com',
-				} );
-
-				isDomainProperty = registry.select( STORE_NAME ).isDomainProperty();
-				expect( isDomainProperty ).toBe( true );
+				registry
+					.dispatch( MODULES_SEARCH_CONSOLE )
+					.setPropertyID( domainPropertyID );
+				expect(
+					registry.select( MODULES_SEARCH_CONSOLE ).isDomainProperty()
+				).toBe( true );
 			} );
 		} );
 	} );

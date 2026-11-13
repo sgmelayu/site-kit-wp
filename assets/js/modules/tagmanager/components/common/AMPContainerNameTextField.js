@@ -17,27 +17,41 @@
  */
 
 /**
+ * External dependencies
+ */
+import { useMount } from 'react-use';
+
+/**
  * WordPress dependencies
  */
-import { useEffect } from '@wordpress/element';
 import { __ } from '@wordpress/i18n';
 import { isURL } from '@wordpress/url';
 
 /**
  * Internal dependencies
  */
-import Data from 'googlesitekit-data';
-import { STORE_NAME, FORM_SETUP, CONTAINER_CREATE } from '../../datastore/constants';
-import { CORE_SITE } from '../../../../googlesitekit/datastore/site/constants';
-import { CORE_FORMS } from '../../../../googlesitekit/datastore/forms/constants';
+import { useSelect } from 'googlesitekit-data';
+import { CORE_SITE } from '@/js/googlesitekit/datastore/site/constants';
+import useFormValue from '@/js/hooks/useFormValue';
+import {
+	CONTAINER_CREATE,
+	FORM_SETUP,
+	MODULES_TAGMANAGER,
+} from '@/js/modules/tagmanager/datastore/constants';
 import ContainerNameTextField from './ContainerNameTextField';
-const { useSelect, useDispatch } = Data;
 
 export default function AMPContainerNameTextField() {
-	const ampContainerID = useSelect( ( select ) => select( STORE_NAME ).getAMPContainerID() );
-	const siteName = useSelect( ( select ) => select( CORE_SITE ).getSiteName() );
-	const referenceSiteURL = useSelect( ( select ) => select( CORE_SITE ).getReferenceSiteURL() );
-	const initialAMPContainerName = useSelect( ( select ) => select( CORE_FORMS ).getValue( FORM_SETUP, 'ampContainerName' ), [] );
+	const ampContainerID = useSelect( ( select ) =>
+		select( MODULES_TAGMANAGER ).getAMPContainerID()
+	);
+	const siteName = useSelect( ( select ) =>
+		select( CORE_SITE ).getSiteName()
+	);
+	const referenceSiteURL = useSelect( ( select ) =>
+		select( CORE_SITE ).getReferenceSiteURL()
+	);
+	const [ initialAMPContainerName, setInitialAMPContainerName ] =
+		useFormValue( FORM_SETUP, 'ampContainerName' );
 
 	let ampContainerName = siteName;
 	if ( ! ampContainerName && isURL( referenceSiteURL ) ) {
@@ -46,12 +60,11 @@ export default function AMPContainerNameTextField() {
 
 	ampContainerName += ' AMP';
 
-	const { setValues } = useDispatch( CORE_FORMS );
-	useEffect( () => {
+	useMount( () => {
 		if ( ! initialAMPContainerName ) {
-			setValues( FORM_SETUP, { ampContainerName } );
+			setInitialAMPContainerName( ampContainerName );
 		}
-	}, [] );
+	} );
 
 	if ( ampContainerID !== CONTAINER_CREATE ) {
 		return null;

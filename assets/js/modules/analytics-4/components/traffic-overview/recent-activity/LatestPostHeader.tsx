@@ -1,0 +1,120 @@
+/**
+ * Recent activity latest post header.
+ *
+ * Site Kit by Google, Copyright 2026 Google LLC
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     https://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+/**
+ * External dependencies
+ */
+import { FC, MouseEvent } from 'react';
+
+/**
+ * WordPress dependencies
+ */
+import { __, sprintf } from '@wordpress/i18n';
+
+/**
+ * Internal dependencies
+ */
+import { Select, useDispatch, useSelect } from 'googlesitekit-data';
+import Link from '@/js/components/Link';
+import { SIZE_SMALL } from '@/js/components/Typography/constants';
+import P from '@/js/components/Typography/P';
+import { CORE_LOCATION } from '@/js/googlesitekit/datastore/location/constants';
+import { CORE_SITE } from '@/js/googlesitekit/datastore/site/constants';
+import { useTrackPostLinkClick } from '@/js/modules/analytics-4/components/traffic-overview/hooks/useTrackPostLinkClick';
+import { RecentContentItem } from '@/js/modules/analytics-4/datastore/fresh-data';
+import { formatDate } from '@/js/util';
+import PushPinIcon from '@/svg/icons/push-pin.svg';
+
+interface LatestPostHeaderProps {
+	/** The post to show the title and the publish time of. */
+	post: RecentContentItem;
+}
+
+const LatestPostHeader: FC< LatestPostHeaderProps > = ( { post } ) => {
+	const trackPostLinkClick = useTrackPostLinkClick( 'latest-post-header' );
+	const { navigateTo } = useDispatch( CORE_LOCATION );
+
+	const entityDashboardURL = useSelect(
+		( select: Select ) =>
+			select( CORE_SITE ).getAdminURL( 'googlesitekit-dashboard', {
+				permaLink: post.permalink,
+			} ),
+		[ post.permalink ]
+	);
+
+	async function handlePostLinkClick(
+		event: MouseEvent< HTMLAnchorElement | HTMLButtonElement >
+	) {
+		// A Command or Control click opens the link in a new tab or window, so
+		// this page stays open to save the click, and the browser handles the
+		// click.
+		if ( event.metaKey || event.ctrlKey ) {
+			trackPostLinkClick();
+			return;
+		}
+
+		// The default must be prevented before the `await`, or the browser
+		// leaves the page before the click is saved.
+		event.preventDefault();
+
+		await trackPostLinkClick();
+
+		navigateTo( entityDashboardURL );
+	}
+
+	// The site time has no time zone suffix, so reading it as UTC and
+	// formatting it in UTC shows it unchanged, as WordPress shows it. This
+	// also works for a site set to a UTC offset, which has no named time zone.
+	// eslint-disable-next-line sitekit/no-direct-date -- The date comes from the post's publish time, not from the reference date.
+	const publishTime = formatDate( new Date( `${ post.sitePublishedAt }Z` ), {
+		year: undefined,
+		month: 'long',
+		hour: 'numeric',
+		minute: '2-digit',
+		timeZone: 'UTC',
+	} );
+
+	return (
+		<div className="googlesitekit-traffic-overview__latest-post-header">
+			<span className="googlesitekit-traffic-overview__latest-post-icon">
+				<PushPinIcon width={ 20 } height={ 20 } />
+			</span>
+			<div>
+				<Link
+					className="googlesitekit-traffic-overview__latest-post-title"
+					href={ entityDashboardURL }
+					onClick={ handlePostLinkClick }
+				>
+					{ post.title }
+				</Link>
+				<P
+					className="googlesitekit-traffic-overview__latest-post-date"
+					size={ SIZE_SMALL }
+				>
+					{ sprintf(
+						/* translators: %s: The date and time the post was published, e.g. "July 14, 14:30". */
+						__( 'posted %s', 'google-site-kit' ),
+						publishTime
+					) }
+				</P>
+			</div>
+		</div>
+	);
+};
+
+export default LatestPostHeader;

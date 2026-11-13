@@ -1,5 +1,5 @@
 /**
- * AdSense Setup Account No Client component.
+ * SetupAccountNoClient component.
  *
  * Site Kit by Google, Copyright 2021 Google LLC
  *
@@ -19,43 +19,80 @@
 /**
  * WordPress dependencies
  */
-import { Fragment } from '@wordpress/element';
+import {
+	Fragment,
+	createInterpolateElement,
+	useCallback,
+} from '@wordpress/element';
 import { __ } from '@wordpress/i18n';
 
 /**
  * Internal dependencies
  */
-import Data from 'googlesitekit-data';
-import Link from '../../../../components/Link';
-import { ErrorNotices } from '../common';
-import { CORE_SITE } from '../../../../googlesitekit/datastore/site/constants';
-const { useSelect } = Data;
+import { Button } from 'googlesitekit-components';
+import SupportLink from '@/js/components/SupportLink';
+import Typography from '@/js/components/Typography';
+import P from '@/js/components/Typography/P';
+import useViewContext from '@/js/hooks/useViewContext';
+import { ErrorNotices } from '@/js/modules/adsense/components/common';
+import { trackEvent } from '@/js/util';
 
 export default function SetupAccountNoClient() {
-	const supportURL = useSelect( ( select ) => select( CORE_SITE ).getGoogleSupportURL( {
-		path: '/adsense/answer/6023158',
-	} ) );
+	const viewContext = useViewContext();
+
+	const onButtonClick = useCallback( () => {
+		trackEvent( `${ viewContext }_adsense`, 'apply_afc' );
+	}, [ viewContext ] );
 
 	return (
 		<Fragment>
-			<h3 className="googlesitekit-heading-4 googlesitekit-setup-module__title">
-				{ __( 'Looks like you have an AdMob account', 'google-site-kit' ) }
-			</h3>
+			<Typography
+				as="h3"
+				type="title"
+				size="large"
+				className="googlesitekit-setup-module__title"
+			>
+				{ __(
+					'Looks like you need to upgrade your AdSense account',
+					'google-site-kit'
+				) }
+			</Typography>
 
 			<ErrorNotices />
 
-			<p>
-				{ __( 'To start using AdSense, you need to update your account so that you can connect your site to AdSense.', 'google-site-kit' ) }
-			</p>
+			<P>
+				{ createInterpolateElement(
+					__(
+						'To start using AdSense on your website, you need to upgrade your account to add “AdSense for content”. <a>Learn more</a>',
+						'google-site-kit'
+					),
+					{
+						a: (
+							<SupportLink
+								path="/adsense/answer/6023158"
+								aria-label={ __(
+									'Learn more about updating your AdSense account',
+									'google-site-kit'
+								) }
+								external
+							/>
+						),
+					}
+				) }
+			</P>
 
 			<div className="googlesitekit-setup-module__action">
-				<Link
-					href={ supportURL }
-					external
-					aria-label={ __( 'Learn more about updating your AdSense account', 'google-site-kit' ) }
+				<Button
+					href="https://www.google.com/adsense"
+					target="_blank"
+					aria-label={ __(
+						'Learn more about updating your AdSense account',
+						'google-site-kit'
+					) }
+					onClick={ onButtonClick }
 				>
-					{ __( 'Learn more', 'google-site-kit' ) }
-				</Link>
+					{ __( 'Apply now', 'google-site-kit' ) }
+				</Button>
 			</div>
 		</Fragment>
 	);

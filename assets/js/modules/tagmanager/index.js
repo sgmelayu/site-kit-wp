@@ -17,24 +17,33 @@
  */
 
 /**
+ * WordPress dependencies
+ */
+import { __ } from '@wordpress/i18n';
+
+/**
  * Internal dependencies
  */
-import { SetupMain } from './components/setup';
+import TagManagerIcon from '@/svg/graphics/tagmanager.svg';
 import { SettingsEdit, SettingsView } from './components/settings';
-import TagManagerIcon from '../../../svg/tagmanager.svg';
-import { STORE_NAME } from './datastore/constants';
+import { SetupMain } from './components/setup';
+import { MODULE_SLUG_TAGMANAGER } from './constants';
+import { MODULES_TAGMANAGER } from './datastore/constants';
 
 export { registerStore } from './datastore';
 
-export const registerModule = ( modules ) => {
-	modules.registerModule(
-		'tagmanager',
-		{
-			storeName: STORE_NAME,
-			SettingsEditComponent: SettingsEdit,
-			SettingsViewComponent: SettingsView,
-			SetupComponent: SetupMain,
-			Icon: TagManagerIcon,
-		}
-	);
-};
+export function registerModule( modules ) {
+	modules.registerModule( MODULE_SLUG_TAGMANAGER, {
+		storeName: MODULES_TAGMANAGER,
+		SettingsEditComponent: SettingsEdit,
+		SettingsViewComponent: SettingsView,
+		SetupComponent: SetupMain,
+		Icon: TagManagerIcon,
+		features: [
+			__(
+				'You will not be able to create tags without updating code',
+				'google-site-kit'
+			),
+		],
+	} );
+}

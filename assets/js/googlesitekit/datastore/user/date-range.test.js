@@ -19,9 +19,9 @@
 /**
  * Internal dependencies
  */
-import { createTestRegistry } from '../../../../../tests/js/utils';
-import { STORE_NAME } from './constants';
-import { getDateString } from './utils';
+import { getDateString, stringToDate } from '@/js/util';
+import { createTestRegistry, provideTimezone } from '@tests/js/utils';
+import { CORE_USER } from './constants';
 
 describe( 'core/user date-range', () => {
 	let registry;
@@ -34,30 +34,233 @@ describe( 'core/user date-range', () => {
 		describe( 'setDateRange', () => {
 			it( 'should require the date range slug param', () => {
 				expect( () => {
-					registry.dispatch( STORE_NAME ).setDateRange();
+					registry.dispatch( CORE_USER ).setDateRange();
 				} ).toThrow( 'Date range slug is required.' );
+			} );
+
+			it( 'should reject an invalid slug', () => {
+				expect( () =>
+					registry.dispatch( CORE_USER ).setDateRange( 'invalid' )
+				).toThrow( 'Invalid date range' );
 			} );
 
 			it( 'should set the date range', () => {
 				const someDateRange = 'last-14-days';
 
-				registry.dispatch( STORE_NAME ).setDateRange( someDateRange );
-				expect( registry.select( STORE_NAME ).getDateRange() ).toEqual( someDateRange );
+				registry.dispatch( CORE_USER ).setDateRange( someDateRange );
+				expect(
+					registry.select( CORE_USER ).getDateRangeSelection()
+				).toEqual( { type: 'preset', slug: someDateRange } );
+				expect( registry.select( CORE_USER ).getDateRange() ).toEqual(
+					someDateRange
+				);
+			} );
+		} );
+
+		describe( 'setDateRangeSelection', () => {
+			beforeEach( () => {
+				registry.dispatch( CORE_USER ).setReferenceDate( '2026-09-07' );
+			} );
+
+			it.each( [
+				[ 'a 7-day preset', { type: 'preset', slug: 'last-7-days' } ],
+				[
+					'the legacy 14-day preset',
+					{ type: 'preset', slug: 'last-14-days' },
+				],
+				[ 'a 28-day preset', { type: 'preset', slug: 'last-28-days' } ],
+				[ 'a 90-day preset', { type: 'preset', slug: 'last-90-days' } ],
+				[
+					'the current calendar month',
+					{ type: 'calendarMonth', month: '2026-09' },
+				],
+				[
+					'the earliest selectable month',
+					{ type: 'calendarMonth', month: '2025-08' },
+				],
+				[
+					'the full selectable window',
+					{
+						type: 'custom',
+						startDate: '2025-08-01',
+						endDate: '2026-09-07',
+					},
+				],
+				[
+					'a single-day custom range',
+					{
+						type: 'custom',
+						startDate: '2026-09-07',
+						endDate: '2026-09-07',
+					},
+				],
+			] )( 'should commit %s', async ( _label, selection ) => {
+				await registry
+					.dispatch( CORE_USER )
+					.setDateRangeSelection( selection );
+				expect(
+					registry.select( CORE_USER ).getDateRangeSelection()
+				).toEqual( selection );
+			} );
+
+			it.each( [
+				[ 'an undefined selection', undefined ],
+				[ 'a null selection', null ],
+				[ 'an empty object', {} ],
+				[ 'an array', [] ],
+				[ 'a bare slug', 'last-28-days' ],
+				[ 'an unknown selection type', { type: 'invalid' } ],
+				[ 'a missing preset slug', { type: 'preset' } ],
+				[ 'a numeric preset slug', { type: 'preset', slug: 28 } ],
+				[
+					'an invalid preset slug',
+					{ type: 'preset', slug: 'invalid-range' },
+				],
+				[ 'a missing calendar month', { type: 'calendarMonth' } ],
+				[
+					'a numeric calendar month',
+					{ type: 'calendarMonth', month: 202609 },
+				],
+				[
+					'an unpadded calendar month',
+					{ type: 'calendarMonth', month: '2026-9' },
+				],
+				[
+					'a full date as the month',
+					{ type: 'calendarMonth', month: '2026-09-01' },
+				],
+				[ 'month zero', { type: 'calendarMonth', month: '2026-00' } ],
+				[
+					'month thirteen',
+					{ type: 'calendarMonth', month: '2026-13' },
+				],
+				[
+					'a month before the window',
+					{ type: 'calendarMonth', month: '2025-07' },
+				],
+				[
+					'a future month',
+					{ type: 'calendarMonth', month: '2026-10' },
+				],
+				[ 'missing custom endpoints', { type: 'custom' } ],
+				[
+					'a missing custom end date',
+					{ type: 'custom', startDate: '2026-08-01' },
+				],
+				[
+					'a numeric custom start date',
+					{ type: 'custom', startDate: 1, endDate: '2026-09-07' },
+				],
+				[
+					'an unpadded custom start date',
+					{
+						type: 'custom',
+						startDate: '2026-08-1',
+						endDate: '2026-09-07',
+					},
+				],
+				[
+					'an unpadded custom end date',
+					{
+						type: 'custom',
+						startDate: '2026-08-01',
+						endDate: '2026-9-07',
+					},
+				],
+				[
+					'a non-leap February 29',
+					{
+						type: 'custom',
+						startDate: '2026-02-29',
+						endDate: '2026-09-07',
+					},
+				],
+				[
+					'an impossible end date',
+					{
+						type: 'custom',
+						startDate: '2026-08-01',
+						endDate: '2026-08-32',
+					},
+				],
+				[
+					'a timestamp as the start date',
+					{
+						type: 'custom',
+						startDate: '2026-08-01T00:00:00Z',
+						endDate: '2026-09-07',
+					},
+				],
+				[
+					'reversed custom endpoints',
+					{
+						type: 'custom',
+						startDate: '2026-09-07',
+						endDate: '2026-09-06',
+					},
+				],
+				[
+					'a custom start before the window',
+					{
+						type: 'custom',
+						startDate: '2025-07-31',
+						endDate: '2026-09-07',
+					},
+				],
+				[
+					'a custom end after the reference date',
+					{
+						type: 'custom',
+						startDate: '2026-09-07',
+						endDate: '2026-09-08',
+					},
+				],
+			] )(
+				'should reject %s without changing state',
+				async ( _label, selection ) => {
+					await expect(
+						registry
+							.dispatch( CORE_USER )
+							.setDateRangeSelection( selection )
+					).rejects.toThrow( 'Invalid date range selection.' );
+					expect(
+						registry.select( CORE_USER ).getDateRangeSelection()
+					).toEqual( { type: 'preset', slug: 'last-28-days' } );
+				}
+			);
+
+			it( 'should accept valid leap days', async () => {
+				registry.dispatch( CORE_USER ).setReferenceDate( '2024-03-01' );
+				const selection = {
+					type: 'custom',
+					startDate: '2024-02-29',
+					endDate: '2024-02-29',
+				};
+				await registry
+					.dispatch( CORE_USER )
+					.setDateRangeSelection( selection );
+				expect(
+					registry.select( CORE_USER ).getDateRangeNumberOfDays()
+				).toBe( 1 );
 			} );
 		} );
 
 		describe( 'setReferenceDate', () => {
 			it( 'should require the date string param', () => {
 				expect( () => {
-					registry.dispatch( STORE_NAME ).setReferenceDate();
+					registry.dispatch( CORE_USER ).setReferenceDate();
 				} ).toThrow( 'Date string is required.' );
 			} );
 
 			it( 'should set the reference date', () => {
 				const someReferenceDate = '2020-09-12';
 
-				registry.dispatch( STORE_NAME ).setReferenceDate( someReferenceDate );
-				expect( registry.stores[ STORE_NAME ].store.getState().referenceDate ).toEqual( someReferenceDate );
+				registry
+					.dispatch( CORE_USER )
+					.setReferenceDate( someReferenceDate );
+				expect(
+					registry.stores[ CORE_USER ].store.getState().referenceDate
+				).toEqual( someReferenceDate );
 			} );
 		} );
 	} );
@@ -67,14 +270,19 @@ describe( 'core/user date-range', () => {
 			it( 'should return the date range once set', () => {
 				const someDateRange = 'last-7-days';
 
-				registry.dispatch( STORE_NAME ).setDateRange( someDateRange );
-				expect( registry.select( STORE_NAME ).getDateRange() )
-					.toEqual( someDateRange );
+				registry.dispatch( CORE_USER ).setDateRange( someDateRange );
+				expect(
+					registry.select( CORE_USER ).getDateRangeSelection()
+				).toEqual( { type: 'preset', slug: someDateRange } );
+				expect( registry.select( CORE_USER ).getDateRange() ).toEqual(
+					someDateRange
+				);
 			} );
 
 			it( 'should return "last-28-days" when no date range is set', () => {
-				expect( registry.select( STORE_NAME ).getDateRange() )
-					.toEqual( 'last-28-days' );
+				expect( registry.select( CORE_USER ).getDateRange() ).toEqual(
+					'last-28-days'
+				);
 			} );
 		} );
 
@@ -82,155 +290,96 @@ describe( 'core/user date-range', () => {
 			// referenceDate is passed to allow for static date testing
 			const options = { referenceDate: '2020-09-24' };
 
-			const createDateRangeTest = ( dateRange, expected, additionalOptions = {} ) => {
-				registry.dispatch( STORE_NAME ).setDateRange( dateRange );
-				expect( registry.select( STORE_NAME ).getDateRangeDates( { ...options, ...additionalOptions } ) )
-					.toEqual( expected );
-			};
+			function createDateRangeTest(
+				dateRange,
+				expected,
+				additionalOptions = {}
+			) {
+				registry.dispatch( CORE_USER ).setDateRange( dateRange );
+
+				expect(
+					registry.select( CORE_USER ).getDateRangeDates( {
+						...options,
+						...additionalOptions,
+					} )
+				).toEqual( expected );
+			}
 
 			describe( 'with date range', () => {
 				// [ dateRange, expectedReturnDates ]
 				const valuesToTest = [
-					[ 'last-1-days', { startDate: '2020-09-24', endDate: '2020-09-24' } ],
-					[ 'last-7-days', { startDate: '2020-09-18', endDate: '2020-09-24' } ],
-					[ 'last-365-days', { startDate: '2019-09-26', endDate: '2020-09-24' } ],
+					[
+						'last-1-days',
+						{ startDate: '2020-09-24', endDate: '2020-09-24' },
+					],
+					[
+						'last-7-days',
+						{ startDate: '2020-09-18', endDate: '2020-09-24' },
+					],
+					[
+						'last-365-days',
+						{ startDate: '2019-09-26', endDate: '2020-09-24' },
+					],
 				];
 
-				it.each( valuesToTest )( 'should return proper dates for "%s"', ( dateRange, expected ) => {
-					createDateRangeTest( dateRange, expected );
-				} );
+				it.each( valuesToTest )(
+					'should return proper dates for "%s"',
+					( dateRange, expected ) => {
+						createDateRangeTest( dateRange, expected );
+					}
+				);
 			} );
 
-			describe( 'with date range & offset', () => {
-				// [ dateRange, offsetDays, expectedReturnDates ]
+			describe( 'with date range & compare', () => {
+				// [ dateRange, expectedReturnDates ]
 				const valuesToTest = [
-					[ 'last-1-days', 0, { startDate: '2020-09-24', endDate: '2020-09-24' } ],
-					[ 'last-7-days', 0, { startDate: '2020-09-18', endDate: '2020-09-24' } ],
-					[ 'last-30-days', 0, { startDate: '2020-08-26', endDate: '2020-09-24' } ],
-					[ 'last-1-days', 3, { startDate: '2020-09-21', endDate: '2020-09-21' } ],
-					[ 'last-7-days', 3, { startDate: '2020-09-15', endDate: '2020-09-21' } ],
-					[ 'last-30-days', 3, { startDate: '2020-08-23', endDate: '2020-09-21' } ],
+					[
+						'last-1-days',
+						{
+							startDate: '2020-09-24',
+							endDate: '2020-09-24',
+							compareStartDate: '2020-09-23',
+							compareEndDate: '2020-09-23',
+						},
+					],
+					[
+						'last-7-days',
+						{
+							startDate: '2020-09-18',
+							endDate: '2020-09-24',
+							compareStartDate: '2020-09-11',
+							compareEndDate: '2020-09-17',
+						},
+					],
+					[
+						'last-30-days',
+						{
+							startDate: '2020-08-26',
+							endDate: '2020-09-24',
+							compareStartDate: '2020-07-27',
+							compareEndDate: '2020-08-25',
+						},
+					],
 				];
 
-				const testName = 'should return proper dates for "%s" & offsetDays %s';
-				it.each( valuesToTest )( testName, ( dateRange, offsetDays, expected ) => {
-					createDateRangeTest( dateRange, expected, { offsetDays } );
-				} );
-			} );
+				const testName =
+					'should return proper dates for "%s" & compare';
 
-			describe( 'with date range, offset, & compare', () => {
-				// [ dateRange, offsetDays, expectedReturnDates ]
-				const valuesToTest = [
-					[ 'last-1-days', 0, {
-						startDate: '2020-09-24',
-						endDate: '2020-09-24',
-						compareStartDate: '2020-09-23',
-						compareEndDate: '2020-09-23',
-					} ],
-					[ 'last-7-days', 0, {
-						startDate: '2020-09-18',
-						endDate: '2020-09-24',
-						compareStartDate: '2020-09-11',
-						compareEndDate: '2020-09-17',
-					} ],
-					[ 'last-30-days', 0, {
-						startDate: '2020-08-26',
-						endDate: '2020-09-24',
-						compareStartDate: '2020-07-27',
-						compareEndDate: '2020-08-25',
-					} ],
-					[ 'last-1-days', 3, {
-						startDate: '2020-09-21',
-						endDate: '2020-09-21',
-						compareStartDate: '2020-09-20',
-						compareEndDate: '2020-09-20',
-					} ],
-					[ 'last-7-days', 3, {
-						startDate: '2020-09-15',
-						endDate: '2020-09-21',
-						compareStartDate: '2020-09-08',
-						compareEndDate: '2020-09-14',
-					} ],
-					[ 'last-30-days', 3, {
-						startDate: '2020-08-23',
-						endDate: '2020-09-21',
-						compareStartDate: '2020-07-24',
-						compareEndDate: '2020-08-22',
-					} ],
-				];
-
-				const testName = 'should return proper dates for "%s" & offsetDays %s, & compare';
-				it.each( valuesToTest )( testName, ( dateRange, offsetDays, expected ) => {
-					createDateRangeTest( dateRange, expected, { offsetDays, compare: true } );
-				} );
-			} );
-
-			describe( 'with date range, offset, compare, & weekDayAlign', () => {
-				// [ dateRange, offsetDays, expectedReturnDates ]
-				const valuesToTest = [
-					[ 'last-1-days', 1, {
-						startDate: '2020-09-23',
-						endDate: '2020-09-23',
-						compareStartDate: '2020-09-16',
-						compareEndDate: '2020-09-16',
-					} ],
-					[ 'last-3-days', 1, {
-						startDate: '2020-09-21',
-						endDate: '2020-09-23',
-						compareStartDate: '2020-09-14',
-						compareEndDate: '2020-09-16',
-					} ],
-					[ 'last-7-days', 1, {
-						startDate: '2020-09-17',
-						endDate: '2020-09-23',
-						compareStartDate: '2020-09-10',
-						compareEndDate: '2020-09-16',
-					} ],
-					[ 'last-1-days', 3, {
-						startDate: '2020-09-21',
-						endDate: '2020-09-21',
-						compareStartDate: '2020-09-14',
-						compareEndDate: '2020-09-14',
-					} ],
-					[ 'last-3-days', 3, {
-						startDate: '2020-09-19',
-						endDate: '2020-09-21',
-						compareStartDate: '2020-09-12',
-						compareEndDate: '2020-09-14',
-					} ],
-					[ 'last-7-days', 3, {
-						startDate: '2020-09-15',
-						endDate: '2020-09-21',
-						compareStartDate: '2020-09-08',
-						compareEndDate: '2020-09-14',
-					} ],
-					[ 'last-28-days', 0, {
-						startDate: '2020-08-28',
-						endDate: '2020-09-24',
-						compareStartDate: '2020-07-31',
-						compareEndDate: '2020-08-27',
-					} ],
-					[ 'last-90-days', 0, {
-						startDate: '2020-06-27',
-						endDate: '2020-09-24',
-						compareStartDate: '2020-03-28',
-						compareEndDate: '2020-06-25',
-					} ],
-				];
-
-				const testName = 'should return proper dates for "%s", offsetDays %s, compare, & weekDayAlign';
-				it.each( valuesToTest )( testName, ( dateRange, offsetDays, expected ) => {
-					createDateRangeTest( dateRange, expected, { offsetDays, compare: true, weekDayAlign: true } );
+				it.each( valuesToTest )( testName, ( dateRange, expected ) => {
+					createDateRangeTest( dateRange, expected, {
+						compare: true,
+					} );
 				} );
 			} );
 		} );
 
 		describe( 'getDateRangeNumberOfDays', () => {
-			const createNumberOfDaysTest = ( dateRange, expectedNumberOfDays ) => {
-				registry.dispatch( STORE_NAME ).setDateRange( dateRange );
-				expect( registry.select( STORE_NAME ).getDateRangeNumberOfDays() )
-					.toEqual( expectedNumberOfDays );
-			};
+			function createNumberOfDaysTest( dateRange, expectedNumberOfDays ) {
+				registry.dispatch( CORE_USER ).setDateRange( dateRange );
+				expect(
+					registry.select( CORE_USER ).getDateRangeNumberOfDays()
+				).toEqual( expectedNumberOfDays );
+			}
 
 			describe( 'with date range', () => {
 				// [ dateRange, expectedNumberOfDays ]
@@ -245,9 +394,321 @@ describe( 'core/user date-range', () => {
 					[ 'last-90-days', 90 ],
 				];
 
-				it.each( valuesToTest )( 'should return proper number of days for "%s"', ( dateRange, expectedNumberOfDays ) => {
-					createNumberOfDaysTest( dateRange, expectedNumberOfDays );
+				it.each( valuesToTest )(
+					'should return proper number of days for "%s"',
+					( dateRange, expectedNumberOfDays ) => {
+						createNumberOfDaysTest(
+							dateRange,
+							expectedNumberOfDays
+						);
+					}
+				);
+			} );
+		} );
+
+		describe( 'selection resolution', () => {
+			it.each( [
+				[
+					'a 28-day preset',
+					{ type: 'preset', slug: 'last-28-days' },
+					'last-28-days',
+					28,
+					'2026-08-11',
+					'2026-09-07',
+					'2026-07-14',
+					'2026-08-10',
+				],
+				[
+					'a completed calendar month',
+					{ type: 'calendarMonth', month: '2026-08' },
+					'month-2026-08',
+					31,
+					'2026-08-01',
+					'2026-08-31',
+					'2026-07-01',
+					'2026-07-31',
+				],
+				[
+					'the current partial month',
+					{ type: 'calendarMonth', month: '2026-09' },
+					'month-2026-09',
+					7,
+					'2026-09-01',
+					'2026-09-07',
+					'2026-08-25',
+					'2026-08-31',
+				],
+				[
+					'a custom range spanning months',
+					{
+						type: 'custom',
+						startDate: '2026-04-04',
+						endDate: '2026-08-04',
+					},
+					'custom-2026-08-04-last-123-days',
+					123,
+					'2026-04-04',
+					'2026-08-04',
+					'2025-12-02',
+					'2026-04-03',
+				],
+				[
+					'a single-day custom range',
+					{
+						type: 'custom',
+						startDate: '2026-09-07',
+						endDate: '2026-09-07',
+					},
+					'custom-2026-09-07-last-1-days',
+					1,
+					'2026-09-07',
+					'2026-09-07',
+					'2026-09-06',
+					'2026-09-06',
+				],
+			] )(
+				'should resolve %s and its immediately preceding comparison period',
+				async (
+					_label,
+					selection,
+					slug,
+					days,
+					startDate,
+					endDate,
+					compareStartDate,
+					compareEndDate
+				) => {
+					registry
+						.dispatch( CORE_USER )
+						.setReferenceDate( '2026-09-07' );
+					await registry
+						.dispatch( CORE_USER )
+						.setDateRangeSelection( selection );
+					const select = registry.select( CORE_USER );
+					expect( select.getDateRange() ).toBe( slug );
+					expect( select.getDateRangeNumberOfDays() ).toBe( days );
+					expect( select.getDateRangeDates() ).toEqual( {
+						startDate,
+						endDate,
+					} );
+					expect(
+						select.getDateRangeDates( { compare: true } )
+					).toEqual( {
+						startDate,
+						endDate,
+						compareStartDate,
+						compareEndDate,
+					} );
+				}
+			);
+
+			describe.each( [
+				[
+					'Sydney spring forward',
+					'Australia/Sydney',
+					'2026-10-07',
+					'2026-10-01',
+					'2026-09-24',
+					'2026-09-30',
+					-600,
+					-660,
+				],
+				[
+					'Sydney fall back',
+					'Australia/Sydney',
+					'2026-04-07',
+					'2026-04-01',
+					'2026-03-25',
+					'2026-03-31',
+					-660,
+					-600,
+				],
+				[
+					'New York spring forward',
+					'America/New_York',
+					'2026-03-10',
+					'2026-03-04',
+					'2026-02-25',
+					'2026-03-03',
+					300,
+					240,
+				],
+				[
+					'New York fall back',
+					'America/New_York',
+					'2026-11-03',
+					'2026-10-28',
+					'2026-10-21',
+					'2026-10-27',
+					240,
+					300,
+				],
+			] )(
+				'%s',
+				(
+					_label,
+					timezone,
+					referenceDate,
+					startDate,
+					compareStartDate,
+					compareEndDate,
+					startOffset,
+					endOffset
+				) => {
+					let originalTimezone;
+
+					beforeEach( () => {
+						originalTimezone = provideTimezone( timezone );
+					} );
+
+					afterEach( () => {
+						provideTimezone( originalTimezone );
+					} );
+
+					it( 'should keep preset and comparison periods at seven calendar days', () => {
+						// Ensure this case actually crosses the expected DST transition.
+						expect(
+							stringToDate( startDate ).getTimezoneOffset()
+						).toBe( startOffset );
+
+						expect(
+							stringToDate( referenceDate ).getTimezoneOffset()
+						).toBe( endOffset );
+
+						registry
+							.dispatch( CORE_USER )
+							.setReferenceDate( referenceDate );
+
+						registry
+							.dispatch( CORE_USER )
+							.setDateRange( 'last-7-days' );
+
+						expect(
+							registry
+								.select( CORE_USER )
+								.getDateRangeNumberOfDays()
+						).toBe( 7 );
+
+						expect(
+							registry
+								.select( CORE_USER )
+								.getDateRangeDates( { compare: true } )
+						).toEqual( {
+							startDate,
+							endDate: referenceDate,
+							compareStartDate,
+							compareEndDate,
+						} );
+					} );
+				}
+			);
+
+			it( 'should clamp a calendar month to an earlier reference date and compare with the preceding day', async () => {
+				registry.dispatch( CORE_USER ).setReferenceDate( '2026-09-07' );
+				await registry.dispatch( CORE_USER ).setDateRangeSelection( {
+					type: 'calendarMonth',
+					month: '2026-09',
 				} );
+
+				expect(
+					registry.select( CORE_USER ).getDateRangeDates( {
+						referenceDate: '2026-08-31',
+						compare: true,
+					} )
+				).toEqual( {
+					startDate: '2026-08-31',
+					endDate: '2026-08-31',
+					compareStartDate: '2026-08-30',
+					compareEndDate: '2026-08-30',
+				} );
+			} );
+
+			it( 'should clamp custom dates to an overridden reference date and compare the shortened range', async () => {
+				registry.dispatch( CORE_USER ).setReferenceDate( '2026-09-07' );
+				await registry.dispatch( CORE_USER ).setDateRangeSelection( {
+					type: 'custom',
+					startDate: '2026-08-04',
+					endDate: '2026-08-10',
+				} );
+
+				expect(
+					registry.select( CORE_USER ).getDateRangeDates( {
+						referenceDate: '2026-08-07',
+						compare: true,
+					} )
+				).toEqual( {
+					startDate: '2026-08-04',
+					endDate: '2026-08-07',
+					compareStartDate: '2026-07-31',
+					compareEndDate: '2026-08-03',
+				} );
+			} );
+
+			it( 'should use an overridden reference date to resolve a calendar month', async () => {
+				registry.dispatch( CORE_USER ).setReferenceDate( '2026-09-07' );
+				await registry.dispatch( CORE_USER ).setDateRangeSelection( {
+					type: 'calendarMonth',
+					month: '2026-09',
+				} );
+				expect(
+					registry.select( CORE_USER ).getDateRangeDates( {
+						referenceDate: '2026-09-03',
+						compare: true,
+					} )
+				).toEqual( {
+					startDate: '2026-09-01',
+					endDate: '2026-09-03',
+					compareStartDate: '2026-08-29',
+					compareEndDate: '2026-08-31',
+				} );
+			} );
+		} );
+
+		describe( 'selectable window', () => {
+			it.each( [
+				[ 'a mid-month reference date', '2026-09-07', '2025-08-01' ],
+				[ 'the first day of a year', '2026-01-01', '2024-12-01' ],
+				[ 'a leap-day reference date', '2024-02-29', '2023-01-01' ],
+			] )(
+				'should bound the window for %s',
+				( _label, referenceDate, earliestDate ) => {
+					registry
+						.dispatch( CORE_USER )
+						.setReferenceDate( referenceDate );
+					expect(
+						registry.select( CORE_USER ).getEarliestSelectableDate()
+					).toBe( earliestDate );
+					expect(
+						registry.select( CORE_USER ).getLatestSelectableDate()
+					).toBe( referenceDate );
+				}
+			);
+
+			it( 'should list all fourteen months newest first and update when the reference date changes', () => {
+				registry.dispatch( CORE_USER ).setReferenceDate( '2026-09-07' );
+				const select = registry.select( CORE_USER );
+				const months = select.getSelectableCalendarMonths();
+				expect( months ).toEqual( [
+					'2026-09',
+					'2026-08',
+					'2026-07',
+					'2026-06',
+					'2026-05',
+					'2026-04',
+					'2026-03',
+					'2026-02',
+					'2026-01',
+					'2025-12',
+					'2025-11',
+					'2025-10',
+					'2025-09',
+					'2025-08',
+				] );
+				registry.dispatch( CORE_USER ).setReferenceDate( '2026-10-01' );
+				expect( select.getSelectableCalendarMonths() ).toEqual( [
+					'2026-10',
+					...months.slice( 0, -1 ),
+				] );
 			} );
 		} );
 
@@ -255,14 +716,30 @@ describe( 'core/user date-range', () => {
 			it( 'should return the reference date once set', () => {
 				const someReferenceDate = '2020-08-04';
 
-				registry.dispatch( STORE_NAME ).setReferenceDate( someReferenceDate );
-				expect( registry.select( STORE_NAME ).getReferenceDate() )
-					.toEqual( someReferenceDate );
+				registry
+					.dispatch( CORE_USER )
+					.setReferenceDate( someReferenceDate );
+				expect(
+					registry.select( CORE_USER ).getReferenceDate()
+				).toEqual( someReferenceDate );
 			} );
 
 			it( 'should return current date when no reference date is set', () => {
-				expect( registry.select( STORE_NAME ).getReferenceDate() )
-					.toEqual( getDateString( new Date() ) );
+				expect(
+					registry.select( CORE_USER ).getReferenceDate()
+				).toEqual( getDateString( new Date() ) );
+			} );
+
+			it( 'should return the reference date defined in global base data when available', () => {
+				global._googlesitekitBaseData = {
+					referenceDate: '2023-09-01',
+				};
+
+				registry = createTestRegistry();
+
+				expect(
+					registry.select( CORE_USER ).getReferenceDate()
+				).toEqual( '2023-09-01' );
 			} );
 		} );
 	} );

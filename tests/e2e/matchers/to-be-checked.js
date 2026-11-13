@@ -17,9 +17,9 @@
  */
 
 /**
- * External dependencies
+ * Internal dependencies
  */
-import { getDefaultOptions } from 'expect-puppeteer';
+import { getDefaultOptions } from './default-options';
 
 /**
  * Asserts the given selector is checked.
@@ -31,11 +31,17 @@ import { getDefaultOptions } from 'expect-puppeteer';
  * @param {number} [options.timeout] Maximum time to wait for selector in milliseconds.
  * @return {Object} Object with `pass` and `message` keys.
  */
-export async function toBeChecked( selector, { timeout } = getDefaultOptions() ) {
+export async function toBeChecked(
+	selector,
+	{ timeout } = getDefaultOptions()
+) {
 	let pass, message;
 
 	await page.waitForSelector( selector, { timeout } );
-	const actualValue = await page.$eval( selector, ( { checked } ) => checked );
+	const actualValue = await page.$eval(
+		selector,
+		( { checked } ) => checked
+	);
 
 	if ( this.equals( true, actualValue ) ) {
 		pass = true;

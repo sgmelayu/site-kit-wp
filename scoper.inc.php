@@ -8,30 +8,22 @@
  * @link      https://sitekit.withgoogle.com
  */
 
-use Isolated\Symfony\Component\Finder\Finder;
+use Symfony\Component\Finder\Finder;
 
-// Google API services to include classes for.
-$google_services = implode(
-	'|',
-	array(
-		'Analytics',
-		'AnalyticsReporting',
-		'AdSense',
-		'Pagespeedonline',
-		'PeopleService',
-		'SearchConsole',
-		'SiteVerification',
-		'TagManager',
-	)
+$installed        = include __DIR__ . '/vendor/composer/installed.php';
+$non_dev_packages = array_filter(
+	$installed['versions'],
+	fn ( $pkg ) => ! $pkg['dev_requirement']
 );
 
 return array(
-	'prefix'                     => 'Google\\Site_Kit_Dependencies',
-	'finders'                    => array(
-
-		// General dependencies, except Google API services.
+	'prefix'                  => 'Google\\Site_Kit_Dependencies',
+	'finders'                 => array(
+		// All non-dev dependency package files.
 		Finder::create()
 			->files()
+			->in( __DIR__ . '/vendor' )
+			->path( array_keys( $non_dev_packages ) )
 			->ignoreVCS( true )
 			->notName( '/LICENSE|.*\\.md|.*\\.dist|Makefile|composer\\.(json|lock)/' )
 			->exclude(
@@ -42,74 +34,65 @@ return array(
 					'tests',
 					'Tests',
 					'vendor-bin',
+					'.github',
 				)
-			)
-			->path( '#^firebase/#' )
-			->path( '#^google/apiclient/#' )
-			->path( '#^google/auth/#' )
-			->path( '#^guzzlehttp/#' )
-			->path( '#^monolog/#' )
-			->path( '#^psr/#' )
-			->path( '#^ralouphie/#' )
-			->path( '#^react/#' )
-			->in( 'vendor' ),
-
-		// Google API service infrastructure classes.
-		Finder::create()
-			->files()
-			->ignoreVCS( true )
-			->notName( '/LICENSE|.*\\.md|.*\\.dist|Makefile|composer\\.json|composer\\.lock/' )
-			->exclude(
-				array(
-					'doc',
-					'test',
-					'test_old',
-					'tests',
-					'Tests',
-					'vendor-bin',
-				)
-			)
-			->path( "#^google/apiclient-services/src/Google/Service/($google_services)/#" )
-			->in( 'vendor' ),
-
-		// Google API service entry classes.
-		Finder::create()
-			->files()
-			->ignoreVCS( true )
-			->name( "#^($google_services)\.php$#" )
-			->depth( '== 0' )
-			->in( 'vendor/google/apiclient-services/src/Google/Service' ),
+			),
 	),
-	'files-whitelist'            => array(
-
+	'exclude-files'           => array(
 		// This dependency is a global function which should remain global.
 		'vendor/ralouphie/getallheaders/src/getallheaders.php',
 	),
-	'patchers'                   => array(
-		function( $file_path, $prefix, $contents ) {
-			if ( preg_match( '#google/apiclient/src/Google/Http/REST\.php$#', $file_path ) ) {
-				$contents = str_replace( "\\$prefix\\intVal", '\\intval', $contents );
-			}
-			if ( false !== strpos( $file_path, 'vendor/google/apiclient/' ) || false !== strpos( $file_path, 'vendor/google/auth/' ) ) {
-				$prefix   = str_replace( '\\', '\\\\', $prefix );
-				$contents = str_replace( "'\\\\GuzzleHttp\\\\ClientInterface", "'\\\\" . $prefix . '\\\\GuzzleHttp\\\\ClientInterface', $contents );
-				$contents = str_replace( '"\\\\GuzzleHttp\\\\ClientInterface', '"\\\\' . $prefix . '\\\\GuzzleHttp\\\\ClientInterface', $contents );
-				$contents = str_replace( "'GuzzleHttp\\\\ClientInterface", "'" . $prefix . '\\\\GuzzleHttp\\\\ClientInterface', $contents );
-				$contents = str_replace( '"GuzzleHttp\\\\ClientInterface', '"' . $prefix . '\\\\GuzzleHttp\\\\ClientInterface', $contents );
-			}
+	'patchers'                => array(
+		function ( $file_path, $prefix, $contents ) {
+			// Avoid prefixing the `static` keyword in some places.
+			$contents = str_replace( "\\$prefix\\static", 'static', $contents );
+
+			// Use double backslashes for class names in strings.
+			$doubled_backslash_prefix = str_replace( '\\', '\\\\', $prefix );
+
 			if ( false !== strpos( $file_path, 'vendor/google/apiclient/' ) ) {
+				$contents = str_replace( "'\\\\GuzzleHttp\\\\ClientInterface", "'\\\\" . $doubled_backslash_prefix . '\\\\GuzzleHttp\\\\ClientInterface', $contents );
 				$contents = str_replace( "'Google_", "'" . $prefix . '\Google_', $contents );
-				$contents = str_replace( '"Google_', '"' . $prefix . '\Google_', $contents );
 			}
-			if ( false !== strpos( $file_path, 'vendor/google/apiclient-services/' ) ) {
-				$contents = str_replace( "'Google_Service_", "'" . $prefix . '\Google_Service_', $contents );
-				$contents = str_replace( '"Google_Service_', '"' . $prefix . '\Google_Service_', $contents );
+			if ( false !== strpos( $file_path, 'vendor/google/auth/' ) ) {
+				$contents = str_replace( "'GuzzleHttp\\\\ClientInterface", "'" . $doubled_backslash_prefix . '\\\\GuzzleHttp\\\\ClientInterface', $contents );
 			}
+			if ( false !== strpos( $file_path, 'apiclient-services-analyticsadmin.v1alpha' ) ) {
+				// Put v1alpha library in alternate namespace to avoid collision with v1beta for some things.
+				$contents = preg_replace(
+					// Use a regular expression to avoid prefixing those that have V1alpha already.
+					'/GoogleAnalyticsAdmin(V1alpha)?/',
+					'GoogleAnalyticsAdminV1alpha',
+					$contents
+				);
+			}
+			if ( false !== strpos( $file_path, 'phpseclib' ) ) {
+				// phpseclib dynamically constructs FQCNs from partial strings that
+				// PHP-Scoper can't automatically prefix, e.g.:
+				// $fqmain = 'phpseclib3\Math\BigInteger\Engines\' . $main
+				//
+				// This prefixes any string-quoted 'phpseclib3' namespace reference,
+				// handling both single (\) and double (\\) backslash escaping forms
+				// that may result from php-parser's normalization of single-quoted strings.
+				//
+				// Pattern (regex):  /'\\{0,2}phpseclib3(?=\\)/
+				// '           — opening single quote of the string literal
+				// \\{0,2}     — 0, 1, or 2 literal backslashes (covers all escaping forms)
+				// phpseclib3  — the namespace root.
+				// (?=\\)      — lookahead: must be followed by a backslash (avoids false matches).
+				$prefixed_ns = str_replace( '\\', '\\\\', "\\{$prefix}\\phpseclib3" );
+				$contents    = preg_replace_callback(
+					"/'\\\\{0,2}phpseclib3(?=\\\\)/",
+					fn() => "'" . $prefixed_ns,
+					$contents
+				);
+			}
+
 			return $contents;
 		},
 	),
-	'whitelist'                  => array(),
-	'whitelist-global-constants' => false,
-	'whitelist-global-classes'   => false,
-	'whitelist-global-functions' => false,
+	'expose-namespaces'       => array(),
+	'expose-global-constants' => false,
+	'expose-global-classes'   => false,
+	'expose-global-functions' => false,
 );

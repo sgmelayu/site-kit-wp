@@ -57,8 +57,8 @@ class Migration_1_8_1Test extends TestCase {
 	private $temp_api_request_issued;
 	private $temp_received_identifiers;
 
-	public function setUp() {
-		parent::setUp();
+	public function set_up() {
+		parent::set_up();
 
 		$this->context        = new Context( GOOGLESITEKIT_PLUGIN_MAIN_FILE );
 		$this->options        = new Options( $this->context );
@@ -74,7 +74,11 @@ class Migration_1_8_1Test extends TestCase {
 		remove_all_actions( 'admin_init' );
 		$this->migration->register();
 
-		$this->assertTrue( has_action( 'admin_init' ) );
+		$this->assertSame(
+			0,
+			has_action( 'admin_init', array( $this->migration, 'migrate' ) ),
+			'The migration should add `migrate()` to the `admin_init` action at priority 0, so it runs in `Plugin.php` registration order.'
+		);
 	}
 
 	public function test_migrate_without_using_proxy() {
@@ -83,7 +87,7 @@ class Migration_1_8_1Test extends TestCase {
 
 		$this->migration->migrate();
 		$this->assertNotIssuedAPIRequest();
-		$this->assertNotEquals( Migration_1_8_1::DB_VERSION, $this->get_db_version() );
+		$this->assertNotEquals( Migration_1_8_1::DB_VERSION, $this->get_db_version(), 'Database version should not be updated when not using proxy.' );
 	}
 
 	public function test_migrate_without_credentials() {
@@ -91,7 +95,7 @@ class Migration_1_8_1Test extends TestCase {
 
 		$this->migration->migrate();
 		$this->assertNotIssuedAPIRequest();
-		$this->assertNotEquals( Migration_1_8_1::DB_VERSION, $this->get_db_version() );
+		$this->assertNotEquals( Migration_1_8_1::DB_VERSION, $this->get_db_version(), 'Database version should not be updated when no credentials exist.' );
 	}
 
 	public function test_migrate_without_users() {
@@ -100,7 +104,7 @@ class Migration_1_8_1Test extends TestCase {
 
 		$this->migration->migrate();
 		$this->assertNotIssuedAPIRequest();
-		$this->assertEquals( Migration_1_8_1::DB_VERSION, $this->get_db_version() );
+		$this->assertEquals( Migration_1_8_1::DB_VERSION, $this->get_db_version(), 'Database version should be updated when using proxy but no users exist.' );
 	}
 
 	public function test_migrate_without_problem_cases() {
@@ -113,7 +117,7 @@ class Migration_1_8_1Test extends TestCase {
 		$this->migration->migrate();
 		$this->assertNotIssuedAPIRequest();
 		$this->assertHasSiteKitUserOptions( $valid_authenticated_user->ID );
-		$this->assertEquals( Migration_1_8_1::DB_VERSION, $this->get_db_version() );
+		$this->assertEquals( Migration_1_8_1::DB_VERSION, $this->get_db_version(), 'Database version should be updated after successful migration.' );
 	}
 
 	public function test_migrate_with_problem_cases() {
@@ -154,7 +158,7 @@ class Migration_1_8_1Test extends TestCase {
 		foreach ( $problem_cases as $user ) {
 			$this->assertNotHasSiteKitUserOptions( $user->ID );
 		}
-		$this->assertEquals( Migration_1_8_1::DB_VERSION, $this->get_db_version() );
+		$this->assertEquals( Migration_1_8_1::DB_VERSION, $this->get_db_version(), 'Database version should be updated after migration with problem cases.' );
 	}
 
 	public function test_migrate_with_problem_cases_and_api_error() {
@@ -171,7 +175,7 @@ class Migration_1_8_1Test extends TestCase {
 		// Despite API error, users have been determined and cleared correctly.
 		$this->assertSentAPIRequestIdentifiers(
 			array_map(
-				function( $user ) {
+				function ( $user ) {
 					return $user->user_email;
 				},
 				$problem_cases
@@ -180,7 +184,7 @@ class Migration_1_8_1Test extends TestCase {
 		foreach ( $problem_cases as $user ) {
 			$this->assertNotHasSiteKitUserOptions( $user->ID );
 		}
-		$this->assertEquals( Migration_1_8_1::DB_VERSION, $this->get_db_version() );
+		$this->assertEquals( Migration_1_8_1::DB_VERSION, $this->get_db_version(), 'Database version should be updated even when API returns error.' );
 	}
 
 	private function create_user( $role, $verification_type = false ) {

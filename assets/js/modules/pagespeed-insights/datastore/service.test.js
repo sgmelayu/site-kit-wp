@@ -20,12 +20,14 @@
  *
  * Internal dependencies
  */
+import { CORE_SITE } from '@/js/googlesitekit/datastore/site/constants';
+import { CORE_USER } from '@/js/googlesitekit/datastore/user/constants';
+import { createTestRegistry } from '@tests/js/utils';
 import {
-	createTestRegistry,
-	unsubscribeFromAll,
-} from '../../../../../tests/js/utils';
-import { STORE_NAME } from './constants';
-import { CORE_USER } from '../../../googlesitekit/datastore/user/constants';
+	MODULES_PAGESPEED_INSIGHTS,
+	STRATEGY_DESKTOP,
+	STRATEGY_MOBILE,
+} from './constants';
 
 describe( 'module/pagespeed-insights service store', () => {
 	const userData = {
@@ -34,44 +36,135 @@ describe( 'module/pagespeed-insights service store', () => {
 		name: 'admin',
 		picture: 'https://path/to/image',
 	};
-	const baseURI = 'https://developers.google.com/speed/pagespeed/insights';
+	const baseURI = 'https://pagespeed.web.dev';
 
 	let registry;
 
-	beforeAll( () => {
+	beforeEach( () => {
 		registry = createTestRegistry();
 		registry.dispatch( CORE_USER ).receiveUserInfo( userData );
-	} );
-
-	afterAll( () => {
-		unsubscribeFromAll( registry );
+		registry.dispatch( CORE_SITE ).receiveSiteInfo( {
+			referenceSiteURL: 'https://example.com/',
+			currentEntityURL: null,
+		} );
 	} );
 
 	describe( 'selectors', () => {
+		describe( 'getDetailsLinkURL', () => {
+			it( 'returns the mobile report URL for the current reference URL by default', () => {
+				const detailsLinkURL = registry
+					.select( MODULES_PAGESPEED_INSIGHTS )
+					.getDetailsLinkURL();
+
+				expect( new URL( detailsLinkURL ).pathname ).toBe( '/report' );
+				expect( detailsLinkURL ).toMatchQueryParameters( {
+					url: 'https://example.com/',
+					form_factor: STRATEGY_MOBILE,
+					utm_source: 'sitekit',
+				} );
+			} );
+
+			it( 'returns the desktop report URL once the desktop tab is selected', () => {
+				registry
+					.dispatch( MODULES_PAGESPEED_INSIGHTS )
+					.setActiveTab( STRATEGY_DESKTOP );
+
+				const detailsLinkURL = registry
+					.select( MODULES_PAGESPEED_INSIGHTS )
+					.getDetailsLinkURL();
+
+				expect( detailsLinkURL ).toMatchQueryParameters( {
+					url: 'https://example.com/',
+					form_factor: STRATEGY_DESKTOP,
+					utm_source: 'sitekit',
+				} );
+			} );
+
+			it( 'returns the report URL for the page a user is viewing', () => {
+				registry.dispatch( CORE_SITE ).receiveSiteInfo( {
+					referenceSiteURL: 'https://example.com/',
+					currentEntityURL: 'https://example.com/example-page/',
+				} );
+
+				const detailsLinkURL = registry
+					.select( MODULES_PAGESPEED_INSIGHTS )
+					.getDetailsLinkURL();
+
+				expect( detailsLinkURL ).toMatchQueryParameters( {
+					url: 'https://example.com/example-page/',
+					form_factor: STRATEGY_MOBILE,
+					utm_source: 'sitekit',
+				} );
+			} );
+
+			it( 'returns undefined if the current reference URL is not loaded yet', () => {
+				const loadingRegistry = createTestRegistry();
+				loadingRegistry
+					.dispatch( CORE_USER )
+					.receiveUserInfo( userData );
+
+				const detailsLinkURL = loadingRegistry
+					.select( MODULES_PAGESPEED_INSIGHTS )
+					.getDetailsLinkURL();
+
+				expect( detailsLinkURL ).toBeUndefined();
+			} );
+		} );
+
 		describe( 'getServiceURL', () => {
-			it( 'retrieves the correct URL with no arguments', async () => {
-				const serviceURL = registry.select( STORE_NAME ).getServiceURL();
-				expect( serviceURL ).toBe( baseURI );
+			it( 'retrieves the correct URL with no arguments', () => {
+				const serviceURL = registry
+					.select( MODULES_PAGESPEED_INSIGHTS )
+					.getServiceURL();
+
+				expect( new URL( serviceURL ).origin ).toBe( baseURI );
 			} );
 
 			it( 'adds the path parameter', () => {
-				const expectedURL = `${ baseURI }/test/path/to/deeplink`;
-				const serviceURLNoSlashes = registry.select( STORE_NAME ).getServiceURL( { path: 'test/path/to/deeplink' } );
-				expect( serviceURLNoSlashes ).toEqual( expectedURL );
-				const serviceURLWithLeadingSlash = registry.select( STORE_NAME ).getServiceURL( { path: '/test/path/to/deeplink' } );
-				expect( serviceURLWithLeadingSlash ).toEqual( expectedURL );
+				const serviceURLNoSlashes = registry
+					.select( MODULES_PAGESPEED_INSIGHTS )
+					.getServiceURL( { path: 'test/path/to/deeplink' } );
+
+				expect( new URL( serviceURLNoSlashes ).pathname ).toMatch(
+					'/test/path/to/deeplink'
+				);
+
+				const serviceURLWithLeadingSlash = registry
+					.select( MODULES_PAGESPEED_INSIGHTS )
+					.getServiceURL( { path: '/test/path/to/deeplink' } );
+
+				expect(
+					new URL( serviceURLWithLeadingSlash ).pathname
+				).toMatch( '/test/path/to/deeplink' );
 			} );
 
-			it( 'adds query args', async () => {
+			it( 'adds query args', () => {
 				const path = '/test/path/to/deeplink';
 				const query = {
 					param1: '1',
 					param2: '2',
 				};
-				const serviceURL = registry.select( STORE_NAME ).getServiceURL( { path, query } );
+				const serviceURL = registry
+					.select( MODULES_PAGESPEED_INSIGHTS )
+					.getServiceURL( { path, query } );
 				expect( serviceURL.startsWith( baseURI ) ).toBe( true );
-				expect( serviceURL.split( '?' )[ 0 ].endsWith( path ) ).toBe( true );
-				expect( serviceURL ).toMatchQueryParameters( query );
+				expect( serviceURL.split( '?' )[ 0 ].endsWith( path ) ).toBe(
+					true
+				);
+				expect( serviceURL ).toMatchQueryParameters( {
+					...query,
+					utm_source: 'sitekit',
+				} );
+			} );
+
+			it( 'includes utm_source parameter', () => {
+				const serviceURL = registry
+					.select( MODULES_PAGESPEED_INSIGHTS )
+					.getServiceURL();
+
+				expect( serviceURL ).toMatchQueryParameters( {
+					utm_source: 'sitekit',
+				} );
 			} );
 		} );
 	} );

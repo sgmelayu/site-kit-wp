@@ -1,0 +1,295 @@
+/**
+ * FrequencySelector component.
+ *
+ * Site Kit by Google, Copyright 2025 Google LLC
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     https://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+/**
+ * External dependencies
+ */
+import classnames from 'classnames';
+import PropTypes from 'prop-types';
+import { Fragment } from 'react';
+
+/**
+ * WordPress dependencies
+ */
+import { useMemo } from '@wordpress/element';
+import { __, _x, sprintf } from '@wordpress/i18n';
+
+/**
+ * Internal dependencies
+ */
+import { useDispatch, useSelect } from 'googlesitekit-data';
+import CurrentSubscriptionPill from '@/js/components/email-reporting/CurrentSubscriptionPill';
+import PreviewBlock from '@/js/components/PreviewBlock';
+import PreviewBlocks from '@/js/components/PreviewBlocks';
+import Typography from '@/js/components/Typography';
+import { CORE_SITE } from '@/js/googlesitekit/datastore/site/constants';
+import {
+	CORE_USER,
+	EMAIL_REPORT_FREQUENCIES,
+} from '@/js/googlesitekit/datastore/user/constants';
+import { BREAKPOINT_SMALL, useBreakpoint } from '@/js/hooks/useBreakpoint';
+import { getLocale } from '@/js/util';
+
+export default function FrequencySelector( { isUserSubscribed, isLoading } ) {
+	const breakpoint = useBreakpoint();
+	const isMobileBreakpoint = breakpoint === BREAKPOINT_SMALL;
+
+	const isEmailReportingEnabled = useSelect( ( select ) =>
+		select( CORE_SITE ).isEmailReportingEnabled()
+	);
+
+	const DAY_NAMES = useMemo(
+		() => [
+			_x( 'Sunday', 'day name', 'google-site-kit' ),
+			_x( 'Monday', 'day name', 'google-site-kit' ),
+			_x( 'Tuesday', 'day name', 'google-site-kit' ),
+			_x( 'Wednesday', 'day name', 'google-site-kit' ),
+			_x( 'Thursday', 'day name', 'google-site-kit' ),
+			_x( 'Friday', 'day name', 'google-site-kit' ),
+			_x( 'Saturday', 'day name', 'google-site-kit' ),
+		],
+		[]
+	);
+
+	function dayNameFromIndex( index ) {
+		const index_ =
+			Number.isInteger( index ) && index >= 0 && index <= 6 ? index : 1;
+		return DAY_NAMES[ index_ ];
+	}
+
+	const startOfWeek = useSelect( ( select ) =>
+		select( CORE_SITE ).getStartOfWeek()
+	);
+
+	const frequency = useSelect( ( select ) =>
+		select( CORE_USER ).getEmailReportingFrequency()
+	);
+
+	const savedFrequency = useSelect( ( select ) =>
+		select( CORE_USER ).getEmailReportingSavedFrequency()
+	);
+
+	// The next report timestamp reflects the actual scheduled (or, if not yet
+	// scheduled, freshly calculated) cron occurrence, computed server-side so
+	// it correctly accounts for the report trigger time in the site timezone.
+	const nextReportTimestamp = useSelect( ( select ) =>
+		select( CORE_USER ).getEmailReportingNextReportTimestamp()
+	);
+
+	const timezone = useSelect( ( select ) =>
+		select( CORE_SITE ).getTimezone()
+	);
+
+	const { setEmailReportingFrequency } = useDispatch( CORE_USER );
+
+	const formattedNextReportDate = useMemo( () => {
+		if ( ! savedFrequency || ! nextReportTimestamp ) {
+			return null;
+		}
+
+		// This constructs a date from a server-provided timestamp rather
+		// than the reference date, so using `new Date()` here is valid.
+		const nextReportDate = new Date( nextReportTimestamp * 1000 ); // eslint-disable-line sitekit/no-direct-date
+
+		return nextReportDate.toLocaleDateString( getLocale(), {
+			// The site's timezone is only a valid `Intl` timezone when it's
+			// been configured with a named region (e.g. "America/Detroit").
+			// Sites configured with a raw UTC offset instead (common when
+			// the WP General Settings timezone dropdown is left on a
+			// "UTC±X" entry) report an empty timezone string, which would
+			// otherwise either hide this date entirely or throw when passed
+			// as `timeZone`. Omit the option in that case so the browser's
+			// local timezone is used instead.
+			...( timezone && { timeZone: timezone } ),
+			month: 'short',
+			day: 'numeric',
+			year: 'numeric',
+		} );
+	}, [ savedFrequency, nextReportTimestamp, timezone ] );
+
+	const weeklyDescription = sprintf(
+		/* translators: %s: localized day-of-week name (e.g. Monday). */
+		__( 'Sent every %s', 'google-site-kit' ),
+		dayNameFromIndex( startOfWeek )
+	);
+
+	const frequencyCopy = {
+		weekly: {
+			label: __( 'Weekly', 'google-site-kit' ),
+			period: __( 'Last 7 days', 'google-site-kit' ),
+			description: weeklyDescription,
+		},
+		monthly: {
+			label: __( 'Monthly', 'google-site-kit' ),
+			period: __( 'Last month', 'google-site-kit' ),
+			description: __(
+				'Sent on the 1st of each month',
+				'google-site-kit'
+			),
+		},
+		quarterly: {
+			label: __( 'Quarterly', 'google-site-kit' ),
+			period: __( 'Last quarter', 'google-site-kit' ),
+			description: __(
+				'Sent on the 1st of each quarter',
+				'google-site-kit'
+			),
+		},
+	};
+
+	// Allow keyboard users to open the frequency selector
+	// using Enter or Space keys.
+	function handleKeyDown( event, reportFrequency ) {
+		if (
+			event.key === ' ' ||
+			event.key === 'Spacebar' ||
+			event.key === 'Enter'
+		) {
+			event.preventDefault();
+			setEmailReportingFrequency( reportFrequency );
+		}
+	}
+
+	if ( isLoading ) {
+		return (
+			<Fragment>
+				<br />
+				<PreviewBlock width="20%" height="16px" />
+				<br />
+
+				<div className="googlesitekit-frequency-selector">
+					<PreviewBlocks width="100%" height="184px" count={ 3 } />
+				</div>
+			</Fragment>
+		);
+	}
+
+	if ( false === isEmailReportingEnabled ) {
+		return null;
+	}
+
+	return (
+		<Fragment>
+			<Typography
+				className="googlesitekit-frequency-selector-title"
+				type="label"
+				size="small"
+				as="h3"
+			>
+				{ __( 'Frequency', 'google-site-kit' ) }
+			</Typography>
+
+			{ /* Show "Current subscription" badge on larger screens */ }
+			{ isUserSubscribed && savedFrequency && ! isMobileBreakpoint && (
+				<div className="googlesitekit-frequency-selector__badge-row">
+					{ EMAIL_REPORT_FREQUENCIES.map( ( reportFrequency ) => (
+						<div
+							key={ reportFrequency }
+							className="googlesitekit-frequency-selector__badge-cell"
+						>
+							{ reportFrequency === savedFrequency && (
+								<CurrentSubscriptionPill
+									formattedNextReportDate={
+										formattedNextReportDate
+									}
+								/>
+							) }
+						</div>
+					) ) }
+				</div>
+			) }
+
+			<div
+				className="googlesitekit-frequency-selector"
+				role="radiogroup"
+				aria-label={ __( 'Frequency', 'google-site-kit' ) }
+			>
+				{ EMAIL_REPORT_FREQUENCIES.map( ( reportFrequency ) => {
+					const isSelected = frequency === reportFrequency;
+					const { label, period, description } =
+						frequencyCopy[ reportFrequency ] || {};
+
+					return (
+						<div
+							key={ reportFrequency }
+							className={ classnames(
+								'googlesitekit-frequency-selector__card',
+								{
+									'googlesitekit-frequency-selector__card--selected':
+										isSelected,
+								}
+							) }
+							role="radio"
+							aria-checked={ isSelected }
+							// Keep the accessible name limited to the frequency
+							// label. On mobile the current-subscription pill
+							// (including "Next report: …") is rendered inside
+							// this card and would otherwise pollute the name.
+							aria-label={ label }
+							tabIndex={ 0 }
+							onClick={ () =>
+								setEmailReportingFrequency( reportFrequency )
+							}
+							onKeyDown={ ( event ) =>
+								handleKeyDown( event, reportFrequency )
+							}
+						>
+							{ isUserSubscribed &&
+								savedFrequency &&
+								isMobileBreakpoint &&
+								reportFrequency === savedFrequency && (
+									<CurrentSubscriptionPill
+										selected={ isSelected }
+										formattedNextReportDate={
+											formattedNextReportDate
+										}
+									/>
+								) }
+
+							<div className="googlesitekit-frequency-selector__content">
+								<div className="googlesitekit-frequency-selector__label">
+									<Typography type="label" size="large">
+										{ label }
+									</Typography>
+								</div>
+								<div className="googlesitekit-frequency-selector__period-description">
+									<div className="googlesitekit-frequency-selector__period">
+										<Typography type="body" size="small">
+											{ period }
+										</Typography>
+									</div>
+
+									<div className="googlesitekit-frequency-selector__description">
+										<Typography type="body" size="small">
+											{ description }
+										</Typography>
+									</div>
+								</div>
+							</div>
+						</div>
+					);
+				} ) }
+			</div>
+		</Fragment>
+	);
+}
+
+FrequencySelector.propTypes = {
+	isUserSubscribed: PropTypes.bool,
+	isLoading: PropTypes.bool,
+};

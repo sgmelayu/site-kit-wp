@@ -20,8 +20,8 @@ class Google_URL_NormalizerTest extends TestCase {
 
 	private $url_normalizer;
 
-	public function setUp() {
-		parent::setUp();
+	public function set_up() {
+		parent::set_up();
 
 		$this->url_normalizer = new Google_URL_Normalizer();
 	}
@@ -34,7 +34,7 @@ class Google_URL_NormalizerTest extends TestCase {
 	 */
 	public function test_normalize_url( $url, $expected ) {
 		$actual = $this->url_normalizer->normalize_url( $url );
-		$this->assertSame( $expected, $actual );
+		$this->assertSame( $expected, $actual, 'Normalized URL should match expected result.' );
 	}
 
 	public function data_normalize_url() {
@@ -74,4 +74,3 @@ class Google_URL_NormalizerTest extends TestCase {
 		);
 	}
 }
-

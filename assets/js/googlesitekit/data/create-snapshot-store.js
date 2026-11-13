@@ -20,35 +20,39 @@
  * External dependencies
  */
 import invariant from 'invariant';
+import { omit, pick, uniq } from 'lodash';
 
 /**
  * Internal dependencies
  */
-import Data from 'googlesitekit-data';
-import {
-	deleteItem,
-	getItem,
-	setItem,
-} from '../api/cache';
-
-const { createRegistryControl } = Data;
+import Data, { createRegistryControl } from 'googlesitekit-data';
+import { deleteItem, getItem, setItem } from '@/js/googlesitekit/api/cache';
+import { HOUR_IN_SECONDS } from '@/js/util';
 
 // Actions
 const CREATE_SNAPSHOT = 'CREATE_SNAPSHOT';
 const DELETE_SNAPSHOT = 'DELETE_SNAPSHOT';
 const RESTORE_SNAPSHOT = 'RESTORE_SNAPSHOT';
 const SET_STATE_FROM_SNAPSHOT = 'SET_STATE_FROM_SNAPSHOT';
+const OMIT_KEYS_FROM_SNAPSHOT = 'OMIT_KEYS_FROM_SNAPSHOT';
+
+// State key under which the keys to omit from snapshots are kept. It is never
+// itself included in a snapshot.
+const KEYS_TO_OMIT_STATE_KEY = 'keysToOmitFromSnapshot';
 
 /**
  * Creates a store object that includes actions and controls for restoring/creating state snapshots.
  *
  * @since 1.9.0
+ * @since 1.163.0 Added the ability to pick specific parts of the state to save in the snapshot.
  * @private
  *
- * @param {string} storeName The name of the store to snapshot in the cache.
+ * @param {string}          storeName                The name of the store to snapshot in the cache.
+ * @param {Object}          [options]                Optional configuration object.
+ * @param {string|string[]} [options.keysToSnapshot] Property path(s) to pick from state when creating snapshots.
  * @return {Object} The snapshot store object.
  */
-export const createSnapshotStore = ( storeName ) => {
+export function createSnapshotStore( storeName, { keysToSnapshot } = {} ) {
 	invariant( storeName, 'storeName is required to create a snapshot store.' );
 
 	const initialState = {};
@@ -121,6 +125,25 @@ export const createSnapshotStore = ( storeName ) => {
 
 			return cacheResult;
 		},
+
+		/**
+		 * Omits the given state keys from any snapshot of this store created
+		 * from now on, for the rest of the page load.
+		 *
+		 * @since 1.191.0
+		 * @private
+		 *
+		 * @param {string[]} keys Property path(s) to omit from snapshots.
+		 * @return {Object} Redux-style action.
+		 */
+		omitKeysFromSnapshot( keys ) {
+			invariant( Array.isArray( keys ), 'keys must be an array.' );
+
+			return {
+				payload: { keys },
+				type: OMIT_KEYS_FROM_SNAPSHOT,
+			};
+		},
 	};
 
 	const controls = {
@@ -128,15 +151,32 @@ export const createSnapshotStore = ( storeName ) => {
 			return deleteItem( `datastore::cache::${ storeName }` );
 		},
 		[ CREATE_SNAPSHOT ]: createRegistryControl( ( registry ) => () => {
-			return setItem( `datastore::cache::${ storeName }`, registry.stores[ storeName ].store.getState() );
+			const state = registry.stores[ storeName ].store.getState();
+			const pickedState =
+				keysToSnapshot?.length > 0
+					? pick( state, keysToSnapshot )
+					: state;
+			const stateToSnapshot = omit( pickedState, [
+				KEYS_TO_OMIT_STATE_KEY,
+				...( state[ KEYS_TO_OMIT_STATE_KEY ] || [] ),
+			] );
+
+			return setItem(
+				`datastore::cache::${ storeName }`,
+				stateToSnapshot
+			);
 		} ),
 		[ RESTORE_SNAPSHOT ]: () => {
 			// Only get snapshots made within the last hour.
-			return getItem( `datastore::cache::${ storeName }`, 3600 );
+			return getItem(
+				`datastore::cache::${ storeName }`,
+				HOUR_IN_SECONDS
+			);
 		},
 	};
 
-	const reducer = ( state = initialState, { type, payload } ) => { // eslint-disable-line no-shadow
+	function reducer( state = initialState, { type, payload } ) {
+		// eslint-disable-line no-shadow
 		switch ( type ) {
 			case SET_STATE_FROM_SNAPSHOT: {
 				const { snapshot } = payload;
@@ -144,17 +184,36 @@ export const createSnapshotStore = ( storeName ) => {
 				// eslint-disable-next-line no-unused-vars
 				const { error, ...newState } = snapshot;
 
+				// If only a part of the state has been added to the snapshot, then
+				// we should update the initial state with partial data restored
+				// from the snapshot.
+				if ( keysToSnapshot?.length > 0 ) {
+					return { ...state, ...newState };
+				}
+
 				return newState;
+			}
+
+			case OMIT_KEYS_FROM_SNAPSHOT: {
+				const { keys } = payload;
+
+				return {
+					...state,
+					[ KEYS_TO_OMIT_STATE_KEY ]: uniq( [
+						...( state[ KEYS_TO_OMIT_STATE_KEY ] || [] ),
+						...keys,
+					] ),
+				};
 			}
 
 			default: {
 				return state;
 			}
 		}
-	};
+	}
 
 	return { initialState, actions, controls, reducer };
-};
+}
 
 /**
  * Inspects a registry to find all stores that support our snapshot features.
@@ -165,11 +224,11 @@ export const createSnapshotStore = ( storeName ) => {
  * @param {wp.data.registry} registry Optional. Registry object to inspect for stores that support state restoration. Defaults to `googlesitekit.data`.
  * @return {Object} The snapshot store object.
  */
-export const getStoresWithSnapshots = ( registry = Data ) => {
+export function getStoresWithSnapshots( registry = Data ) {
 	return Object.values( registry.stores ).filter( ( store ) => {
 		return Object.keys( store.getActions() ).includes( 'restoreSnapshot' );
 	} );
-};
+}
 
 /**
  * Creates snapshots of all supporting stores.
@@ -180,11 +239,13 @@ export const getStoresWithSnapshots = ( registry = Data ) => {
  * @param {wp.data.registry} [registry] Optional. Registry object to inspect for stores that support state restoration. Defaults to `googlesitekit.data`.
  * @return {Promise} Promise resolves once all snapshots have been taken.
  */
-export const snapshotAllStores = ( registry = Data ) => {
-	return Promise.all( getStoresWithSnapshots( registry ).map( ( store ) => {
-		return store.getActions().createSnapshot();
-	} ) );
-};
+export function snapshotAllStores( registry = Data ) {
+	return Promise.all(
+		getStoresWithSnapshots( registry ).map( ( store ) => {
+			return store.getActions().createSnapshot();
+		} )
+	);
+}
 
 /**
  * Restores state for all snapshots that support it.
@@ -199,8 +260,10 @@ export const snapshotAllStores = ( registry = Data ) => {
  * @param {wp.data.registry} [registry] Optional. Registry object to inspect for stores that support state restoration. Defaults to `googlesitekit.data`.
  * @return {Promise} Promise resolves once all snapshots have been restored.
  */
-export const restoreAllSnapshots = ( registry = Data ) => {
-	return Promise.all( getStoresWithSnapshots( registry ).map( ( store ) => {
-		return store.getActions().restoreSnapshot();
-	} ) );
-};
+export function restoreAllSnapshots( registry = Data ) {
+	return Promise.all(
+		getStoresWithSnapshots( registry ).map( ( store ) => {
+			return store.getActions().restoreSnapshot();
+		} )
+	);
+}

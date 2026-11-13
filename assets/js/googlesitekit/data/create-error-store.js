@@ -22,14 +22,23 @@
 import invariant from 'invariant';
 import md5 from 'md5';
 
-const RECEIVE_ERROR = 'RECEIVE_ERROR';
-const CLEAR_ERROR = 'CLEAR_ERROR';
-const CLEAR_ERRORS = 'CLEAR_ERRORS';
+/**
+ * WordPress dependencies
+ */
+import { createRegistrySelector } from '@wordpress/data';
 
 /**
  * Internal dependencies
  */
-import { stringifyObject } from '../../util';
+import { createReducer } from 'googlesitekit-data';
+import { stringifyObject } from '@/js/util';
+
+const SET_ERROR_FOR_SELECTOR = 'SET_ERROR_FOR_SELECTOR';
+const SET_ERROR_FOR_ACTION = 'SET_ERROR_FOR_ACTION';
+const CLEAR_SELECTOR_ERROR = 'CLEAR_SELECTOR_ERROR';
+const CLEAR_SELECTOR_ERRORS = 'CLEAR_SELECTOR_ERRORS';
+const CLEAR_ACTION_ERROR = 'CLEAR_ACTION_ERROR';
+const CLEAR_ACTION_ERRORS = 'CLEAR_ACTION_ERRORS';
 
 export function generateErrorKey( baseName, args ) {
 	if ( args && Array.isArray( args ) ) {
@@ -43,107 +52,292 @@ export function generateErrorKey( baseName, args ) {
 }
 
 export const actions = {
-	receiveError( error, baseName, args ) {
+	/**
+	 * Sets an error for a selector.
+	 *
+	 * @since 1.179.0
+	 *
+	 * @param {Object}      error        Error object.
+	 * @param {string}      selectorName Selector name.
+	 * @param {Array.<any>} [args]       Arguments passed to selector (default `[]`).
+	 * @return {Object} Redux-style action.
+	 */
+	setErrorForSelector( error, selectorName, args = [] ) {
 		invariant( error, 'error is required.' );
-		if ( baseName ) {
-			invariant( args && Array.isArray( args ), 'args is required (and must be an array) when baseName is specified.' );
-		}
+		invariant( selectorName, 'selectorName is required.' );
+		invariant( args && Array.isArray( args ), 'args must be an array.' );
 
 		return {
-			type: RECEIVE_ERROR,
+			type: SET_ERROR_FOR_SELECTOR,
 			payload: {
 				error,
-				baseName,
+				baseName: selectorName,
 				args,
 			},
 		};
 	},
-	clearError( baseName, args ) {
-		if ( baseName ) {
-			invariant( args && Array.isArray( args ), 'args is required (and must be an array) when baseName is specified.' );
-		}
+
+	/**
+	 * Sets an error for an action.
+	 *
+	 * @since 1.179.0
+	 *
+	 * @param {Object}      error      Error object.
+	 * @param {string}      actionName Action name.
+	 * @param {Array.<any>} [args]     Arguments passed to action (default `[]`).
+	 * @return {Object} Redux-style action.
+	 */
+	setErrorForAction( error, actionName, args = [] ) {
+		invariant( error, 'error is required.' );
+		invariant( actionName, 'actionName is required.' );
+		invariant( args && Array.isArray( args ), 'args must be an array.' );
 
 		return {
-			type: CLEAR_ERROR,
+			type: SET_ERROR_FOR_ACTION,
 			payload: {
-				baseName,
+				error,
+				baseName: actionName,
 				args,
 			},
 		};
 	},
-	clearErrors( baseName ) {
+
+	/**
+	 * Clears the error for a given selector name and args.
+	 *
+	 * @since 1.179.0
+	 *
+	 * @param {string}      selectorName Selector name.
+	 * @param {Array.<any>} [args]       Arguments passed to selector (default `[]`).
+	 * @return {Object} Redux-style action.
+	 */
+	clearSelectorError( selectorName, args = [] ) {
+		invariant( selectorName, 'selectorName is required.' );
+		invariant( args && Array.isArray( args ), 'args must be an array.' );
+
 		return {
-			type: CLEAR_ERRORS,
+			type: CLEAR_SELECTOR_ERROR,
 			payload: {
-				baseName,
+				baseName: selectorName,
+				args,
+			},
+		};
+	},
+
+	/**
+	 * Clears all selector errors, optionally filtered by selector name.
+	 *
+	 * @since 1.179.0
+	 *
+	 * @param {string} [selectorName] Optional selector name to clear errors for.
+	 * @return {Object} Redux-style action.
+	 */
+	clearSelectorErrors( selectorName ) {
+		return {
+			type: CLEAR_SELECTOR_ERRORS,
+			payload: {
+				baseName: selectorName,
+			},
+		};
+	},
+
+	/**
+	 * Clears the error for a given action name and args.
+	 *
+	 * @since 1.179.0
+	 *
+	 * @param {string}      actionName Action name.
+	 * @param {Array.<any>} [args]     Arguments passed to action (default `[]`).
+	 * @return {Object} Redux-style action.
+	 */
+	clearActionError( actionName, args = [] ) {
+		invariant( actionName, 'actionName is required.' );
+		invariant( args && Array.isArray( args ), 'args must be an array.' );
+
+		return {
+			type: CLEAR_ACTION_ERROR,
+			payload: {
+				baseName: actionName,
+				args,
+			},
+		};
+	},
+
+	/**
+	 * Clears all action errors, optionally filtered by action name.
+	 *
+	 * @since 1.179.0
+	 *
+	 * @param {string} [actionName] Optional action name to clear errors for.
+	 * @return {Object} Redux-style action.
+	 */
+	clearActionErrors( actionName ) {
+		return {
+			type: CLEAR_ACTION_ERRORS,
+			payload: {
+				baseName: actionName,
 			},
 		};
 	},
 };
 
-export function createErrorStore() {
+export function createErrorStore( storeName ) {
+	invariant( storeName, 'storeName must be defined.' );
+
 	const initialState = {
-		errors: {},
-		error: undefined,
+		selectorErrors: {},
+		selectorErrorArgs: {},
+		actionErrors: {},
+		actionErrorArgs: {},
 	};
 
-	function reducer( state, { type, payload } ) {
-		switch ( type ) {
-			case RECEIVE_ERROR: {
-				const { baseName, args, error } = payload;
+	/**
+	 * Sets an error within a given slice of the error state.
+	 *
+	 * @since 1.179.0
+	 *
+	 * @param {Object} state        Data store's state.
+	 * @param {string} errorsKey    Key of the slice's errors object on state.
+	 * @param {string} errorArgsKey Key of the slice's error args object on state.
+	 * @param {Object} payload      Action payload with `baseName`, `args`, and `error`.
+	 */
+	function setErrorInSlice( state, errorsKey, errorArgsKey, payload ) {
+		const { baseName, args, error } = payload;
+		const key = generateErrorKey( baseName, args );
 
-				if ( baseName ) {
-					return {
-						...state,
-						errors: {
-							...( state.errors || {} ),
-							[ generateErrorKey( baseName, args ) ]: error,
-						},
-					};
+		state[ errorsKey ] = state[ errorsKey ] || {};
+		state[ errorArgsKey ] = state[ errorArgsKey ] || {};
+
+		state[ errorsKey ][ key ] = error;
+		state[ errorArgsKey ][ key ] = args;
+	}
+
+	/**
+	 * Clears the error for a specific (baseName, args) pair within a given slice.
+	 *
+	 * @since 1.179.0
+	 *
+	 * @param {Object}      state        Data store's state.
+	 * @param {string}      errorsKey    Key of the slice's errors object on state.
+	 * @param {string}      errorArgsKey Key of the slice's error args object on state.
+	 * @param {string}      baseName     Selector or action name.
+	 * @param {Array.<any>} args         Arguments passed to the selector or action.
+	 */
+	function clearErrorInSlice(
+		state,
+		errorsKey,
+		errorArgsKey,
+		baseName,
+		args
+	) {
+		const key = generateErrorKey( baseName, args );
+
+		state[ errorsKey ] = state[ errorsKey ] || {};
+		state[ errorArgsKey ] = state[ errorArgsKey ] || {};
+
+		delete state[ errorsKey ][ key ];
+		delete state[ errorArgsKey ][ key ];
+	}
+
+	/**
+	 * Clears all errors within a given slice, optionally filtered by baseName.
+	 *
+	 * When `baseName` is provided, every error keyed under that baseName
+	 * (regardless of args) is cleared. When omitted, the entire slice is wiped.
+	 *
+	 * @since 1.179.0
+	 *
+	 * @param {Object} state        Data store's state.
+	 * @param {string} errorsKey    Key of the slice's errors object on state.
+	 * @param {string} errorArgsKey Key of the slice's error args object on state.
+	 * @param {string} [baseName]   Optional selector or action name to filter by.
+	 */
+	function clearErrorsInSlice( state, errorsKey, errorArgsKey, baseName ) {
+		if ( baseName ) {
+			state[ errorsKey ] = state[ errorsKey ] || {};
+			state[ errorArgsKey ] = state[ errorArgsKey ] || {};
+
+			for ( const key in state[ errorsKey ] ) {
+				if ( key === baseName || key.startsWith( `${ baseName }::` ) ) {
+					delete state[ errorsKey ][ key ];
+					delete state[ errorArgsKey ][ key ];
 				}
-
-				// @TODO: remove once all instances of the legacy behavior have been removed.
-				return { ...state, error };
 			}
-
-			case CLEAR_ERROR: {
-				const { baseName, args } = payload;
-				const newState = { ...state };
-				if ( baseName ) {
-					const key = generateErrorKey( baseName, args );
-					newState.errors = { ...( state.errors || {} ) };
-					delete newState.errors[ key ];
-				} else {
-					// @TODO: remove it once all instances of the legacy behavior have been removed.
-					newState.error = undefined;
-				}
-
-				return newState;
-			}
-
-			case CLEAR_ERRORS: {
-				const { baseName } = payload;
-				const newState = { ...state };
-				if ( baseName ) {
-					newState.errors = { ...( state.errors || {} ) };
-					for ( const key in newState.errors ) {
-						if ( key === baseName || key.startsWith( `${ baseName }::` ) ) {
-							delete newState.errors[ key ];
-						}
-					}
-				} else {
-					newState.errors = {};
-					// @TODO: remove it once all instances of the legacy behavior have been removed.
-					newState.error = undefined;
-				}
-				return newState;
-			}
-
-			default: {
-				return state;
-			}
+		} else {
+			state[ errorsKey ] = {};
+			state[ errorArgsKey ] = {};
 		}
 	}
+
+	const reducer = createReducer( ( state, { type, payload } ) => {
+		switch ( type ) {
+			case SET_ERROR_FOR_SELECTOR: {
+				setErrorInSlice(
+					state,
+					'selectorErrors',
+					'selectorErrorArgs',
+					payload
+				);
+				break;
+			}
+
+			case SET_ERROR_FOR_ACTION: {
+				setErrorInSlice(
+					state,
+					'actionErrors',
+					'actionErrorArgs',
+					payload
+				);
+				break;
+			}
+
+			case CLEAR_SELECTOR_ERROR: {
+				const { baseName, args } = payload;
+				clearErrorInSlice(
+					state,
+					'selectorErrors',
+					'selectorErrorArgs',
+					baseName,
+					args
+				);
+				break;
+			}
+
+			case CLEAR_SELECTOR_ERRORS: {
+				const { baseName } = payload;
+				clearErrorsInSlice(
+					state,
+					'selectorErrors',
+					'selectorErrorArgs',
+					baseName
+				);
+				break;
+			}
+
+			case CLEAR_ACTION_ERROR: {
+				const { baseName, args } = payload;
+				clearErrorInSlice(
+					state,
+					'actionErrors',
+					'actionErrorArgs',
+					baseName,
+					args
+				);
+				break;
+			}
+
+			case CLEAR_ACTION_ERRORS: {
+				const { baseName } = payload;
+				clearErrorsInSlice(
+					state,
+					'actionErrors',
+					'actionErrorArgs',
+					baseName
+				);
+				break;
+			}
+		}
+	} );
 
 	const controls = {};
 
@@ -172,7 +366,8 @@ export function createErrorStore() {
 		 */
 		getErrorForSelector( state, selectorName, args = [] ) {
 			invariant( selectorName, 'selectorName is required.' );
-			return selectors.getError( state, selectorName, args );
+			const { selectorErrors } = state;
+			return selectorErrors[ generateErrorKey( selectorName, args ) ];
 		},
 
 		/**
@@ -195,39 +390,8 @@ export function createErrorStore() {
 		 */
 		getErrorForAction( state, actionName, args = [] ) {
 			invariant( actionName, 'actionName is required.' );
-			return selectors.getError( state, actionName, args );
-		},
-
-		/**
-		 * Retrieves the error object from state.
-		 *
-		 *```
-		 * {
-		 *   code: <String>,
-		 *   message: <String>,
-		 *   data: <Object>
-		 * }
-		 * ```
-		 *
-		 * @since 1.15.0
-		 * @private
-		 *
-		 * @param {Object}      state      Data store's state.
-		 * @param {string}      [baseName] Selector or action name.
-		 * @param {Array.<any>} [args]     Arguments array.
-		 * @return {(Object|undefined)} Error object if exists, otherwise undefined.
-		 */
-		getError( state, baseName, args ) {
-			const { error, errors } = state;
-
-			// @TODO: remove it once all instances of the legacy usage have been removed. Also make baseName required then.
-			if ( ! baseName && ! args ) {
-				return error;
-			}
-
-			invariant( baseName, 'baseName is required.' );
-
-			return errors[ generateErrorKey( baseName, args ) ];
+			const { actionErrors } = state;
+			return actionErrors[ generateErrorKey( actionName, args ) ];
 		},
 
 		/**
@@ -239,15 +403,96 @@ export function createErrorStore() {
 		 * @return {Object[]} Unique set of errors.
 		 */
 		getErrors( state ) {
-			const errorsSet = new Set( Object.values( state.errors ) );
-
-			// @TODO: remove it once all instances of the legacy usage have been removed.
-			if ( undefined !== state.error ) {
-				errorsSet.add( state.error );
-			}
+			const errorsSet = new Set( [
+				...Object.values( state.selectorErrors ),
+				...Object.values( state.actionErrors ),
+			] );
 
 			return Array.from( errorsSet );
 		},
+
+		/**
+		 * Gets the meta-data for a given selector error object, or null if the error is not found.
+		 *
+		 * Returns meta-data in the format:
+		 *
+		 * ```
+		 *	{
+		 *		baseName: <string>,
+		 *		args: <Array>
+		 *	}
+		 * ```
+		 *
+		 * @since 1.84.0
+		 * @since 1.179.0 Renamed from `getMetaDataForError` and limited to the selector error slice.
+		 *
+		 * @param {Object} state Data store's state.
+		 * @param {Object} error Error object.
+		 * @return {Object|null} Meta-data for the given selector error object, or null if the error is not found.
+		 */
+		getMetaDataForSelectorError( state, error ) {
+			const selectorKey = Object.keys( state.selectorErrors ).find(
+				( errorKey ) => state.selectorErrors[ errorKey ] === error
+			);
+
+			if ( selectorKey ) {
+				const baseName = selectorKey.substring(
+					0,
+					selectorKey.indexOf( '::' )
+				);
+				return {
+					baseName,
+					args: state.selectorErrorArgs[ selectorKey ],
+				};
+			}
+
+			return null;
+		},
+
+		/**
+		 * Gets the selector data for a given error object, or null if no selector data is available.
+		 *
+		 * Returns selector data in the format:
+		 *
+		 * ```
+		 *	{
+		 *		storeName: <string>,
+		 *		name: <string>,
+		 *		args: <Array>
+		 *	}
+		 * ```
+		 *
+		 * @since 1.87.0
+		 *
+		 * @param {Object} state Data store's state.
+		 * @param {Object} error Error object.
+		 * @return {Object|null} Selector data for the given error object, or null if no selector data is available.
+		 */
+		getSelectorDataForError: createRegistrySelector(
+			( select ) =>
+				function ( state, error ) {
+					const metaData =
+						select( storeName ).getMetaDataForSelectorError(
+							error
+						);
+
+					if ( metaData ) {
+						const { baseName: name, args } = metaData;
+
+						const isSelector = !! select( storeName )[ name ];
+
+						if ( isSelector ) {
+							return {
+								storeName,
+								name,
+								args,
+							};
+						}
+					}
+
+					return null;
+				}
+		),
 
 		/**
 		 * Determines whether the datastore has errors or not.

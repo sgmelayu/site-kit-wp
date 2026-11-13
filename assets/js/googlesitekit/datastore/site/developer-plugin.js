@@ -19,24 +19,25 @@
 /**
  * Internal dependencies
  */
-import API from 'googlesitekit-api';
-import Data from 'googlesitekit-data';
-import { STORE_NAME } from './constants';
-import { createFetchStore } from '../../data/create-fetch-store';
+import { get } from 'googlesitekit-api';
+import {
+	combineStores,
+	commonActions,
+	createReducer,
+} from 'googlesitekit-data';
+import { createFetchStore } from '@/js/googlesitekit/data/create-fetch-store';
+import { CORE_SITE } from './constants';
 
 const fetchGetDeveloperPluginState = createFetchStore( {
 	baseName: 'getDeveloperPluginState',
 	controlCallback: () => {
-		return API.get( 'core', 'site', 'developer-plugin', undefined, {
+		return get( 'core', 'site', 'developer-plugin', undefined, {
 			useCache: false,
 		} );
 	},
-	reducerCallback: ( state, developerPluginState ) => {
-		return {
-			...state,
-			developerPluginState,
-		};
-	},
+	reducerCallback: createReducer( ( state, developerPluginState ) => {
+		state.developerPluginState = developerPluginState;
+	} ),
 } );
 
 const baseInitialState = {
@@ -45,9 +46,11 @@ const baseInitialState = {
 
 const baseResolvers = {
 	*getDeveloperPluginState() {
-		const registry = yield Data.commonActions.getRegistry();
+		const registry = yield commonActions.getRegistry();
 
-		const existingDeveloperPluginState = registry.select( STORE_NAME ).getDeveloperPluginState();
+		const existingDeveloperPluginState = registry
+			.select( CORE_SITE )
+			.getDeveloperPluginState();
 
 		if ( ! existingDeveloperPluginState ) {
 			yield fetchGetDeveloperPluginState.actions.fetchGetDeveloperPluginState();
@@ -56,7 +59,6 @@ const baseResolvers = {
 };
 
 const baseSelectors = {
-
 	/**
 	 * Gets the developer plugin state info for this site.
 	 *
@@ -84,14 +86,11 @@ const baseSelectors = {
 	},
 };
 
-const store = Data.combineStores(
-	fetchGetDeveloperPluginState,
-	{
-		initialState: baseInitialState,
-		resolvers: baseResolvers,
-		selectors: baseSelectors,
-	}
-);
+const store = combineStores( fetchGetDeveloperPluginState, {
+	initialState: baseInitialState,
+	resolvers: baseResolvers,
+	selectors: baseSelectors,
+} );
 
 export const initialState = store.initialState;
 export const actions = store.actions;

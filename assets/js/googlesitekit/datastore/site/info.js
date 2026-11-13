@@ -20,7 +20,6 @@
  * External dependencies
  */
 import invariant from 'invariant';
-import queryString from 'query-string';
 
 /**
  * WordPress dependencies
@@ -30,15 +29,19 @@ import { addQueryArgs, getQueryArg } from '@wordpress/url';
 /**
  * Internal dependencies
  */
-import Data from 'googlesitekit-data';
-import { STORE_NAME, AMP_MODE_PRIMARY, AMP_MODE_SECONDARY } from './constants';
-import { getLocale } from '../../../util/i18n';
-
-const { createRegistrySelector } = Data;
+import {
+	commonActions,
+	createReducer,
+	createRegistrySelector,
+} from 'googlesitekit-data';
+import { getGlobalData } from '@/js/googlesitekit/data/utils';
+import { normalizeURL, untrailingslashit } from '@/js/util';
+import { negateDefined } from '@/js/util/negate';
+import { AMP_MODE_PRIMARY, AMP_MODE_SECONDARY, CORE_SITE } from './constants';
 
 function getSiteInfoProperty( propName ) {
 	return createRegistrySelector( ( select ) => () => {
-		const siteInfo = select( STORE_NAME ).getSiteInfo() || {};
+		const siteInfo = select( CORE_SITE ).getSiteInfo() || {};
 		return siteInfo[ propName ];
 	} );
 }
@@ -46,6 +49,9 @@ function getSiteInfoProperty( propName ) {
 // Actions
 const RECEIVE_SITE_INFO = 'RECEIVE_SITE_INFO';
 const RECEIVE_PERMALINK_PARAM = 'RECEIVE_PERMALINK_PARAM';
+const SET_SITE_KIT_AUTO_UPDATES_ENABLED = 'SET_SITE_KIT_AUTO_UPDATES_ENABLED';
+const SET_KEY_METRICS_SETUP_COMPLETED_BY = 'SET_KEY_METRICS_SETUP_COMPLETED_BY';
+const SET_SETUP_ERROR_CODE = 'SET_SETUP_ERROR_CODE';
 
 export const initialState = {
 	siteInfo: undefined,
@@ -83,13 +89,77 @@ export const actions = {
 			type: RECEIVE_PERMALINK_PARAM,
 		};
 	},
+
+	/* eslint-disable-next-line sitekit/jsdoc-no-unnamed-boolean-params */
+	/**
+	 * Sets `siteKitAutoUpdatesEnabled` value; if set to `true` this will
+	 * enable auto-updates for Site Kit. Set to `false` to disable this
+	 * behaviour.
+	 *
+	 * @since 1.93.0
+	 *
+	 * @param {boolean} siteKitAutoUpdatesEnabled Whether Site Kit auto-updates are enabled.
+	 * @return {Object} Redux-style action.
+	 */
+	setSiteKitAutoUpdatesEnabled( siteKitAutoUpdatesEnabled ) {
+		invariant(
+			typeof siteKitAutoUpdatesEnabled === 'boolean',
+			'siteKitAutoUpdatesEnabled must be a boolean.'
+		);
+
+		return {
+			payload: { siteKitAutoUpdatesEnabled },
+			type: SET_SITE_KIT_AUTO_UPDATES_ENABLED,
+		};
+	},
+
+	/**
+	 * Sets the `setKeyMetricsSetupCompletedBy` value.
+	 *
+	 * @since 1.113.0
+	 *
+	 * @param {number} keyMetricsSetupCompletedBy Positive integer if key metrics setup is completed, otherwise 0.
+	 * @return {Object} Redux-style action.
+	 */
+	setKeyMetricsSetupCompletedBy( keyMetricsSetupCompletedBy ) {
+		invariant(
+			typeof keyMetricsSetupCompletedBy === 'number',
+			'keyMetricsSetupCompletedBy must be a number.'
+		);
+
+		return {
+			payload: { keyMetricsSetupCompletedBy },
+			type: SET_KEY_METRICS_SETUP_COMPLETED_BY,
+		};
+	},
+
+	/**
+	 * Sets `setupErrorCode` value.
+	 *
+	 * @since 1.131.0
+	 *
+	 * @param {string|null} setupErrorCode Error code from setup, or `null` if no error.
+	 * @return {Object} Redux-style action.
+	 */
+	setSetupErrorCode( setupErrorCode ) {
+		// setupErrorCode can be a string or null.
+		invariant(
+			typeof setupErrorCode === 'string' || setupErrorCode === null,
+			'setupErrorCode must be a string or null.'
+		);
+
+		return {
+			payload: { setupErrorCode },
+			type: SET_SETUP_ERROR_CODE,
+		};
+	},
 };
 
 export const controls = {};
 
-export const reducer = ( state, { payload, type } ) => {
+export const reducer = createReducer( ( state, { payload, type } ) => {
 	switch ( type ) {
-		case RECEIVE_SITE_INFO: {
+		case RECEIVE_SITE_INFO:
 			const {
 				adminURL,
 				ampMode,
@@ -101,55 +171,145 @@ export const reducer = ( state, { payload, type } ) => {
 				proxyPermissionsURL,
 				proxySetupURL,
 				referenceSiteURL,
+				setupErrorCode,
+				setupErrorMessage,
+				setupErrorRedoURL,
 				siteName,
+				siteLocale,
 				timezone,
+				startOfWeek,
 				usingProxy,
 				webStoriesActive,
+				proxySupportLinkURL,
+				widgetsAdminURL,
+				postTypes,
+				wpVersion,
+				updateCoreURL,
+				changePluginAutoUpdatesCapacity,
+				siteKitAutoUpdatesEnabled,
+				pluginBasename,
+				productPostType,
+				productPathPrefix,
+				usingPlainPermalinks,
+				keyMetricsSetupCompletedBy,
+				keyMetricsSetupIsWidgetAreaHidden,
+				keyMetricsSetupNew,
+				consentModeRegions,
+				anyoneCanRegister,
+				anyoneCanRegisterWooCommerce,
+				isMultisite,
+				hasActiveLeadEventProviders,
+				hasActiveEcommerceEventProviders,
+				hasMultipleActiveEcommerceEventProviders,
+				activeConversionEventProviders,
+				wpPrivacyURL,
+				wooCommerceActive,
+				wooCommerceInstalled,
 			} = payload.siteInfo;
 
-			return {
-				...state,
-				siteInfo: {
-					adminURL,
-					ampMode,
-					currentEntityID: parseInt( currentEntityID, 10 ),
-					currentEntityTitle,
-					currentEntityType,
-					currentEntityURL,
-					homeURL,
-					proxyPermissionsURL,
-					proxySetupURL,
-					referenceSiteURL,
-					siteName,
-					timezone,
-					usingProxy,
-					webStoriesActive,
-				},
+			state.siteInfo = {
+				adminURL,
+				ampMode,
+				currentEntityID: parseInt( currentEntityID, 10 ),
+				currentEntityTitle,
+				currentEntityType,
+				currentEntityURL,
+				homeURL,
+				proxyPermissionsURL,
+				proxySetupURL,
+				referenceSiteURL,
+				setupErrorCode,
+				setupErrorMessage,
+				setupErrorRedoURL,
+				siteName,
+				siteLocale,
+				timezone,
+				startOfWeek,
+				usingProxy,
+				webStoriesActive,
+				proxySupportLinkURL,
+				widgetsAdminURL,
+				postTypes,
+				wpVersion,
+				updateCoreURL,
+				changePluginAutoUpdatesCapacity,
+				siteKitAutoUpdatesEnabled,
+				pluginBasename,
+				productPostType,
+				productPathPrefix,
+				usingPlainPermalinks,
+				keyMetricsSetupCompletedBy,
+				keyMetricsSetupIsWidgetAreaHidden,
+				keyMetricsSetupNew,
+				consentModeRegions,
+				anyoneCanRegister,
+				anyoneCanRegisterWooCommerce,
+				isMultisite,
+				hasActiveLeadEventProviders,
+				hasActiveEcommerceEventProviders,
+				hasMultipleActiveEcommerceEventProviders,
+				activeConversionEventProviders,
+				wpPrivacyURL,
+				wooCommerceActive,
+				wooCommerceInstalled,
 			};
+			break;
+
+		case RECEIVE_PERMALINK_PARAM: {
+			state.permaLink = payload.permaLink;
+			break;
 		}
 
-		case RECEIVE_PERMALINK_PARAM:
-			const { permaLink } = payload;
-			return {
-				...state,
-				permaLink,
-			};
+		case SET_SITE_KIT_AUTO_UPDATES_ENABLED: {
+			if ( ! state.siteInfo ) {
+				state.siteInfo = {};
+			}
 
-		default: {
-			return state;
+			state.siteInfo.siteKitAutoUpdatesEnabled =
+				payload.siteKitAutoUpdatesEnabled;
+
+			break;
 		}
+
+		case SET_KEY_METRICS_SETUP_COMPLETED_BY: {
+			if ( ! state.siteInfo ) {
+				state.siteInfo = {};
+			}
+
+			state.siteInfo.keyMetricsSetupCompletedBy =
+				payload.keyMetricsSetupCompletedBy;
+			break;
+		}
+
+		case SET_SETUP_ERROR_CODE: {
+			if ( ! state.siteInfo ) {
+				state.siteInfo = {};
+			}
+
+			state.siteInfo.setupErrorCode = payload.setupErrorCode;
+			break;
+		}
+
+		default:
+			break;
 	}
-};
+} );
 
 export const resolvers = {
 	*getSiteInfo() {
-		const registry = yield Data.commonActions.getRegistry();
+		const registry = yield commonActions.getRegistry();
 
-		if ( registry.select( STORE_NAME ).getSiteInfo() ) {
+		if ( registry.select( CORE_SITE ).getSiteInfo() ) {
 			return;
 		}
 
-		if ( ! global._googlesitekitBaseData || ! global._googlesitekitEntityData ) {
+		let baseData;
+		let entityData;
+
+		try {
+			baseData = getGlobalData( '_googlesitekitBaseData' );
+			entityData = getGlobalData( '_googlesitekitEntityData' );
+		} catch ( error ) {
 			global.console.error( 'Could not load core/site info.' );
 			return;
 		}
@@ -161,17 +321,48 @@ export const resolvers = {
 			proxyPermissionsURL,
 			proxySetupURL,
 			referenceSiteURL,
+			setupErrorCode,
+			setupErrorMessage,
+			setupErrorRedoURL,
 			siteName,
+			siteLocale,
 			timezone,
+			startOfWeek,
 			usingProxy,
 			webStoriesActive,
-		} = global._googlesitekitBaseData;
+			proxySupportLinkURL,
+			widgetsAdminURL,
+			postTypes,
+			wpVersion,
+			updateCoreURL,
+			changePluginAutoUpdatesCapacity,
+			siteKitAutoUpdatesEnabled,
+			pluginBasename,
+			productPostType,
+			productPathPrefix,
+			usingPlainPermalinks,
+			keyMetricsSetupCompletedBy,
+			keyMetricsSetupIsWidgetAreaHidden,
+			keyMetricsSetupNew,
+			consentModeRegions,
+			anyoneCanRegister,
+			anyoneCanRegisterWooCommerce,
+			isMultisite,
+			hasActiveLeadEventProviders,
+			hasActiveEcommerceEventProviders,
+			hasMultipleActiveEcommerceEventProviders,
+			activeConversionEventProviders,
+			wpPrivacyURL,
+			wooCommerceActive,
+			wooCommerceInstalled,
+		} = baseData;
+
 		const {
 			currentEntityID,
 			currentEntityTitle,
 			currentEntityType,
 			currentEntityURL,
-		} = global._googlesitekitEntityData;
+		} = entityData;
 
 		yield actions.receiveSiteInfo( {
 			adminURL,
@@ -184,10 +375,40 @@ export const resolvers = {
 			proxyPermissionsURL,
 			proxySetupURL,
 			referenceSiteURL,
+			setupErrorCode,
+			setupErrorMessage,
+			setupErrorRedoURL,
 			siteName,
+			siteLocale,
 			timezone,
+			startOfWeek,
+			postTypes,
 			usingProxy: !! usingProxy,
 			webStoriesActive,
+			proxySupportLinkURL,
+			widgetsAdminURL,
+			wpVersion,
+			updateCoreURL,
+			changePluginAutoUpdatesCapacity,
+			siteKitAutoUpdatesEnabled,
+			pluginBasename,
+			productPostType,
+			productPathPrefix,
+			usingPlainPermalinks,
+			keyMetricsSetupCompletedBy,
+			keyMetricsSetupIsWidgetAreaHidden,
+			keyMetricsSetupNew,
+			consentModeRegions,
+			anyoneCanRegister,
+			anyoneCanRegisterWooCommerce,
+			isMultisite,
+			hasActiveLeadEventProviders,
+			hasActiveEcommerceEventProviders,
+			hasMultipleActiveEcommerceEventProviders,
+			activeConversionEventProviders,
+			wpPrivacyURL,
+			wooCommerceActive,
+			wooCommerceInstalled,
 		} );
 	},
 };
@@ -219,41 +440,56 @@ export const selectors = {
 	 * @param {(Object|undefined)} args  Optional additional query arguments to add to admin URL.
 	 * @return {(string|undefined)} This site's admin URL.
 	 */
-	getAdminURL: createRegistrySelector( ( select ) => ( state, page, args = {} ) => {
-		const { adminURL } = select( STORE_NAME ).getSiteInfo() || {};
+	getAdminURL: createRegistrySelector(
+		( select ) =>
+			( state, page, args = {} ) => {
+				const { adminURL } = select( CORE_SITE ).getSiteInfo() || {};
 
-		// Return adminURL if undefined, or if no page supplied.
-		if ( adminURL === undefined || page === undefined ) {
-			return adminURL;
-		}
+				// Return adminURL if undefined, or if no page supplied.
+				if ( adminURL === undefined || page === undefined ) {
+					return adminURL;
+				}
 
-		const baseURL = ( adminURL[ adminURL.length - 1 ] === '/' ) ? adminURL : `${ adminURL }/`;
-		let pageArg = page;
-		let phpFile = 'admin.php';
+				let baseURL = adminURL;
+				let baseQuery = '';
+				try {
+					const admin = new URL( adminURL );
+					const pathname = admin.pathname.endsWith( '/' )
+						? admin.pathname
+						: `${ admin.pathname }/`;
+					baseURL = `${ admin.origin }${ pathname }`;
+					baseQuery = admin.search || '';
+				} catch ( error ) {
+					baseURL =
+						adminURL[ adminURL.length - 1 ] === '/'
+							? adminURL
+							: `${ adminURL }/`;
+					baseQuery = '';
+				}
+				let pageArg = page;
+				let phpFile = 'admin.php';
 
-		// If page argument is full format (i.e. 'admin.php?page=google-site-kit'), extract php file and pageArg, returning early with adminURL if no 'page' param found.
-		if ( page.indexOf( '.php?' ) !== -1 ) {
-			const splitPage = page.split( '?' );
-			pageArg = queryString.parse( splitPage.pop() ).page;
+				// If page argument is full format (i.e. 'admin.php?page=google-site-kit'), extract php file and pageArg, returning early with adminURL if no 'page' param found.
+				if ( page.indexOf( '.php?' ) !== -1 ) {
+					const splitPage = page.split( '?' );
+					pageArg = getQueryArg( page, 'page' );
 
-			if ( ! pageArg ) {
-				return adminURL;
+					if ( ! pageArg ) {
+						return adminURL;
+					}
+
+					phpFile = splitPage.shift();
+				}
+
+				// Since page should be first query arg, create queryArgs without 'page' to prevent a 'page' in args from overriding it.
+				const { page: extraPage, ...queryArgs } = args; // eslint-disable-line no-unused-vars
+
+				return addQueryArgs( `${ baseURL }${ phpFile }${ baseQuery }`, {
+					page: pageArg,
+					...queryArgs,
+				} );
 			}
-
-			phpFile = splitPage.shift();
-		}
-
-		// Since page should be first query arg, create queryArgs without 'page' to prevent a 'page' in args from overriding it.
-		const { page: extraPage, ...queryArgs } = args; // eslint-disable-line no-unused-vars
-
-		return addQueryArgs(
-			`${ baseURL }${ phpFile }`,
-			{
-				page: pageArg,
-				...queryArgs,
-			}
-		);
-	} ),
+	),
 
 	/**
 	 * Gets a site's AMP mode.
@@ -365,13 +601,13 @@ export const selectors = {
 	 */
 	getCurrentReferenceURL: createRegistrySelector( ( select ) => () => {
 		// Use current entity URL if present or still loading.
-		const currentEntityURL = select( STORE_NAME ).getCurrentEntityURL();
+		const currentEntityURL = select( CORE_SITE ).getCurrentEntityURL();
 		if ( currentEntityURL !== null ) {
 			return currentEntityURL;
 		}
 
 		// Otherwise fall back to reference site URL.
-		return select( STORE_NAME ).getReferenceSiteURL();
+		return select( CORE_SITE ).getReferenceSiteURL();
 	} ),
 
 	/**
@@ -384,7 +620,7 @@ export const selectors = {
 	 * @return {(string|undefined)} `true` if AMP support is enabled, `false` if not. Returns `undefined` if not loaded.
 	 */
 	isAMP: createRegistrySelector( ( select ) => () => {
-		const ampMode = select( STORE_NAME ).getAMPMode();
+		const ampMode = select( CORE_SITE ).getAMPMode();
 
 		if ( ampMode === undefined ) {
 			return undefined;
@@ -401,7 +637,7 @@ export const selectors = {
 	 * @return {(boolean|undefined)} `true` or `false` if the site is in the primary AMP mode. Returns `undefined` if not loaded.
 	 */
 	isPrimaryAMP: createRegistrySelector( ( select ) => () => {
-		const ampMode = select( STORE_NAME ).getAMPMode();
+		const ampMode = select( CORE_SITE ).getAMPMode();
 
 		if ( ampMode === undefined ) {
 			return undefined;
@@ -418,13 +654,37 @@ export const selectors = {
 	 * @return {(boolean|undefined)} `true` or `false` if the site is in a secondary AMP mode. Returns `undefined` if not loaded.
 	 */
 	isSecondaryAMP: createRegistrySelector( ( select ) => () => {
-		const ampMode = select( STORE_NAME ).getAMPMode();
+		const ampMode = select( CORE_SITE ).getAMPMode();
 
 		if ( ampMode === undefined ) {
 			return undefined;
 		}
 
 		return ampMode === AMP_MODE_SECONDARY;
+	} ),
+
+	/**
+	 * Retrieves an admin settings URL, pointing to either network or single-site settings
+	 * depending on whether the site is multisite.
+	 *
+	 * @since 1.146.0
+	 *
+	 * @return {string|undefined} The admin settings URL, or undefined if required data is unavailable.
+	 */
+	getAdminSettingsURL: createRegistrySelector( ( select ) => () => {
+		const adminURL = select( CORE_SITE ).getAdminURL();
+		const isMultisite = select( CORE_SITE ).isMultisite();
+
+		if ( adminURL === undefined || isMultisite === undefined ) {
+			return undefined;
+		}
+
+		return new URL(
+			isMultisite === true
+				? 'network/settings.php'
+				: 'options-general.php',
+			adminURL
+		).href;
 	} ),
 
 	/**
@@ -436,6 +696,18 @@ export const selectors = {
 	 * @return {(string|undefined)} The timezone.
 	 */
 	getTimezone: getSiteInfoProperty( 'timezone' ),
+
+	/**
+	 * Gets the WordPress "start of week" option for the site.
+	 *
+	 * 0 = Sunday, 1 = Monday, ... 6 = Saturday.
+	 *
+	 * @since 1.164.0
+	 *
+	 * @param {Object} state Data store's state.
+	 * @return {(number|undefined)} The start of week index, or undefined while loading.
+	 */
+	getStartOfWeek: getSiteInfoProperty( 'startOfWeek' ),
 
 	/**
 	 * Returns true if this site is using the proxy service.
@@ -458,6 +730,81 @@ export const selectors = {
 	getSiteName: getSiteInfoProperty( 'siteName' ),
 
 	/**
+	 * Gets a site's locale.
+	 *
+	 * @since 1.147.0
+	 *
+	 * @return {(string|undefined)} The site locale.
+	 */
+	getSiteLocale: createRegistrySelector(
+		( select ) => () =>
+			select( CORE_SITE ).getSiteInfo()?.siteLocale?.replace( '_', '-' )
+	),
+
+	/**
+	 * Gets a setup error code, if one exists.
+	 *
+	 * @since 1.80.0
+	 *
+	 * @param {Object} state Data store's state.
+	 * @return {(string|undefined)} An error code from setup, if one exists. Will be `null` if no error exists; `undefined` when loading.
+	 */
+	getSetupErrorCode: getSiteInfoProperty( 'setupErrorCode' ),
+
+	/**
+	 * Gets a setup error message, if one exists.
+	 *
+	 * @since 1.77.0
+	 *
+	 * @param {Object} state Data store's state.
+	 * @return {(string|null|undefined)} An error message from setup, if one exists. Will be `null` if no error exists; `undefined` when loading.
+	 */
+	getSetupErrorMessage: getSiteInfoProperty( 'setupErrorMessage' ),
+
+	/**
+	 * Gets a setup redo URL, if one exists after encountering a setup error.
+	 *
+	 * This URL will be used to redo the setup process if a user encountered
+	 * an error.
+	 *
+	 * @since 1.77.0
+	 *
+	 * @param {Object} state Data store's state.
+	 * @return {(string|null|undefined)} The setup URL, if one exists. Will be `null` if no error exists and thus the setup redo URL doesn't exist; `undefined` when loading.
+	 */
+	getSetupErrorRedoURL: getSiteInfoProperty( 'setupErrorRedoURL' ),
+
+	/**
+	 * Gets the proxy support URL.
+	 *
+	 * @since 1.80.0
+	 *
+	 * @param {Object} state Data store's state.
+	 * @return {(string|null)} The proxy support URL.
+	 */
+	getProxySupportLinkURL: getSiteInfoProperty( 'proxySupportLinkURL' ),
+
+	/**
+	 * Gets the admin widgets editor URL.
+	 *
+	 * @since 1.81.0
+	 *
+	 * @param {Object} state Data store's state.
+	 * @return {(string|null)} The proxy support URL.
+	 */
+	getWidgetsAdminURL: getSiteInfoProperty( 'widgetsAdminURL' ),
+
+	/**
+	 * Gets the public post types.
+	 *
+	 * @since 1.81.0
+	 *
+	 * @param {Object} state Data store's state.
+	 * @return {Array.<Object>} The public post types.
+	 */
+	getPostTypes: getSiteInfoProperty( 'postTypes' ),
+
+	/**
 	 * Gets the 'permaLink' query parameter.
 	 *
 	 * @since 1.18.0
@@ -475,31 +822,6 @@ export const selectors = {
 	},
 
 	/**
-	 * Gets external help links which includes the user's locale.
-	 *
-	 * @since 1.24.0
-	 *
-	 * @param {Object} state        Data store's state.
-	 * @param {Object} [args]       Optional arguments for the resulting URL.
-	 * @param {string} [args.path]  Base URL to build complete URL with starting slash.
-	 * @param {Object} [args.query] Object to append query to the URL.
-	 * @param {string} [args.hash]  Optional hash.
-	 * @return {(string|null)} The URL containing the user's locale or `null` if path is not set.
-	 */
-	getGoogleSupportURL: ( state, args ) => {
-		const { path, query, hash } = args || {};
-
-		if ( ! path ) {
-			return null;
-		}
-
-		const url = new URL( addQueryArgs( `https://support.google.com${ path }`, { ...query, hl: getLocale() } ) );
-		url.hash = hash || '';
-
-		return url.toString();
-	},
-
-	/**
 	 * Returns true if this site has the Web Stories plugin enabled.
 	 *
 	 * @since 1.27.0
@@ -508,6 +830,371 @@ export const selectors = {
 	 * @return {(boolean|undefined)} `true` if the Web Stories plugin is enabled, `false` if not. Returns `undefined` if not loaded.
 	 */
 	isWebStoriesActive: getSiteInfoProperty( 'webStoriesActive' ),
+
+	/**
+	 * Determines whether the provided URL matches reference site URL or not.
+	 *
+	 * @since 1.32.0
+	 *
+	 * @param {string} url The URL to compare with the reference site URL.
+	 * @return {boolean} TRUE if the URL matches reference site URL, otherwise FALSE.
+	 */
+	isSiteURLMatch: createRegistrySelector( ( select ) => ( state, url ) => {
+		const referenceURL = select( CORE_SITE ).getReferenceSiteURL();
+		return normalizeURL( referenceURL ) === normalizeURL( url );
+	} ),
+
+	/**
+	 * Gets an array with site URL permutations.
+	 *
+	 * @since 1.34.0
+	 *
+	 * @return {Array.<string>} An array with permutations.
+	 */
+	getSiteURLPermutations: createRegistrySelector( ( select ) => () => {
+		const referenceURL = select( CORE_SITE ).getReferenceSiteURL();
+		const permutations = [];
+
+		const url = new URL( referenceURL );
+		url.hostname = url.hostname.replace( /^www\./i, '' );
+
+		url.protocol = 'http';
+		permutations.push( untrailingslashit( url ) );
+
+		url.protocol = 'https';
+		permutations.push( untrailingslashit( url ) );
+
+		url.hostname = 'www.' + url.hostname;
+		permutations.push( untrailingslashit( url ) );
+
+		url.protocol = 'http';
+		permutations.push( untrailingslashit( url ) );
+
+		return permutations;
+	} ),
+
+	/**
+	 * Gets the WordPress version object.
+	 *
+	 * @since 1.85.0
+	 *
+	 * @param {Object} state Data store's state.
+	 * @return {(Object|undefined)} WordPress version object.
+	 */
+	getWPVersion: getSiteInfoProperty( 'wpVersion' ),
+
+	/**
+	 * Gets the WordPress update core URL.
+	 *
+	 * @since 1.85.0
+	 *
+	 * @param {Object} state Data store's state.
+	 * @return {(Object|undefined)} WordPress update core URL.
+	 */
+	getUpdateCoreURL: getSiteInfoProperty( 'updateCoreURL' ),
+
+	/**
+	 * Determines if Site Kit auto update settings can be changed.
+	 *
+	 * Auto update settings can not be changed if plugin updates are disabled site-wide
+	 * or if Site Kit auto updates are enforced by a PHP filter.
+	 *
+	 * @since 1.93.0
+	 *
+	 * @param {Object} state Data store's state.
+	 * @return {(boolean|undefined)} `true` if plugin auto updates are enabled, otherwise `false`.
+	 */
+	hasChangePluginAutoUpdatesCapacity: getSiteInfoProperty(
+		'changePluginAutoUpdatesCapacity'
+	),
+
+	/**
+	 * Determines if the auto updates are enabled for the Site Kit plugin.
+	 *
+	 * @since 1.93.0
+	 *
+	 * @param {Object} state Data store's state.
+	 * @return {(boolean|undefined)} `true` if Site Kit auto updates are enabled, otherwise `false`.
+	 */
+	getSiteKitAutoUpdatesEnabled: getSiteInfoProperty(
+		'siteKitAutoUpdatesEnabled'
+	),
+
+	/**
+	 * Get the plugin basename.
+	 *
+	 * @since 1.93.0
+	 *
+	 * @param {Object} state Data store's state.
+	 * @return {string} The basename of plugin, e.g. `'google-site-kit/google-site-kit.php'`.
+	 */
+	getPluginBasename: getSiteInfoProperty( 'pluginBasename' ),
+
+	/**
+	 * Get the user ID of the user who setup Key Metrics widget if present.
+	 *
+	 * @since 1.113.0
+	 *
+	 * @return {number} `ID` of the user who did initial setup of the Key Metrics widget, if setup was done, otherwise `0`.
+	 */
+	getKeyMetricsSetupCompletedBy: getSiteInfoProperty(
+		'keyMetricsSetupCompletedBy'
+	),
+
+	/**
+	 * Gets the state of whether or not Key Metrics was recently set up.
+	 *
+	 * @since 1.115.0
+	 *
+	 * @return {boolean} `true` if recently set up, otherwise `false`.
+	 */
+	getKeyMetricsSetupNew: getSiteInfoProperty( 'keyMetricsSetupNew' ),
+
+	/**
+	 * Determines whether the current WordPress site has the minimum required version.
+	 * Currently, the minimum required version is 5.2.
+	 *
+	 * @since 1.85.0
+	 *
+	 * @param {string} minimumWPVersion The minimum required WordPress version.
+	 * @return {(boolean|undefined)} `true` if the WordPress site's version is greater than or equal to the minimum required version, `false` if not. Returns `undefined` if not loaded.
+	 */
+	hasMinimumWordPressVersion: createRegistrySelector(
+		( select ) => ( state, minimumWPVersion ) => {
+			invariant( minimumWPVersion, 'minimumWPVersion is required.' );
+
+			const { major, minor } = select( CORE_SITE ).getWPVersion() || {};
+			if ( major === undefined || minor === undefined ) {
+				return undefined;
+			}
+
+			const [ minimumMajor, minimumMinor = 0 ] = minimumWPVersion
+				.split( '.' )
+				.map( ( v ) => parseInt( v, 10 ) );
+
+			return (
+				minimumMajor < major ||
+				( minimumMajor === major && minimumMinor <= minor )
+			);
+		}
+	),
+
+	/**
+	 * Gets product post type.
+	 *
+	 * @since 1.116.0
+	 *
+	 * @return {string|null} The product post type or null if not present.
+	 */
+	getProductPostType: getSiteInfoProperty( 'productPostType' ),
+
+	/**
+	 * Gets the path that the URL of every product starts with.
+	 *
+	 * @since 1.191.0
+	 *
+	 * @return {(string|null|undefined)} The path, such as `/product/`, never a full URL, or `null` when product URLs share no such path, such as on plain permalinks. Returns `undefined` if not loaded.
+	 */
+	getProductPathPrefix: getSiteInfoProperty( 'productPathPrefix' ),
+
+	/**
+	 * Checks whether the site uses plain permalinks, where each URL names its post in its query string, such as `/?p=123`.
+	 *
+	 * @since 1.191.0
+	 *
+	 * @return {(boolean|undefined)} `true` when the site uses plain permalinks, `false` when it has a permalink structure. Returns `undefined` if not loaded.
+	 */
+	isUsingPlainPermalinks: getSiteInfoProperty( 'usingPlainPermalinks' ),
+
+	/**
+	 * Checks if the Key Metrics widget has been setup either if at least one user
+	 * has answered the User Input questionnaire or picked their own metrics.
+	 *
+	 * @since 1.108.0
+	 *
+	 * @param {Object} state Data store's state.
+	 * @return {(boolean|undefined)} `true` if the Key Metrics widget has been setup, otherwise `false`.
+	 */
+	isKeyMetricsSetupCompleted: ( state ) => {
+		// Here we double-negate the value of the setup completed by state
+		// in order to cast it to a boolean, but only if it's not undefined.
+		return negateDefined(
+			negateDefined( selectors.getKeyMetricsSetupCompletedBy( state ) )
+		);
+	},
+
+	/**
+	 * Get the static list of consent mode regions.
+	 *
+	 * @since 1.128.0
+	 *
+	 * @return {Array<string>} Array of consent mode regions.
+	 */
+	getConsentModeRegions: getSiteInfoProperty( 'consentModeRegions' ),
+
+	/**
+	 * Checks if user registrations are open on this WordPress site.
+	 *
+	 * @since 1.141.0
+	 *
+	 * @param {Object} state Data store's state.
+	 * @return {boolean|undefined} `true` if registrations are open; `false` if not. Returns `undefined` if not yet loaded.
+	 */
+	getAnyoneCanRegister: getSiteInfoProperty( 'anyoneCanRegister' ),
+
+	/**
+	 * Checks if WooCommerce allows new accounts to be created, independently
+	 * of the WordPress "Anyone can register" setting.
+	 *
+	 * `false` when:
+	 *  - WooCommerce is inactive.
+	 *  - WooCommerce is active but account-creation in WooCommerce is
+	 *    disabled.
+	 *
+	 * @since 1.186.0
+	 *
+	 * @param {Object} state Data store's state.
+	 * @return {boolean|undefined} `true` if WooCommerce registration is open; `false` if not. Returns `undefined` if not yet loaded.
+	 */
+	getAnyoneCanRegisterWooCommerce: getSiteInfoProperty(
+		'anyoneCanRegisterWooCommerce'
+	),
+
+	/**
+	 * Checks if new user registration is open, via either WordPress's own
+	 * "Anyone can register" setting or WooCommerce's own account-creation
+	 * setting.
+	 *
+	 * @since 1.186.0
+	 *
+	 * @return {boolean|undefined} `true` if registration is open via either path; `false` if neither is open. Returns `undefined` if not yet loaded.
+	 */
+	isRegistrationOpen: createRegistrySelector( ( select ) => () => {
+		const anyoneCanRegister = select( CORE_SITE ).getAnyoneCanRegister();
+		const anyoneCanRegisterWooCommerce =
+			select( CORE_SITE ).getAnyoneCanRegisterWooCommerce();
+
+		if (
+			anyoneCanRegister === undefined ||
+			anyoneCanRegisterWooCommerce === undefined
+		) {
+			return undefined;
+		}
+
+		return anyoneCanRegister || anyoneCanRegisterWooCommerce;
+	} ),
+
+	/**
+	 * Checks if WordPress site is running in the multisite mode.
+	 *
+	 * @since 1.142.0
+	 *
+	 * @param {Object} state Data store's state.
+	 * @return {boolean|undefined} `true` if it is multisite; `false` if not. Returns `undefined` if not yet loaded.
+	 */
+	isMultisite: getSiteInfoProperty( 'isMultisite' ),
+
+	/**
+	 * Checks if any lead event provider plugin is active.
+	 *
+	 * @since 1.181.0
+	 *
+	 * @param {Object} state Data store's state.
+	 * @return {boolean|undefined} `true` if a lead event provider is active; `false` if not. Returns `undefined` if not yet loaded.
+	 */
+	hasActiveLeadEventProviders: getSiteInfoProperty(
+		'hasActiveLeadEventProviders'
+	),
+
+	/**
+	 * Checks if any ecommerce event provider plugin is active.
+	 *
+	 * @since 1.181.0
+	 *
+	 * @param {Object} state Data store's state.
+	 * @return {boolean|undefined} `true` if an ecommerce event provider is active; `false` if not. Returns `undefined` if not yet loaded.
+	 */
+	hasActiveEcommerceEventProviders: getSiteInfoProperty(
+		'hasActiveEcommerceEventProviders'
+	),
+
+	/**
+	 * Checks if more than one ecommerce event provider plugin is active.
+	 *
+	 * @since 1.182.0
+	 *
+	 * @param {Object} state Data store's state.
+	 * @return {boolean|undefined} `true` if multiple ecommerce event providers are active; `false` if not. Returns `undefined` if not yet loaded.
+	 */
+	hasMultipleActiveEcommerceEventProviders: getSiteInfoProperty(
+		'hasMultipleActiveEcommerceEventProviders'
+	),
+
+	/**
+	 * Gets the slug of every active conversion event provider plugin.
+	 *
+	 * @since 1.187.0
+	 *
+	 * @param {Object} state Data store's state.
+	 * @return {(Array.<string>|undefined)} One slug for each active provider, such as `woocommerce`. Returns `undefined` if not yet loaded.
+	 */
+	getActiveConversionEventProviders: getSiteInfoProperty(
+		'activeConversionEventProviders'
+	),
+
+	/**
+	 * Gets value of the setting for whether the key metrics widget area is
+	 * hidden.
+	 *
+	 * @since 1.184.0
+	 *
+	 * @return {boolean|undefined} Whether the widget area is hidden.
+	 */
+	getKeyMetricsSetupIsWidgetAreaHidden: getSiteInfoProperty(
+		'keyMetricsSetupIsWidgetAreaHidden'
+	),
+
+	/**
+	 * Checks whether setup has hidden the key metrics widget area.
+	 *
+	 * @since 1.184.0
+	 *
+	 * @param {Object} state Data store's state.
+	 * @return {boolean} Whether the widget area is hidden.
+	 */
+	isKeyMetricsWidgetAreaHidden: ( state ) => {
+		return !! selectors.getKeyMetricsSetupIsWidgetAreaHidden( state );
+	},
+
+	/**
+	 * Gets a site's privacy policy URL.
+	 *
+	 * @since 1.188.0
+	 *
+	 * @param {Object} state Data store's state.
+	 * @return {(string|undefined)} The privacy policy URL.
+	 */
+	getPrivacyPolicyURL: getSiteInfoProperty( 'wpPrivacyURL' ),
+
+	/**
+	 * Determines whether the WooCommerce plugin is active.
+	 *
+	 * @since 1.190.0
+	 *
+	 * @param {Object} state Data store's state.
+	 * @return {(boolean|undefined)} `true` if WooCommerce is active, `false` if not. Returns `undefined` if not loaded.
+	 */
+	isWooCommerceActivated: getSiteInfoProperty( 'wooCommerceActive' ),
+
+	/**
+	 * Determines whether the WooCommerce plugin is installed.
+	 *
+	 * @since 1.190.0
+	 *
+	 * @param {Object} state Data store's state.
+	 * @return {(boolean|undefined)} `true` if WooCommerce is installed, `false` if not. Returns `undefined` if not loaded.
+	 */
+	isWooCommerceInstalled: getSiteInfoProperty( 'wooCommerceInstalled' ),
 };
 
 export default {

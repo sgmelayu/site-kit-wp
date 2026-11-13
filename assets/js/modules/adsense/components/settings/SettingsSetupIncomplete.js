@@ -25,22 +25,33 @@ import { __, sprintf } from '@wordpress/i18n';
 /**
  * Internal dependencies
  */
-import Data from 'googlesitekit-data';
-import Link from '../../../../components/Link';
-import { STORE_NAME } from '../../datastore/constants';
-import { isPendingAccountStatus } from '../../util/status';
-import { AdBlockerWarning } from '../common';
-const { useSelect } = Data;
+import { useSelect } from 'googlesitekit-data';
+import Link from '@/js/components/Link';
+import ModuleSettingsWarning from '@/js/components/notifications/ModuleSettingsWarning';
+import { CORE_MODULES } from '@/js/googlesitekit/modules/datastore/constants';
+import { MODULE_SLUG_ADSENSE } from '@/js/modules/adsense/constants';
+import { MODULES_ADSENSE } from '@/js/modules/adsense/datastore/constants';
+import { isPendingAccountStatus } from '@/js/modules/adsense/util/status';
 
 export default function SettingsSetupIncomplete() {
-	const accountStatus = useSelect( ( select ) => select( STORE_NAME ).getAccountStatus() );
+	const accountStatus = useSelect( ( select ) =>
+		select( MODULES_ADSENSE ).getAccountStatus()
+	);
 	const isPendingStatus = isPendingAccountStatus( accountStatus );
-	const adminReauthURL = useSelect( ( select ) => select( STORE_NAME ).getAdminReauthURL() );
+	const adminReauthURL = useSelect( ( select ) =>
+		select( MODULES_ADSENSE ).getAdminReauthURL()
+	);
+	const requirementsError = useSelect( ( select ) =>
+		select( CORE_MODULES )?.getCheckRequirementsError( MODULE_SLUG_ADSENSE )
+	);
 
 	let statusText, actionText;
 	if ( isPendingStatus ) {
 		/* translators: %s: link with next step */
-		statusText = __( 'Site Kit has placed AdSense code on your site: %s', 'google-site-kit' );
+		statusText = __(
+			'Site Kit has placed AdSense code on your site: %s',
+			'google-site-kit'
+		);
 		actionText = __( 'check module page', 'google-site-kit' );
 	} else {
 		/* translators: %s: link with next step */
@@ -50,21 +61,24 @@ export default function SettingsSetupIncomplete() {
 
 	return (
 		<Fragment>
-			<AdBlockerWarning />
+			<div className="googlesitekit-settings-module__fields-group googlesitekit-settings-module__fields-group--no-border">
+				<ModuleSettingsWarning slug="adsense" />
+			</div>
 
-			{ createInterpolateElement(
-				sprintf(
-					statusText,
-					`<a>${ actionText }</a>`
-				),
-				{
-					a: <Link
-						className="googlesitekit-settings-module__edit-button"
-						href={ adminReauthURL }
-						inherit
-					/>,
-				}
-			) }
+			<div className="googlesitekit-settings-module__fields-group-title">
+				{ createInterpolateElement(
+					sprintf( statusText, `<a>${ actionText }</a>` ),
+					{
+						a: (
+							<Link
+								className="googlesitekit-settings-module__edit-button"
+								href={ adminReauthURL }
+								disabled={ requirementsError ? true : false }
+							/>
+						),
+					}
+				) }
+			</div>
 		</Fragment>
 	);
 }

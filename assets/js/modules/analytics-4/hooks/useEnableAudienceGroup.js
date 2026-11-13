@@ -1,0 +1,236 @@
+/**
+ * Analytics useEnableAudienceGroup custom hook.
+ *
+ * Site Kit by Google, Copyright 2024 Google LLC
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     https://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+/**
+ * External dependencies
+ */
+import { useMountedState } from 'react-use';
+
+/**
+ * WordPress dependencies
+ */
+import { useCallback, useEffect, useState } from '@wordpress/element';
+import { __ } from '@wordpress/i18n';
+import { addQueryArgs } from '@wordpress/url';
+
+/**
+ * Internal dependencies
+ */
+import { useDispatch, useSelect } from 'googlesitekit-data';
+import { CORE_USER } from '@/js/googlesitekit/datastore/user/constants';
+import useFormValue from '@/js/hooks/useFormValue';
+import {
+	AUDIENCE_SEGMENTATION_SETUP_FORM,
+	EDIT_SCOPE,
+	MODULES_ANALYTICS_4,
+} from '@/js/modules/analytics-4/datastore/constants';
+import { ERROR_CODE_MISSING_REQUIRED_SCOPE } from '@/js/util/errors';
+
+/**
+ * Enables the audience group, keeping track of the setup errors and of the
+ * audiences that could not be created.
+ *
+ * @since 1.132.0
+ * @since 1.192.0 Added the `initialFailedAudiences` option.
+ *
+ * @param {Object}   [options]                        Optional. Options.
+ * @param {string}   [options.redirectURL]            Optional. URL to return to after the OAuth flow.
+ * @param {Function} [options.onSuccess]              Optional. Called once the audience group is enabled.
+ * @param {Function} [options.onError]                Optional. Called when enabling the audience group fails.
+ * @param {Function} [options.onOAuthNavigation]      Optional. Called before navigating to the OAuth flow.
+ * @param {string[]} [options.initialFailedAudiences] Optional. Audiences that previously failed to be created, which a retry creates again. Default empty array.
+ * @return {Object} Object with `apiErrors`, `failedAudiences`, `isAudienceCreationError`, `isSaving` and `onEnableGroups`.
+ */
+export default function useEnableAudienceGroup( {
+	redirectURL,
+	onSuccess,
+	onError,
+	onOAuthNavigation,
+	initialFailedAudiences = [],
+} = {} ) {
+	const isMounted = useMountedState();
+
+	const [ apiErrors, setApiErrors ] = useState( [] );
+	const [ failedAudiences, setFailedAudiences ] = useState(
+		initialFailedAudiences
+	);
+	const [ isAudienceCreationError, setIsAudienceCreationError ] =
+		useState( false );
+	const [ isSaving, setIsSaving ] = useState( false );
+
+	const hasAnalytics4EditScope = useSelect( ( select ) =>
+		select( CORE_USER ).hasScope( EDIT_SCOPE )
+	);
+	const [ autoSubmit, setAutoSubmit ] = useFormValue(
+		AUDIENCE_SEGMENTATION_SETUP_FORM,
+		'autoSubmit'
+	);
+
+	const { setPermissionScopeError } = useDispatch( CORE_USER );
+	const {
+		enableAudienceGroup,
+		fetchSyncAvailableCustomDimensions,
+		determineNeedForAnalytics4EditScope,
+		syncAvailableAudiences,
+	} = useDispatch( MODULES_ANALYTICS_4 );
+
+	if ( ! redirectURL ) {
+		redirectURL = addQueryArgs( global.location.href, {
+			notification: 'audience_segmentation',
+		} );
+	}
+
+	const maybeEnableAudienceGroup = useCallback( async () => {
+		const { error: syncAudiencesError } = await syncAvailableAudiences();
+
+		if ( syncAudiencesError ) {
+			return { error: syncAudiencesError };
+		}
+
+		const { error: syncDimensionsError } =
+			await fetchSyncAvailableCustomDimensions();
+
+		if ( syncDimensionsError ) {
+			return { error: syncDimensionsError };
+		}
+
+		if ( ! hasAnalytics4EditScope ) {
+			const { error, needsScope } =
+				await determineNeedForAnalytics4EditScope();
+
+			if ( error ) {
+				return { error };
+			} else if ( needsScope ) {
+				return { needsScope: true };
+			}
+		}
+
+		setAutoSubmit( false );
+
+		const {
+			error,
+			failedSiteKitAudienceSlugs,
+			isAudienceCreationError: isCreationError,
+		} = ( await enableAudienceGroup( failedAudiences ) ) || {};
+
+		return {
+			error,
+			failedSiteKitAudienceSlugs,
+			isAudienceCreationError: isCreationError,
+		};
+	}, [
+		enableAudienceGroup,
+		failedAudiences,
+		fetchSyncAvailableCustomDimensions,
+		hasAnalytics4EditScope,
+		determineNeedForAnalytics4EditScope,
+		setAutoSubmit,
+		syncAvailableAudiences,
+	] );
+
+	const onEnableGroups = useCallback( async () => {
+		setIsSaving( true );
+
+		const {
+			error,
+			needsScope,
+			failedSiteKitAudienceSlugs,
+			isAudienceCreationError: isCreationError,
+		} = await maybeEnableAudienceGroup();
+
+		if ( needsScope ) {
+			setAutoSubmit( true );
+
+			await onOAuthNavigation?.();
+
+			setPermissionScopeError( {
+				code: ERROR_CODE_MISSING_REQUIRED_SCOPE,
+				message: __(
+					'Additional permissions are required to create new audiences in Analytics.',
+					'google-site-kit'
+				),
+				data: {
+					status: 403,
+					scopes: [ EDIT_SCOPE ],
+					skipModal: true,
+					skipDefaultErrorNotifications: true,
+					redirectURL,
+					errorRedirectURL: global.location.href,
+				},
+			} );
+
+			// Note that we don't set isSaving to false here, this is to ensure that, when the page begins to navigate to the OAuth flow:
+			// - The in-progress state for the Audience Segmentation Setup CTA is retained.
+			// - The OAuth error modal doesn't disappear when it's shown and the user clicks the "Retry" button.
+			return;
+		}
+
+		if ( !! error || !! failedSiteKitAudienceSlugs ) {
+			onError?.();
+		} else {
+			onSuccess?.();
+		}
+
+		if ( isMounted() ) {
+			function newArrayIfNotEmpty( currentArray ) {
+				return currentArray.length ? [] : currentArray;
+			}
+
+			if ( error ) {
+				setApiErrors( [ error ] );
+				setFailedAudiences( newArrayIfNotEmpty );
+				setIsAudienceCreationError( !! isCreationError );
+			} else if ( Array.isArray( failedSiteKitAudienceSlugs ) ) {
+				setFailedAudiences( failedSiteKitAudienceSlugs );
+				setApiErrors( newArrayIfNotEmpty );
+				setIsAudienceCreationError( true );
+			} else {
+				setApiErrors( newArrayIfNotEmpty );
+				setFailedAudiences( newArrayIfNotEmpty );
+				setIsAudienceCreationError( false );
+			}
+
+			setIsSaving( false );
+		}
+	}, [
+		maybeEnableAudienceGroup,
+		isMounted,
+		setAutoSubmit,
+		onOAuthNavigation,
+		setPermissionScopeError,
+		redirectURL,
+		onError,
+		onSuccess,
+	] );
+
+	// If the user returns to the component using this hook with the required
+	// scope granted, and already submitted the form, trigger the submit again.
+	useEffect( () => {
+		if ( hasAnalytics4EditScope && autoSubmit ) {
+			onEnableGroups();
+		}
+	}, [ hasAnalytics4EditScope, autoSubmit, onEnableGroups ] );
+
+	return {
+		apiErrors,
+		failedAudiences,
+		isAudienceCreationError,
+		isSaving,
+		onEnableGroups,
+	};
+}

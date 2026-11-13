@@ -19,13 +19,16 @@
 /**
  * Internal dependencies
  */
-import { STORE_NAME } from '../constants';
+import { MODULES_TAGMANAGER } from '@/js/modules/tagmanager/datastore/constants';
 import {
-	buildLiveContainerVersionWeb,
 	buildLiveContainerVersionAMP,
+	buildLiveContainerVersionWeb,
 } from './builders';
 
-export const parseLiveContainerVersionIDs = ( { accountId, containerId, container }, callback ) => { // eslint-disable-line sitekit/acronym-case
+export function parseLiveContainerVersionIDs(
+	{ accountId, containerId, container }, // eslint-disable-line sitekit/acronym-case
+	callback
+) {
 	const ids = {
 		accountID: accountId, // eslint-disable-line sitekit/acronym-case
 		containerID: container.publicId, // eslint-disable-line sitekit/acronym-case
@@ -37,25 +40,63 @@ export const parseLiveContainerVersionIDs = ( { accountId, containerId, containe
 		callback( ids );
 	}
 	return ids;
-};
+}
 
-export const createBuildAndReceivers = ( registry ) => {
+export function createBuildAndReceivers( registry ) {
 	return {
-		buildAndReceiveWebAndAMP: ( { webPropertyID, ampPropertyID, accountID = '12345' } = {} ) => {
-			const liveContainerVersionWeb = buildLiveContainerVersionWeb( { accountID, propertyID: webPropertyID } );
-			const liveContainerVersionAMP = buildLiveContainerVersionAMP( { accountID, propertyID: ampPropertyID } );
-			registry.dispatch( STORE_NAME ).setAccountID( accountID );
-			parseLiveContainerVersionIDs( liveContainerVersionWeb, ( { containerID, internalContainerID } ) => {
-				registry.dispatch( STORE_NAME ).setContainerID( containerID );
-				registry.dispatch( STORE_NAME ).setInternalContainerID( internalContainerID );
-				registry.dispatch( STORE_NAME ).receiveGetLiveContainerVersion( liveContainerVersionWeb, { accountID, internalContainerID } );
+		buildAndReceiveWebAndAMP: ( {
+			webPropertyID,
+			ampPropertyID,
+			accountID = '12345',
+		} = {} ) => {
+			const liveContainerVersionWeb = buildLiveContainerVersionWeb( {
+				accountID,
+				propertyID: webPropertyID,
 			} );
-			parseLiveContainerVersionIDs( liveContainerVersionAMP, ( { containerID, internalContainerID } ) => {
-				registry.dispatch( STORE_NAME ).setAMPContainerID( containerID );
-				registry.dispatch( STORE_NAME ).setInternalAMPContainerID( internalContainerID );
-				registry.dispatch( STORE_NAME ).receiveGetLiveContainerVersion( liveContainerVersionAMP, { accountID, internalContainerID } );
+			const liveContainerVersionAMP = buildLiveContainerVersionAMP( {
+				accountID,
+				propertyID: ampPropertyID,
 			} );
-			return { accountID, liveContainerVersionWeb, liveContainerVersionAMP };
+			registry.dispatch( MODULES_TAGMANAGER ).setAccountID( accountID );
+			parseLiveContainerVersionIDs(
+				liveContainerVersionWeb,
+				( { containerID, internalContainerID } ) => {
+					registry
+						.dispatch( MODULES_TAGMANAGER )
+						.setContainerID( containerID );
+					registry
+						.dispatch( MODULES_TAGMANAGER )
+						.setInternalContainerID( internalContainerID );
+					registry
+						.dispatch( MODULES_TAGMANAGER )
+						.receiveGetLiveContainerVersion(
+							liveContainerVersionWeb,
+							{ accountID, internalContainerID }
+						);
+				}
+			);
+			parseLiveContainerVersionIDs(
+				liveContainerVersionAMP,
+				( { containerID, internalContainerID } ) => {
+					registry
+						.dispatch( MODULES_TAGMANAGER )
+						.setAMPContainerID( containerID );
+					registry
+						.dispatch( MODULES_TAGMANAGER )
+						.setInternalAMPContainerID( internalContainerID );
+					registry
+						.dispatch( MODULES_TAGMANAGER )
+						.receiveGetLiveContainerVersion(
+							liveContainerVersionAMP,
+							{ accountID, internalContainerID }
+						);
+				}
+			);
+			return {
+				accountID,
+				liveContainerVersionWeb,
+				liveContainerVersionAMP,
+			};
 		},
 	};
-};
+}

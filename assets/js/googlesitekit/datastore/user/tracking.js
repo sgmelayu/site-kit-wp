@@ -19,28 +19,36 @@
 /**
  * Internal dependencies
  */
-import API from 'googlesitekit-api';
-import Data from 'googlesitekit-data';
-import { STORE_NAME } from './constants';
-import { createFetchStore } from '../../data/create-fetch-store';
-import { actions as errorStoreActions } from '../../data/create-error-store';
-const { receiveError, clearError } = errorStoreActions;
+import { get, set } from 'googlesitekit-api';
+import {
+	combineStores,
+	commonActions,
+	createReducer,
+} from 'googlesitekit-data';
+import { actions as errorStoreActions } from '@/js/googlesitekit/data/create-error-store';
+import { createFetchStore } from '@/js/googlesitekit/data/create-fetch-store';
+import { CORE_USER } from './constants';
+const { setErrorForAction, clearActionError } = errorStoreActions;
 
-const fetchStoreReducerCallback = ( state, tracking ) => ( { ...state, tracking } );
+const fetchStoreReducerCallback = createReducer( ( state, tracking ) => {
+	state.tracking = tracking;
+} );
 
 const fetchGetTrackingStore = createFetchStore( {
 	baseName: 'getTracking',
 	controlCallback: () => {
-		return API.get( 'core', 'user', 'tracking' );
+		return get( 'core', 'user', 'tracking' );
 	},
 	reducerCallback: fetchStoreReducerCallback,
 } );
 
 const fetchSaveTrackingStore = createFetchStore( {
 	baseName: 'setTracking',
-	controlCallback: ( enabled ) => API.set( 'core', 'user', 'tracking', { enabled: !! enabled } ),
+	controlCallback: ( enabled ) =>
+		set( 'core', 'user', 'tracking', { enabled: !! enabled } ),
 	reducerCallback: fetchStoreReducerCallback,
 	argsToParams: ( enabled ) => enabled,
+	isAction: true,
 } );
 
 const baseInitialState = {
@@ -52,6 +60,7 @@ const baseInitialState = {
 const SET_TRACKING_ENABLED_SAVING_ACTION = 'SET_TRACKING_ENABLED_SAVING_ACTION';
 
 const baseActions = {
+	/* eslint-disable-next-line sitekit/jsdoc-no-unnamed-boolean-params */
 	/**
 	 * Sets user tracking settings.
 	 *
@@ -61,16 +70,17 @@ const baseActions = {
 	 * @return {Object} Object with `response` and `error`.
 	 */
 	*setTrackingEnabled( enabled ) {
-		yield clearError( 'setTrackingEnabled', [ enabled ] );
+		yield clearActionError( 'setTrackingEnabled', [ enabled ] );
 
 		yield {
 			type: SET_TRACKING_ENABLED_SAVING_ACTION,
 			payload: { isSaving: true },
 		};
 
-		const { response, error } = yield fetchSaveTrackingStore.actions.fetchSetTracking( enabled );
+		const { response, error } =
+			yield fetchSaveTrackingStore.actions.fetchSetTracking( enabled );
 		if ( error ) {
-			yield receiveError( error, 'setTrackingEnabled', [ enabled ] );
+			yield setErrorForAction( error, 'setTrackingEnabled', [ enabled ] );
 		}
 
 		yield {
@@ -82,24 +92,21 @@ const baseActions = {
 	},
 };
 
-export const baseReducer = ( state, { type, payload } ) => {
+export const baseReducer = createReducer( ( state, { type, payload } ) => {
 	switch ( type ) {
-		case SET_TRACKING_ENABLED_SAVING_ACTION: {
-			return {
-				...state,
-				isSavingTrackingEnabled: payload.isSaving,
-			};
-		}
-		default: {
-			return state;
-		}
+		case SET_TRACKING_ENABLED_SAVING_ACTION:
+			state.isSavingTrackingEnabled = payload.isSaving;
+			break;
+
+		default:
+			break;
 	}
-};
+} );
 
 const baseResolvers = {
 	*isTrackingEnabled() {
-		const { select } = yield Data.commonActions.getRegistry();
-		if ( select( STORE_NAME ).isTrackingEnabled() === undefined ) {
+		const { select } = yield commonActions.getRegistry();
+		if ( select( CORE_USER ).isTrackingEnabled() === undefined ) {
 			yield fetchGetTrackingStore.actions.fetchGetTracking();
 		}
 	},
@@ -132,17 +139,13 @@ const baseSelectors = {
 	},
 };
 
-const store = Data.combineStores(
-	fetchGetTrackingStore,
-	fetchSaveTrackingStore,
-	{
-		initialState: baseInitialState,
-		actions: baseActions,
-		reducer: baseReducer,
-		resolvers: baseResolvers,
-		selectors: baseSelectors,
-	}
-);
+const store = combineStores( fetchGetTrackingStore, fetchSaveTrackingStore, {
+	initialState: baseInitialState,
+	actions: baseActions,
+	reducer: baseReducer,
+	resolvers: baseResolvers,
+	selectors: baseSelectors,
+} );
 
 export const initialState = store.initialState;
 export const actions = store.actions;

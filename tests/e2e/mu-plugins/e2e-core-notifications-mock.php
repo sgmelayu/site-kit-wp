@@ -45,9 +45,9 @@ function mark_notification( $id ) {
 }
 
 function create_proxy_http_mock( $proxy_base_url ) {
-	return function ( $false, $parsed_args, $url ) use ( $proxy_base_url ) {
+	return function ( $false_value, $parsed_args, $url ) use ( $proxy_base_url ) {
 		if ( 0 !== strpos( $url, $proxy_base_url ) ) {
-			return $false;
+			return $false_value;
 		}
 
 		$response = array(
@@ -95,7 +95,7 @@ function create_proxy_http_mock( $proxy_base_url ) {
 				$response['body'] = wp_json_encode( array( 'success' => true ) );
 				break;
 			default:
-				return $false;
+				return $false_value;
 		}
 
 		return $response;
@@ -115,6 +115,13 @@ add_action(
 add_action(
 	'rest_api_init',
 	function () {
+		// Only run when Site Kit is loaded.
+		//
+		// See: https://github.com/google/site-kit-wp/issues/12258.
+		if ( ! class_exists( 'REST_Routes' ) ) {
+			return;
+		}
+
 		// Utility route to add notifications.
 		// JSON body should contain the new notification to add **in remote format**.
 		register_rest_route(
@@ -146,4 +153,3 @@ add_action(
 	},
 	0
 );
-

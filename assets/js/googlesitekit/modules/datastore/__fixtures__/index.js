@@ -21,22 +21,18 @@
  */
 import modules from './list.json';
 
-// Only Search Console and Site Verification are always active.
-const alwaysActive = [ 'search-console', 'site-verification' ];
-
 /**
  * Makes a copy of the modules with the given module activation set.
  *
  * @since 1.18.0
  *
  * @param {...string} slugs Active module slugs.
- * @return {Object[]} Array of module objects.
+ * @return {Array.<{slug: string, active: boolean, connected: boolean}>} Array of module objects.
  */
 export function withActive( ...slugs ) {
-	const activeSlugs = alwaysActive.concat( slugs );
 	return modules.map( ( module ) => ( {
 		...module,
-		active: activeSlugs.includes( module.slug ),
+		active: module.forceActive || slugs.includes( module.slug ),
 	} ) );
 }
 
@@ -46,13 +42,12 @@ export function withActive( ...slugs ) {
  * @since 1.28.0
  *
  * @param {...string} slugs Active module slugs.
- * @return {Object[]} Array of module objects.
+ * @return {Array.<{slug: string, active: boolean, connected: boolean}>} Array of module objects.
  */
 export function withConnected( ...slugs ) {
-	const activeSlugs = alwaysActive.concat( slugs );
 	return withActive( ...slugs ).map( ( module ) => ( {
 		...module,
-		connected: activeSlugs.includes( module.slug ),
+		connected: slugs.includes( module.slug ),
 	} ) );
 }
 

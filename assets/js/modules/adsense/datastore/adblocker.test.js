@@ -17,103 +17,95 @@
  */
 
 /**
+ * External dependencies
+ */
+import { detectAnyAdblocker as mockDetectAnyAdblocker } from 'just-detect-adblock';
+
+/**
  * Internal dependencies
  */
-import { STORE_NAME } from './constants';
+import { CORE_USER } from '@/js/googlesitekit/datastore/user/constants';
+import { MODULE_SLUG_ADSENSE } from '@/js/modules/adsense/constants';
 import {
 	createTestRegistry,
 	muteFetch,
-	unsubscribeFromAll,
+	provideModules,
 	untilResolved,
-} from '../../../../../tests/js/utils';
+} from '@tests/js/utils';
+import { MODULES_ADSENSE } from './constants';
 
-import { detectAnyAdblocker as mockDetectAnyAdblocker } from 'just-detect-adblock';
 jest.mock( 'just-detect-adblock' );
-
-function stubIsAdBlockerDetected( detected ) {
-	mockDetectAnyAdblocker.mockImplementation(
-		() => new Promise( ( resolve ) => setTimeout( () => resolve( !! detected ) ) )
-	);
-}
 
 describe( 'modules/adsense adblocker', () => {
 	let registry;
-
-	beforeAll( () => jest.useRealTimers() );
-	afterAll( () => jest.useFakeTimers() );
 
 	beforeEach( () => {
 		registry = createTestRegistry();
 	} );
 
 	afterEach( () => {
-		unsubscribeFromAll( registry );
 		mockDetectAnyAdblocker.mockReset();
 	} );
 
-	describe( 'actions', () => {
-		describe( 'receiveIsAdBlockerActive', () => {
-			it( 'requires the isAdBlockerActive param to be boolean', () => {
-				expect( () => {
-					registry.dispatch( STORE_NAME ).receiveIsAdBlockerActive();
-				} ).toThrow( 'isAdBlockerActive must be boolean.' );
-			} );
-
-			it( 'receives and sets isAdBlockerActive', () => {
-				registry.dispatch( STORE_NAME ).receiveIsAdBlockerActive( true );
-
-				expect( registry.select( STORE_NAME ).isAdBlockerActive() ).toBe( true );
-			} );
-		} );
-	} );
-
 	describe( 'selectors', () => {
-		describe( 'isAdBlockerActive', () => {
-			it( 'uses a resolver to query detection using detectAnyAdblocker', async () => {
-				stubIsAdBlockerDetected( false );
+		describe( 'getAdBlockerWarningMessage', () => {
+			it( 'returns undefined if ad blocker state is unresolved.', async () => {
 				muteFetch( 'path:/favicon.ico' );
+				expect(
+					registry
+						.select( MODULES_ADSENSE )
+						.getAdBlockerWarningMessage()
+				).toBe( undefined );
 
-				expect( registry.select( STORE_NAME ).isAdBlockerActive() ).toBeUndefined();
-				await untilResolved( registry, STORE_NAME ).isAdBlockerActive();
-
-				expect( registry.select( STORE_NAME ).isAdBlockerActive() ).toBe( false );
-				expect( mockDetectAnyAdblocker ).toHaveBeenCalled();
+				await untilResolved( registry, CORE_USER ).isAdBlockerActive();
 			} );
 
-			it( 'falls back to a test request to a well-known static asset with bait in the query string', async () => {
-				stubIsAdBlockerDetected( false );
-				fetchMock.getOnce( 'path:/favicon.ico', { throws: new TypeError( 'Failed to fetch' ) } );
+			it( 'returns null if ad blocker is not active', () => {
+				registry
+					.dispatch( CORE_USER )
+					.receiveIsAdBlockerActive( false );
 
-				expect( registry.select( STORE_NAME ).isAdBlockerActive() ).toBeUndefined();
-				await untilResolved( registry, STORE_NAME ).isAdBlockerActive();
-
-				expect( registry.select( STORE_NAME ).isAdBlockerActive() ).toBe( true );
-				expect( mockDetectAnyAdblocker ).toHaveBeenCalled();
-				expect( fetchMock ).toHaveFetched( 'path:/favicon.ico' );
+				expect(
+					registry
+						.select( MODULES_ADSENSE )
+						.getAdBlockerWarningMessage()
+				).toBe( null );
 			} );
 
-			it( 'resolver does not rely on detection if status is already known', async () => {
-				stubIsAdBlockerDetected( true );
-				// Set value to false, contrary to the detection utility above which would result in this being true.
-				registry.dispatch( STORE_NAME ).receiveIsAdBlockerActive( false );
+			it( 'returns correct message if ad blocker is active and module is not connected', () => {
+				provideModules( registry, [
+					{
+						slug: MODULE_SLUG_ADSENSE,
+						active: true,
+						connected: false,
+					},
+				] );
 
-				expect( registry.select( STORE_NAME ).isAdBlockerActive() ).toBe( false );
-				await untilResolved( registry, STORE_NAME ).isAdBlockerActive();
+				registry.dispatch( CORE_USER ).receiveIsAdBlockerActive( true );
 
-				// Value should still be false because the global with true is not considered.
-				expect( registry.select( STORE_NAME ).isAdBlockerActive() ).toBe( false );
-				expect( fetchMock ).not.toHaveFetched();
+				expect(
+					registry
+						.select( MODULES_ADSENSE )
+						.getAdBlockerWarningMessage()
+				).toContain( 'To set up AdSense' );
 			} );
 
-			it( 'returns true if ad blocker is received as active', async () => {
-				registry.dispatch( STORE_NAME ).receiveIsAdBlockerActive( true );
+			it( 'returns correct message if ad blocker is active and module is connected', () => {
+				provideModules( registry, [
+					{
+						slug: MODULE_SLUG_ADSENSE,
+						active: true,
+						connected: true,
+					},
+				] );
 
-				expect( registry.select( STORE_NAME ).isAdBlockerActive() ).toBe( true );
-				await untilResolved( registry, STORE_NAME ).isAdBlockerActive();
+				registry.dispatch( CORE_USER ).receiveIsAdBlockerActive( true );
 
-				// Value should still be true since resolver should not have changed anything.
-				expect( registry.select( STORE_NAME ).isAdBlockerActive() ).toBe( true );
-				expect( fetchMock ).not.toHaveFetched();
+				expect(
+					registry
+						.select( MODULES_ADSENSE )
+						.getAdBlockerWarningMessage()
+				).toContain( 'latest AdSense data' );
 			} );
 		} );
 	} );

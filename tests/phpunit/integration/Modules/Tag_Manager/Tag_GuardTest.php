@@ -34,7 +34,7 @@ class Tag_GuardTest extends TestCase {
 			)
 		);
 
-		$this->assertTrue( $guard->can_activate() );
+		$this->assertTrue( $guard->can_activate(), 'Guard should allow activation for web when containerID set and useSnippet true.' );
 	}
 
 	public function test_cant_activate_for_web() {
@@ -74,7 +74,7 @@ class Tag_GuardTest extends TestCase {
 			)
 		);
 
-		$this->assertTrue( $guard->can_activate() );
+		$this->assertTrue( $guard->can_activate(), 'Guard should allow activation for AMP when ampContainerID set and useSnippet true.' );
 	}
 
 	public function test_cant_activate_for_amp() {
@@ -101,5 +101,4 @@ class Tag_GuardTest extends TestCase {
 
 		$this->assertFalse( $guard->can_activate(), 'Should return FALSE when ampContainerID is empty.' );
 	}
-
 }

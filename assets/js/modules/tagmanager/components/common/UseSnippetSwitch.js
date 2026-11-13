@@ -17,6 +17,11 @@
  */
 
 /**
+ * External dependencies
+ */
+import PropTypes from 'prop-types';
+
+/**
  * WordPress dependencies
  */
 import { useCallback } from '@wordpress/element';
@@ -25,18 +30,28 @@ import { __ } from '@wordpress/i18n';
 /**
  * Internal dependencies
  */
-import Data from 'googlesitekit-data';
-import { STORE_NAME } from '../../datastore/constants';
-import Switch from '../../../../components/Switch';
-const { useSelect, useDispatch } = Data;
+import { Switch } from 'googlesitekit-components';
+import { useDispatch, useSelect } from 'googlesitekit-data';
+import useViewContext from '@/js/hooks/useViewContext';
+import { MODULES_TAGMANAGER } from '@/js/modules/tagmanager/datastore/constants';
+import { trackEvent } from '@/js/util';
 
-export default function UseSnippetSwitch() {
-	const useSnippet = useSelect( ( select ) => select( STORE_NAME ).getUseSnippet() );
+export default function UseSnippetSwitch( { description } ) {
+	const useSnippet = useSelect( ( select ) =>
+		select( MODULES_TAGMANAGER ).getUseSnippet()
+	);
 
-	const { setUseSnippet } = useDispatch( STORE_NAME );
+	const viewContext = useViewContext();
+
+	const { setUseSnippet } = useDispatch( MODULES_TAGMANAGER );
 	const onChange = useCallback( () => {
-		setUseSnippet( ! useSnippet );
-	}, [ useSnippet ] );
+		const newUseSnippet = ! useSnippet;
+		setUseSnippet( newUseSnippet );
+		trackEvent(
+			`${ viewContext }_tagmanager`,
+			newUseSnippet ? 'enable_tag' : 'disable_tag'
+		);
+	}, [ setUseSnippet, useSnippet, viewContext ] );
 
 	if ( useSnippet === undefined ) {
 		return null;
@@ -45,15 +60,19 @@ export default function UseSnippetSwitch() {
 	return (
 		<div className="googlesitekit-tagmanager-usesnippet">
 			<Switch
-				label={ __( 'Let Site Kit place code on your site', 'google-site-kit' ) }
+				label={ __(
+					'Let Site Kit place code on your site',
+					'google-site-kit'
+				) }
 				checked={ useSnippet }
 				onClick={ onChange }
 				hideLabel={ false }
 			/>
-			<p>
-				{ useSnippet && __( 'Site Kit will add the code automatically.', 'google-site-kit' ) }
-				{ ! useSnippet && __( 'Site Kit will not add the code to your site.', 'google-site-kit' ) }
-			</p>
+			{ description }
 		</div>
 	);
 }
+
+UseSnippetSwitch.propTypes = {
+	description: PropTypes.node,
+};

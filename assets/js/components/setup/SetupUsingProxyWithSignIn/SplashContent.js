@@ -1,0 +1,145 @@
+/**
+ * SplashContent component.
+ *
+ * Site Kit by Google, Copyright 2025 Google LLC
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * https://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+/**
+ * External dependencies
+ */
+import PropTypes from 'prop-types';
+import { useMount } from 'react-use';
+
+/**
+ * WordPress dependencies
+ */
+import { Fragment } from '@wordpress/element';
+import { __ } from '@wordpress/i18n';
+
+/**
+ * Internal dependencies
+ */
+import Link from '@/js/components/Link';
+import Notifications from '@/js/components/notifications/Notifications';
+import CompatibilityChecks from '@/js/components/setup/CompatibilityChecks';
+import Services from '@/js/components/setup/Services';
+import Typography from '@/js/components/Typography';
+import { SIZE_MEDIUM } from '@/js/components/Typography/constants';
+import P from '@/js/components/Typography/P';
+import { NOTIFICATION_AREAS } from '@/js/googlesitekit/notifications/constants';
+import {
+	BREAKPOINT_SMALL,
+	BREAKPOINT_TABLET,
+	useBreakpoint,
+} from '@/js/hooks/useBreakpoint';
+import useIsIntentSetupFlow from '@/js/hooks/useIsIntentSetupFlow';
+import { Cell, Row } from '@/js/material-components';
+import SplashBackground from '@/svg/graphics/splash-graphic.svg';
+import AnalyticsOptIn from './AnalyticsOptIn';
+import ConnectedURLComparison from './ConnectedURLComparison';
+import SplashScreenshotSVG from './SetupFlowSVG';
+
+export default function SplashContent( {
+	analyticsModuleActive,
+	analyticsModuleAvailable,
+	children,
+	description,
+	getHelpURL,
+	title,
+} ) {
+	// Add the initial setup class to the body when the component mounts.
+	useMount( () => {
+		global.document.body.classList.add( 'googlesitekit-setup-flow' );
+	} );
+
+	const breakpoint = useBreakpoint();
+	const isMobileOrTablet =
+		breakpoint === BREAKPOINT_SMALL || breakpoint === BREAKPOINT_TABLET;
+	const isIntentSetupFlow = useIsIntentSetupFlow();
+
+	const cellDetailsProp = analyticsModuleActive
+		? { smSize: 4, mdSize: 6, lgSize: 6 }
+		: { smSize: 4, mdSize: 8, lgSize: 6 };
+
+	return (
+		<Fragment>
+			<div className="googlesitekit-setup__notifications">
+				<Notifications areaSlug={ NOTIFICATION_AREAS.SPLASH_CONTENT } />
+			</div>
+			<Row className="googlesitekit-setup__content">
+				<Cell { ...cellDetailsProp }>
+					<Typography
+						as="h1"
+						className="googlesitekit-setup__title"
+						size={ isMobileOrTablet ? 'small' : 'medium' }
+						type="headline"
+					>
+						{ title }
+					</Typography>
+
+					{ description && (
+						<P
+							className="googlesitekit-setup__description"
+							size={ SIZE_MEDIUM }
+						>
+							{ description }
+						</P>
+					) }
+
+					{ getHelpURL && (
+						<Link href={ getHelpURL } external>
+							{ __( 'Get help', 'google-site-kit' ) }
+						</Link>
+					) }
+
+					<ConnectedURLComparison />
+
+					{ analyticsModuleActive && <Services /> }
+
+					{ analyticsModuleAvailable &&
+						! analyticsModuleActive &&
+						! isIntentSetupFlow && <AnalyticsOptIn /> }
+
+					<CompatibilityChecks>{ children }</CompatibilityChecks>
+				</Cell>
+
+				<Cell
+					smSize={ 4 }
+					mdSize={ 8 }
+					lgSize={ 6 }
+					className="googlesitekit-setup__screenshot"
+				>
+					<SplashBackground
+						className="googlesitekit-setup__splash-graphic-background"
+						width="508"
+						height="466"
+					/>
+					<div className="googlesitekit-setup__splash-graphic-screenshot">
+						<SplashScreenshotSVG />
+					</div>
+				</Cell>
+			</Row>
+		</Fragment>
+	);
+}
+
+SplashContent.propTypes = {
+	analyticsModuleActive: PropTypes.bool,
+	analyticsModuleAvailable: PropTypes.bool,
+	children: PropTypes.func,
+	description: PropTypes.string,
+	getHelpURL: PropTypes.string,
+	title: PropTypes.string.isRequired,
+};

@@ -14,8 +14,7 @@ use Google\Site_Kit\Core\Authentication\Credentials;
 use Google\Site_Kit\Core\Util\Activation_Flag;
 use Google\Site_Kit\Core\Util\Beta_Migration;
 use Google\Site_Kit\Modules\AdSense;
-use Google\Site_Kit\Modules\Analytics;
-use Google\Site_Kit\Modules\Optimize;
+use Google\Site_Kit\Modules\Analytics_4;
 use Google\Site_Kit\Modules\Search_Console;
 use Google\Site_Kit\Modules\Tag_Manager;
 
@@ -30,9 +29,8 @@ trait OptionsTestTrait {
 			Activation_Flag::OPTION_NEW_SITE_POSTS,
 			Activation_Flag::OPTION_SHOW_ACTIVATION_NOTICE,
 			AdSense\Settings::OPTION,
-			Analytics\Settings::OPTION,
+			Analytics_4\Settings::OPTION,
 			Credentials::OPTION,
-			Optimize\Settings::OPTION,
 			Search_Console\Settings::OPTION,
 			Tag_Manager\Settings::OPTION,
 		);
@@ -52,10 +50,16 @@ trait OptionsTestTrait {
 		foreach ( $this->get_option_keys() as $option_name ) {
 			if ( $is_network_mode ) {
 				remove_all_filters( "default_site_option_$option_name" );
-				$this->assertFalse( get_network_option( null, $option_name ) );
+				$this->assertFalse(
+					get_network_option( null, $option_name ),
+					"{$option_name} network option should no longer exist."
+				);
 			} else {
 				remove_all_filters( "default_option_$option_name" );
-				$this->assertFalse( get_option( $option_name ) );
+				$this->assertFalse(
+					get_option( $option_name ),
+					"{$option_name} option should no longer exist."
+				);
 			}
 		}
 	}

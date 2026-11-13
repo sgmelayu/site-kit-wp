@@ -17,91 +17,106 @@
  */
 
 /**
+ * External dependencies
+ */
+import classnames from 'classnames';
+import { useClickAway } from 'react-use';
+
+/**
  * WordPress dependencies
  */
-import { useCallback, useEffect, useRef, useState } from '@wordpress/element';
-import { ESCAPE } from '@wordpress/keycodes';
+import { useCallback, useRef, useState } from '@wordpress/element';
+import { __ } from '@wordpress/i18n';
+import { ESCAPE, TAB } from '@wordpress/keycodes';
 
 /**
  * Internal dependencies
  */
-import Data from 'googlesitekit-data';
-import DateRangeIcon from '../../svg/date-range.svg';
-import Menu from './Menu';
-import { getAvailableDateRanges } from '../util/date-range';
-import { CORE_USER } from '../googlesitekit/datastore/user/constants';
-import Button from './Button';
+import { Button, Menu } from 'googlesitekit-components';
+import { useDispatch, useSelect } from 'googlesitekit-data';
+import { CORE_UI } from '@/js/googlesitekit/datastore/ui/constants';
+import { CORE_USER } from '@/js/googlesitekit/datastore/user/constants';
+import { useKeyCodesInside } from '@/js/hooks/useKeyCodesInside';
+import useViewContext from '@/js/hooks/useViewContext';
+import { getAvailableDateRanges, trackEvent } from '@/js/util';
+import DateRangeIcon from '@/svg/icons/date-range.svg';
 
-const { useSelect, useDispatch } = Data;
-
-function DateRangeSelector() {
+export default function DateRangeSelector() {
 	const ranges = getAvailableDateRanges();
-	const dateRange = useSelect( ( select ) => select( CORE_USER ).getDateRange() );
+	const dateRange = useSelect( ( select ) =>
+		select( CORE_USER ).getDateRange()
+	);
 	const { setDateRange } = useDispatch( CORE_USER );
+	const { resetInViewHook } = useDispatch( CORE_UI );
 
 	const [ menuOpen, setMenuOpen ] = useState( false );
-	const menuButtonRef = useRef();
-	const menuRef = useRef();
+	const menuWrapperRef = useRef();
+	const viewContext = useViewContext();
 
-	useEffect( () => {
-		const handleMenuClose = ( event ) => {
-			if ( ( menuButtonRef && menuButtonRef.current ) && ( menuRef && menuRef.current ) ) {
-				// Close the menu if the user presses the Escape key
-				// or if they click outside of the menu.
-				if (
-					( ( 'keyup' === event.type && ESCAPE === event.keyCode ) || 'mouseup' === event.type ) &&
-					! menuButtonRef.current.contains( event.target ) &&
-					! menuRef.current.contains( event.target )
-				) {
-					setMenuOpen( false );
-				}
-			}
-		};
+	useClickAway( menuWrapperRef, () => setMenuOpen( false ) );
 
-		global.addEventListener( 'mouseup', handleMenuClose );
-		global.addEventListener( 'keyup', handleMenuClose );
-
-		return () => {
-			global.removeEventListener( 'mouseup', handleMenuClose );
-			global.removeEventListener( 'keyup', handleMenuClose );
-		};
-	}, [] );
+	useKeyCodesInside( [ ESCAPE, TAB ], menuWrapperRef, () =>
+		setMenuOpen( false )
+	);
 
 	const handleMenu = useCallback( () => {
 		setMenuOpen( ! menuOpen );
 	}, [ menuOpen ] );
 
-	const handleMenuItemSelect = useCallback( ( index ) => {
-		setDateRange( Object.values( ranges )[ index ].slug );
-		setMenuOpen( false );
-	}, [ handleMenu ] );
+	const handleMenuItemSelect = useCallback(
+		( index ) => {
+			const newDateRange = Object.values( ranges )[ index ].slug;
+
+			if ( dateRange !== newDateRange ) {
+				trackEvent(
+					`${ viewContext }_headerbar`,
+					'change_daterange',
+					newDateRange
+				);
+			}
+
+			resetInViewHook();
+			setDateRange( newDateRange );
+			setMenuOpen( false );
+		},
+		[ ranges, dateRange, resetInViewHook, setDateRange, viewContext ]
+	);
 
 	const currentDateRangeLabel = ranges[ dateRange ]?.label;
 	const menuItems = Object.values( ranges ).map( ( range ) => range.label );
 
 	return (
-		<div className="googlesitekit-date-range-selector googlesitekit-dropdown-menu mdc-menu-surface--anchor">
+		<div
+			ref={ menuWrapperRef }
+			className="googlesitekit-date-range-selector googlesitekit-dropdown-menu mdc-menu-surface--anchor"
+		>
 			<Button
-				ref={ menuButtonRef }
-				className="googlesitekit-header__date-range-selector-menu mdc-button--dropdown"
-				text
+				className={ classnames(
+					'mdc-button--dropdown',
+					'googlesitekit-header__dropdown',
+					'googlesitekit-header__date-range-selector-menu',
+					'googlesitekit-border-radius-round--phone',
+					'googlesitekit-button-icon--phone'
+				) }
 				onClick={ handleMenu }
-				icon={ <DateRangeIcon width="18" height="20" /> }
+				icon={ <DateRangeIcon width="20" height="20" /> }
 				aria-haspopup="menu"
 				aria-expanded={ menuOpen }
 				aria-controls="date-range-selector-menu"
+				title={ __( 'Date range', 'google-site-kit' ) }
+				tooltipEnterDelayInMS={ 500 }
+				text
+				tooltip
 			>
 				{ currentDateRangeLabel }
 			</Button>
 			<Menu
-				ref={ menuRef }
 				menuOpen={ menuOpen }
 				menuItems={ menuItems }
 				onSelected={ handleMenuItemSelect }
 				id="date-range-selector-menu"
+				className="googlesitekit-width-auto"
 			/>
 		</div>
 	);
 }
-
-export default DateRangeSelector;

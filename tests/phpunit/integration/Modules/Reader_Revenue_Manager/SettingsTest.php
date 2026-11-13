@@ -1,0 +1,377 @@
+<?php
+/**
+ * Class Google\Site_Kit\Tests\Modules\Reader_Revenue_Manager\SettingsTest
+ *
+ * @package   Google\Site_Kit\Tests\Modules\Reader_Revenue_Manager
+ * @copyright 2024 Google LLC
+ * @license   https://www.apache.org/licenses/LICENSE-2.0 Apache License 2.0
+ * @link      https://sitekit.withgoogle.com
+ */
+
+namespace Google\Site_Kit\Tests\Modules\Reader_Revenue_Manager;
+
+use Google\Site_Kit\Context;
+use Google\Site_Kit\Core\Storage\Options;
+use Google\Site_Kit\Modules\Reader_Revenue_Manager\Settings;
+use Google\Site_Kit\Tests\Modules\SettingsTestCase;
+
+/**
+ * @group Modules
+ * @group RRM
+ */
+class SettingsTest extends SettingsTestCase {
+	/**
+	 * Settings object.
+	 *
+	 * @var Settings
+	 */
+	private $settings;
+
+	/**
+	 * Options instance.
+	 *
+	 * @var Options
+	 */
+	private $options;
+
+	/**
+	 * Admin ID.
+	 *
+	 * @var int
+	 */
+	private $user_id;
+
+	public function set_up() {
+		parent::set_up();
+
+		$this->options  = new Options( new Context( GOOGLESITEKIT_PLUGIN_MAIN_FILE ) );
+		$this->settings = new Settings( $this->options );
+		$this->user_id  = $this->factory()->user->create( array( 'role' => 'administrator' ) );
+
+		wp_set_current_user( $this->user_id );
+	}
+
+	public function test_get_default() {
+		$this->settings->register();
+
+		$this->assertEqualSetsWithIndex(
+			array(
+				'contentPolicyState'                => '',
+				'policyInfoLink'                    => '',
+				'ownerID'                           => 0,
+				'publicationID'                     => '',
+				'publicationOnboardingState'        => '',
+				'publicationOnboardingStateChanged' => false,
+				'snippetMode'                       => 'post_types',
+				'postTypes'                         => array( 'post' ),
+				'productID'                         => 'openaccess',
+				'productIDs'                        => array(),
+				'paymentOption'                     => '',
+			),
+			get_option( Settings::OPTION ),
+			'RRM Settings should match the default values.'
+		);
+	}
+
+	public function test_get_default__with_express_setup_flag() {
+		$this->enable_feature( 'rrmExpressSetup' );
+		$this->settings->register();
+
+		$this->assertEqualSetsWithIndex(
+			array(
+				'contentPolicyState'                => '',
+				'policyInfoLink'                    => '',
+				'ownerID'                           => 0,
+				'organizationID'                    => '',
+				'publicationID'                     => '',
+				'publicationOnboardingState'        => '',
+				'publicationOnboardingStateChanged' => false,
+				'snippetMode'                       => 'post_types',
+				'postTypes'                         => array( 'post' ),
+				'productID'                         => 'openaccess',
+				'productIDs'                        => array(),
+				'paymentOption'                     => '',
+				'configuredCTAs'                    => array(),
+			),
+			get_option( Settings::OPTION ),
+			'RRM Settings should include the express setup settings when the flag is enabled.'
+		);
+	}
+
+	public function test_get__casts_empty_configured_ctas_to_object() {
+		$this->enable_feature( 'rrmExpressSetup' );
+		$this->settings->register();
+
+		$settings = $this->settings->get();
+
+		$this->assertEquals(
+			(object) array(),
+			$settings['configuredCTAs'],
+			'Empty configuredCTAs should be cast to an object on get().'
+		);
+
+		$this->assertEquals(
+			'{}',
+			wp_json_encode( $settings['configuredCTAs'] ),
+			'Empty configuredCTAs should JSON-encode as an object.'
+		);
+
+		// Stored value remains an empty array.
+		$this->assertSame(
+			array(),
+			get_option( Settings::OPTION )['configuredCTAs'],
+			'Empty configuredCTAs should remain stored as an array.'
+		);
+	}
+
+	public function test_get__preserves_non_empty_configured_ctas() {
+		$this->enable_feature( 'rrmExpressSetup' );
+		$this->settings->register();
+
+		$configured_ctas = array(
+			'9d2418415-ab3a' => array(
+				'type'        => 'newsletter-signup',
+				'state'       => 'ACTIVE',
+				'displayName' => 'Weekly newsletter',
+			),
+			'8j8152411-cd4b' => array(
+				'type'        => 'newsletter-signup',
+				'state'       => 'DRAFT',
+				'displayName' => '',
+			),
+		);
+
+		$options                   = $this->settings->get();
+		$options['configuredCTAs'] = $configured_ctas;
+		$this->settings->set( $options );
+
+		$settings = $this->settings->get();
+
+		$this->assertSame(
+			$configured_ctas,
+			$settings['configuredCTAs'],
+			'Non-empty configuredCTAs should be returned as an associative array.'
+		);
+	}
+
+	public function test_view_only_keys() {
+		$this->assertEqualSets(
+			array(
+				'publicationID',
+				'snippetMode',
+				'postTypes',
+				'paymentOption',
+			),
+			$this->settings->get_view_only_keys(),
+			'RRM Settings view-only keys should match expected.'
+		);
+	}
+
+	public function data_revenue_manager_settings() {
+		return array(
+			'publicationID is valid string'                => array( 'publicationID', 'ABCD_123-4', 'ABCD_123-4' ),
+			'publicationOnboardingState is valid string'   => array( 'publicationOnboardingState', 'PENDING_VERIFICATION', 'PENDING_VERIFICATION' ),
+			'publicationOnboardingStateChanged is valid'   => array( 'publicationOnboardingStateChanged', true, true ),
+			'publicationID is invalid string'              => array( 'publicationID', 'ABCD_123-4&^##', '' ),
+			'publicationOnboardingState is invalid string' => array( 'publicationOnboardingState', 'INVALID_STATE', '' ),
+			'publicationOnboardingStateChanged is invalid' => array( 'publicationOnboardingStateChanged', 'invalid', false ),
+
+			// Validate snippetMode.
+			'snippetMode with post_types'                  => array( 'snippetMode', 'post_types', 'post_types' ),
+			'snippetMode with per_post'                    => array( 'snippetMode', 'per_post', 'per_post' ),
+			'snippetMode with sitewide'                    => array( 'snippetMode', 'sitewide', 'sitewide' ),
+			'snippetMode with invalid value'               => array( 'snippetMode', 'invalid-mode', 'post_types' ),
+			'snippetMode with invalid type'                => array( 'snippetMode', array(), 'post_types' ),
+
+			// Validate postTypes.
+			'postTypes with valid strings'                 => array( 'postTypes', array( 'post', 'page' ), array( 'post', 'page' ) ),
+			'postTypes with empty array'                   => array( 'postTypes', array(), array( 'post' ) ),
+			'postTypes with invalid type'                  => array( 'postTypes', 'not-an-array', array( 'post' ) ),
+			'postTypes with mixed types'                   => array( 'postTypes', array( 'post', 123, true, 'page' ), array( 'post', 'page' ) ),
+			'postTypes with all invalid'                   => array( 'postTypes', array( 123, true, array() ), array( 'post' ) ),
+
+			// Validate productID.
+			'productID with valid string'                  => array( 'productID', 'premium', 'premium' ),
+			'productID with empty string'                  => array( 'productID', '', '' ),
+			'productID with invalid type'                  => array( 'productID', array(), 'openaccess' ),
+			'productID with number'                        => array( 'productID', 123, 'openaccess' ),
+			'productID with boolean'                       => array( 'productID', true, 'openaccess' ),
+
+			// Validate productIDs.
+			'productIDs with valid strings'                => array( 'productIDs', array( 'basic', 'premium' ), array( 'basic', 'premium' ) ),
+			'productIDs with empty array'                  => array( 'productIDs', array(), array() ),
+			'productIDs with invalid type'                 => array( 'productIDs', 'not-an-array', array() ),
+			'productIDs with mixed types'                  => array( 'productIDs', array( 'valid', 123, true, 'also-valid' ), array( 'valid', 'also-valid' ) ),
+			'productIDs with all invalid'                  => array( 'productIDs', array( 123, true, array() ), array() ),
+
+			// Validate paymentOption.
+			'paymentOption with valid string'              => array( 'paymentOption', 'some-option', 'some-option' ),
+			'paymentOption with empty string'              => array( 'paymentOption', '', '' ),
+			'paymentOption with invalid type'              => array( 'paymentOption', array(), '' ),
+			'paymentOption with number'                    => array( 'paymentOption', 123, '' ),
+			'paymentOption with boolean'                   => array( 'paymentOption', true, '' ),
+
+			// Validate contentPolicyState.
+			'contentPolicyState with valid string'         => array(
+				'contentPolicyState',
+				'CONTENT_POLICY_VIOLATION_GRACE_PERIOD',
+				'CONTENT_POLICY_VIOLATION_GRACE_PERIOD',
+			),
+			'contentPolicyState with empty string'         => array(
+				'contentPolicyState',
+				'',
+				'',
+			),
+			'contentPolicyState with number'               => array(
+				'contentPolicyState',
+				123,
+				'',
+			),
+			'contentPolicyState with boolean'              => array(
+				'contentPolicyState',
+				true,
+				'',
+			),
+
+			// Validate policyInfoLink.
+			'policyInfoLink with valid string'             => array(
+				'policyInfoLink',
+				'https://example.com/policy-info',
+				'https://example.com/policy-info',
+			),
+			'policyInfoLink with empty string'             => array(
+				'policyInfoLink',
+				'',
+				'',
+			),
+			'policyInfoLink with number'                   => array(
+				'policyInfoLink',
+				123,
+				'',
+			),
+			'policyInfoLink with boolean'                  => array(
+				'policyInfoLink',
+				true,
+				'',
+			),
+
+			// Validate organizationID.
+			'organizationID with valid string'             => array( 'organizationID', 'ABCD1234', 'ABCD1234' ),
+			'organizationID with empty string'             => array( 'organizationID', '', '' ),
+			'organizationID with number'                   => array( 'organizationID', 123, '' ),
+			'organizationID with boolean'                  => array( 'organizationID', true, '' ),
+			'organizationID with array'                    => array( 'organizationID', array(), '' ),
+
+			// Validate configuredCTAs.
+			'configuredCTAs with valid entries'            => array(
+				'configuredCTAs',
+				array(
+					'9d2418415-ab3a' => array(
+						'type'        => 'newsletter-signup',
+						'state'       => 'ACTIVE',
+						'displayName' => 'Weekly newsletter',
+					),
+					'8j8152411-cd4b' => array(
+						'type'        => 'newsletter-signup',
+						'state'       => 'DRAFT',
+						'displayName' => '',
+					),
+				),
+				array(
+					'9d2418415-ab3a' => array(
+						'type'        => 'newsletter-signup',
+						'state'       => 'ACTIVE',
+						'displayName' => 'Weekly newsletter',
+					),
+					'8j8152411-cd4b' => array(
+						'type'        => 'newsletter-signup',
+						'state'       => 'DRAFT',
+						'displayName' => '',
+					),
+				),
+			),
+			'configuredCTAs with empty array'              => array( 'configuredCTAs', array(), array() ),
+			'configuredCTAs with invalid type'             => array( 'configuredCTAs', 'not-an-array', array() ),
+			'configuredCTAs with number'                   => array( 'configuredCTAs', 123, array() ),
+			'configuredCTAs with old-format entries'       => array(
+				'configuredCTAs',
+				array(
+					'9d2418415-ab3a' => 'newsletter-signup',
+				),
+				array(),
+			),
+			'configuredCTAs with invalid entries dropped'  => array(
+				'configuredCTAs',
+				array(
+					'9d2418415-ab3a' => array(
+						'type'        => 'newsletter-signup',
+						'state'       => 'ACTIVE',
+						'displayName' => 'Weekly newsletter',
+					),
+					'missing-type'   => array(
+						'state'       => 'ACTIVE',
+						'displayName' => 'Weekly newsletter',
+					),
+					'missing-state'  => array(
+						'type'        => 'newsletter-signup',
+						'displayName' => 'Weekly newsletter',
+					),
+					'missing-name'   => array(
+						'type'  => 'newsletter-signup',
+						'state' => 'ACTIVE',
+					),
+					'numeric-type'   => array(
+						'type'        => 123,
+						'state'       => 'ACTIVE',
+						'displayName' => 'Weekly newsletter',
+					),
+					'numeric-state'  => array(
+						'type'        => 'newsletter-signup',
+						'state'       => 123,
+						'displayName' => 'Weekly newsletter',
+					),
+					'null-name'      => array(
+						'type'        => 'newsletter-signup',
+						'state'       => 'ACTIVE',
+						'displayName' => null,
+					),
+					0                => array(
+						'type'        => 'newsletter-signup',
+						'state'       => 'ACTIVE',
+						'displayName' => 'Numeric key',
+					),
+				),
+				array(
+					'9d2418415-ab3a' => array(
+						'type'        => 'newsletter-signup',
+						'state'       => 'ACTIVE',
+						'displayName' => 'Weekly newsletter',
+					),
+				),
+			),
+		);
+	}
+
+	/**
+	 * @dataProvider data_revenue_manager_settings
+	 */
+	public function test_reader_revenue_manager_settings_sanitization( $setting, $value, $expected_value ) {
+		$this->settings->register();
+
+		$options_key = $this->get_option_name();
+		delete_option( $options_key );
+
+		$options             = $this->settings->get();
+		$options[ $setting ] = $value;
+		$this->settings->set( $options );
+		$options = get_option( $options_key );
+		$this->assertEquals( $expected_value, $options[ $setting ], 'RRM Settings sanitization should match expected value.' );
+	}
+
+	/**
+	 * @inheritDoc
+	 */
+	protected function get_option_name() {
+		return Settings::OPTION;
+	}
+}

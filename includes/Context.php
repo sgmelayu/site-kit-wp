@@ -6,6 +6,8 @@
  * @copyright 2021 Google LLC
  * @license   https://www.apache.org/licenses/LICENSE-2.0 Apache License 2.0
  * @link      https://sitekit.withgoogle.com
+ *
+ * phpcs:disable PHPCS.Commenting.RequireDocTagDescription -- Pre-existing violations; tracked for follow-up cleanup.
  */
 
 namespace Google\Site_Kit;
@@ -28,7 +30,9 @@ class Context {
 	/**
 	 * Primary "standard" AMP website mode.
 	 *
-	 * @since 1.0.0
+	 * @since 1.0.0 Originally introduced.
+	 * @since 1.36.0 Marked as unused, see description.
+	 * @since 1.108.0 Removed the description and reinstated.
 	 * @var string
 	 */
 	const AMP_MODE_PRIMARY = 'primary';
@@ -74,7 +78,7 @@ class Context {
 	 * @param string $main_file Absolute path to the plugin main file.
 	 * @param Input  $input Input instance.
 	 */
-	public function __construct( $main_file, Input $input = null ) {
+	public function __construct( $main_file, ?Input $input = null ) {
 		$this->main_file = $main_file;
 		$this->input     = $input ?: new Input();
 	}
@@ -143,11 +147,6 @@ class Context {
 	/**
 	 * Determines whether the plugin is running in network mode.
 	 *
-	 * Network mode is active under the following conditions:
-	 * * Multisite is enabled.
-	 * * The plugin is network-active.
-	 * * The site's domain matches the network's domain (which means it is a subdirectory site).
-	 *
 	 * @since 1.0.0
 	 *
 	 * @return bool True if the plugin is in network mode, false otherwise.
@@ -158,11 +157,16 @@ class Context {
 			return false;
 		}
 
-		$site    = get_site( get_current_blog_id() );
-		$network = get_network( $site->network_id );
-
-		// Use network mode when the site's domain is the same as the network's domain.
-		return $network && $site->domain === $network->domain;
+		/**
+		 * Filters whether network mode is active in Site Kit.
+		 *
+		 * This is always false by default since Site Kit does not support a network mode yet.
+		 *
+		 * @since 1.86.0
+		 *
+		 * @param bool $active Whether network mode is active.
+		 */
+		return (bool) apply_filters( 'googlesitekit_is_network_mode', false );
 	}
 
 	/**
@@ -255,7 +259,7 @@ class Context {
 	 *
 	 * @since 1.0.0
 	 *
-	 * @param int|WP_Post $post Optional. Post ID or post object. Default is the global `$post`.
+	 * @param int|\WP_Post $post Optional. Post ID or post object. Default is the global `$post`.
 	 *
 	 * @return string|false The reference permalink URL or false if post does not exist.
 	 */
@@ -313,12 +317,37 @@ class Context {
 	 * Gets the current AMP mode.
 	 *
 	 * @since 1.0.0
+	 * @since 1.108.0 Extracted AMP plugin related logic to `get_amp_mode_from_amp_plugin` function.
+	 *
+	 * @return bool|string 'primary' if in standard mode,
+	 *                     'secondary' if in transitional or reader modes, or the Web Stories plugin is active
+	 *                     false if AMP not active, or unknown mode
+	 */
+	public function get_amp_mode() {
+		$amp_mode = $this->get_amp_mode_from_amp_plugin();
+
+		if ( false === $amp_mode ) {
+			// If the Web Stories plugin is enabled, consider the site to be running
+			// in Secondary AMP mode.
+			if ( defined( 'WEBSTORIES_VERSION' ) ) {
+				return self::AMP_MODE_SECONDARY;
+			}
+		}
+
+		return $amp_mode;
+	}
+
+	/**
+	 * Gets the current AMP mode from the AMP plugin.
+	 *
+	 * @since 1.108.0
 	 *
 	 * @return bool|string 'primary' if in standard mode,
 	 *                     'secondary' if in transitional or reader modes
 	 *                     false if AMP not active, or unknown mode
 	 */
-	public function get_amp_mode() {
+	private function get_amp_mode_from_amp_plugin() {
+
 		if ( ! class_exists( 'AMP_Theme_Support' ) ) {
 			return false;
 		}
@@ -351,7 +380,7 @@ class Context {
 		if ( $exposes_support_mode ) {
 			// If recent version, we can properly detect the mode.
 			if ( $amp_plugin_version_2_or_higher ) {
-				$mode = AMP_Options_Manager::get_option( 'theme_support' );
+				$mode = AMP_Options_Manager::get_option( 'theme_support' ); // @phpstan-ignore class.notFound
 			} else {
 				$mode = AMP_Theme_Support::get_support_mode();
 			}
@@ -408,7 +437,7 @@ class Context {
 	 * @param Entity|null $entity Entity to filter reference ID for, or null.
 	 * @return Entity|null Filtered entity or null, based on $entity.
 	 */
-	private function filter_entity_reference_url( Entity $entity = null ) {
+	private function filter_entity_reference_url( ?Entity $entity = null ) {
 		if ( ! $entity ) {
 			return null;
 		}
@@ -466,5 +495,37 @@ class Context {
 		}
 
 		return $url;
+	}
+
+	/**
+	 * Calls the WordPress core functions to get the locale and return it in the required format.
+	 *
+	 * @since 1.32.0
+	 *
+	 * @param string $context Optional. Defines which WordPress core locale function to call.
+	 * @param string $format Optional. Defines the format the locale is returned in.
+	 * @return string Locale in the required format.
+	 */
+	public function get_locale( $context = 'site', $format = 'default' ) {
+
+		// Get the site or user locale.
+		if ( 'user' === $context ) {
+			$wp_locale = get_user_locale();
+		} else {
+			$wp_locale = get_locale();
+		}
+
+		// Return locale in the required format.
+		if ( 'language-code' === $format ) {
+			$code_array = explode( '_', $wp_locale );
+			return $code_array[0];
+
+		} elseif ( 'language-variant' === $format ) {
+			$variant_array  = explode( '_', $wp_locale );
+			$variant_string = implode( '_', array_slice( $variant_array, 0, 2 ) );
+			return $variant_string;
+		}
+
+		return $wp_locale;
 	}
 }

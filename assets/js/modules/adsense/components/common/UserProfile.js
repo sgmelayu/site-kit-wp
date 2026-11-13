@@ -19,22 +19,27 @@
 /**
  * Internal dependencies
  */
-import Data from 'googlesitekit-data';
-import ProgressBar from '../../../../components/ProgressBar';
-import { CORE_USER } from '../../../../googlesitekit/datastore/user/constants';
-const { useSelect } = Data;
+import { ProgressBar } from 'googlesitekit-components';
+import { useSelect } from 'googlesitekit-data';
+import { SIZE_MEDIUM } from '@/js/components/Typography/constants';
+import P from '@/js/components/Typography/P';
+import { CORE_USER } from '@/js/googlesitekit/datastore/user/constants';
 
 export default function UserProfile() {
 	const userEmail = useSelect( ( select ) => select( CORE_USER ).getEmail() );
-	const userPicture = useSelect( ( select ) => select( CORE_USER ).getPicture() );
-	const hasResolvedGetUser = useSelect( ( select ) => select( CORE_USER ).hasFinishedResolution( 'getUser' ) );
+	const userPicture = useSelect( ( select ) =>
+		select( CORE_USER ).getPicture()
+	);
+	const hasResolvedGetUser = useSelect( ( select ) =>
+		select( CORE_USER ).hasFinishedResolution( 'getUser' )
+	);
 
 	if ( ! hasResolvedGetUser ) {
 		return <ProgressBar small />;
 	}
 
 	return (
-		<p className="googlesitekit-setup-module__user">
+		<P className="googlesitekit-setup-module__user" size={ SIZE_MEDIUM }>
 			<img
 				className="googlesitekit-setup-module__user-image"
 				src={ userPicture }
@@ -43,6 +48,6 @@ export default function UserProfile() {
 			<span className="googlesitekit-setup-module__user-email">
 				{ userEmail }
 			</span>
-		</p>
+		</P>
 	);
 }

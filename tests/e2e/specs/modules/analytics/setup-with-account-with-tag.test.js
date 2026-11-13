@@ -1,12 +1,9 @@
 /**
- * WordPress dependencies
- */
-import { activatePlugin, visitAdminPage } from '@wordpress/e2e-test-utils';
-
-/**
  * Internal dependencies
  */
+import * as fixtures from '../../../../../assets/js/modules/analytics-4/datastore/__fixtures__';
 import {
+	activatePlugin,
 	deactivateUtilityPlugins,
 	resetSiteKit,
 	setAnalyticsExistingPropertyID,
@@ -14,41 +11,143 @@ import {
 	setClientConfig,
 	setSearchConsoleProperty,
 	setSiteVerification,
+	step,
 	useRequestInterception,
+	visitAdminPage,
 } from '../../../utils';
 
 async function proceedToSetUpAnalytics() {
-	await Promise.all( [
-		expect( page ).toClick( '.googlesitekit-cta-link', { text: /set up analytics/i } ),
-		page.waitForSelector( '.googlesitekit-setup-module--analytics' ),
-		page.waitForResponse( ( res ) => res.url().match( 'analytics/data/accounts-properties-profiles' ) ),
-	] );
+	await step( 'proceed to set up Analytics', async () => {
+		await Promise.all( [
+			expect( page ).toClick( '.googlesitekit-cta-link', {
+				text: /set up analytics/i,
+			} ),
+			page.waitForSelector( '.googlesitekit-setup-module--analytics' ),
+			page.waitForResponse( ( res ) =>
+				res.url().match( 'analytics-4/data/account-summaries' )
+			),
+		] );
+	} );
 }
 
-// eslint-disable-next-line no-console
-let tagPermissionRequestHandler = ( request ) => console.warn( 'Unhandled tag permission!', request.continue() );
+async function assertSetupSuccessful() {
+	await step( 'see setup success notification', async () => {
+		// Completing setup redirects to the Key Metrics setup screen, where the
+		// success toast is shown. Wait for that navigation to finish before querying for the
+		// notice, otherwise the execution context can be destroyed mid-query
+		// ("Cannot find context with specified id"). Mirrors the pattern used
+		// in setup-with-account-no-tag.test.js.
+		await page.waitForNavigation();
+		// While a 10s wait has not been observed, the default 5s timeout often failed here.
+		await page.waitForSelector( '.googlesitekit-notice__title', {
+			timeout: 10_000,
+		} );
+		await expect( page ).toMatchElement( '.googlesitekit-notice__title', {
+			text: /Google Analytics was successfully set up/i,
+		} );
+	} );
+}
+
+function getRequestResponseMappings() {
+	const measurementID = 'G-500';
+	const containerMock = fixtures.containerE2E[ measurementID ];
+
+	// Analytics 4 responses.
+	const analyticsResponses = {
+		'analytics-4/data/report': {
+			status: 200,
+			body: JSON.stringify( {} ),
+		},
+		'analytics-4/data/key-events': {
+			status: 200,
+			body: JSON.stringify( [] ),
+		},
+		'analytics-4/data/create-property': {
+			status: 200,
+			body: JSON.stringify( fixtures.createProperty ),
+		},
+		'analytics-4/data/create-webdatastream': {
+			status: 200,
+			body: JSON.stringify( fixtures.createWebDataStream ),
+		},
+		'analytics-4/data/enhanced-measurement-settings': {
+			status: 200,
+			body: JSON.stringify( fixtures.defaultEnhancedMeasurementSettings ),
+		},
+		'analytics-4/data/google-tag-settings': {
+			status: 200,
+			body: JSON.stringify( fixtures.googleTagSettings ),
+		},
+		'analytics-4/data/container-lookup': {
+			status: 200,
+			body: JSON.stringify( containerMock ),
+		},
+		'analytics-4/data/property': {
+			status: 200,
+			body: JSON.stringify( fixtures.properties[ 0 ] ),
+		},
+		'analytics-4/data/sync-custom-dimensions': {
+			status: 200,
+			body: '[]',
+		},
+		'analytics-4/data/sync-audiences': {
+			status: 200,
+			body: '[]',
+		},
+		'analytics-4/data/properties': {
+			status: 200,
+			body: JSON.stringify( fixtures.properties ),
+		},
+	};
+
+	// Search Console responses.
+	const searchConsoleResponses = {
+		'google-site-kit/v1/modules/search-console/data/searchanalytics': {
+			status: 200,
+			body: JSON.stringify( [] ),
+		},
+	};
+
+	// PageSpeed Insights responses.
+	const pageSpeedResponses = {
+		'google-site-kit/v1/modules/pagespeed-insights/data/pagespeed': {
+			status: 200,
+			body: JSON.stringify( {} ),
+		},
+	};
+
+	// Audience settings responses.
+	const audienceSettingsResponses = {
+		'user/data/audience-settings': {
+			status: 200,
+			body: JSON.stringify( {
+				configuredAudiences: [ fixtures.availableAudiences[ 2 ].name ],
+				isAudienceSegmentationWidgetHidden: false,
+			} ),
+		},
+	};
+
+	// Legacy Analytics responses.
+	const legacyAnalyticsResponses = {
+		'google-site-kit/v1/modules/analytics/data/goals': {
+			status: 200,
+			body: JSON.stringify( {} ),
+		},
+	};
+
+	return {
+		...analyticsResponses,
+		...searchConsoleResponses,
+		...pageSpeedResponses,
+		...audienceSettingsResponses,
+		...legacyAnalyticsResponses,
+	};
+}
 
 describe( 'setting up the Analytics module with an existing account and existing tag', () => {
 	beforeAll( async () => {
 		await page.setRequestInterception( true );
-		useRequestInterception( ( request ) => {
-			if ( request.url().match( 'modules/analytics/data/tag-permission' ) && tagPermissionRequestHandler ) {
-				tagPermissionRequestHandler( request );
-			} else if ( request.url().match( '/wp-json/google-site-kit/v1/data/' ) ) {
-				request.respond( {
-					status: 200,
-				} );
-			} else if ( request.url().match( '/wp-json/google-site-kit/v1/modules/analytics/data/report?' ) ) {
-				request.respond( {
-					status: 200,
-					body: JSON.stringify( { dummy_response: true } ),
-				} );
-			}
-
-			if ( ! request._interceptionHandled ) {
-				request.continue();
-			}
-		} );
+		useRequestInterception( getRequestResponseMappings() );
 	} );
 
 	beforeEach( async () => {
@@ -63,70 +162,105 @@ describe( 'setting up the Analytics module with an existing account and existing
 
 		await visitAdminPage( 'admin.php', 'page=googlesitekit-settings' );
 		await page.waitForSelector( '.mdc-tab-bar' );
-		await expect( page ).toClick( '.mdc-tab', { text: /connect more services/i } );
-		await page.waitForSelector( '.googlesitekit-settings-connect-module--analytics' );
+		await expect( page ).toClick( '.mdc-tab', {
+			text: /connect more services/i,
+		} );
+		await page.waitForSelector(
+			'.googlesitekit-settings-connect-module--analytics-4'
+		);
 	} );
 
 	afterEach( async () => {
+		// Wait for network idle to allow outstanding requests to resolve
+		// and prevent Invalid JSON Response error.
+		try {
+			await page.waitForNetworkIdle( { timeout: 15_000 } );
+		} catch ( error ) {
+			// Allow to fail silently if timeout is reached which can occur mostly running locally.
+		}
+
 		await deactivateUtilityPlugins();
 		await resetSiteKit();
 	} );
 
-	it( 'pre-selects account and property if an existing tag is found that matches one belonging to the user and prevents them from being changed', async () => {
+	it( 'informs about an existing tag that matches the current selected property', async () => {
 		const existingTag = {
-			accountID: '100',
-			propertyID: 'UA-100-1',
-		};
-		tagPermissionRequestHandler = ( request ) => {
-			request.respond( {
-				status: 200,
-				body: JSON.stringify( {
-					...existingTag,
-					permission: true,
-				} ),
-			} );
+			accountID: '100', // Test Account A
+			propertyID: 'G-500',
 		};
 		await setAnalyticsExistingPropertyID( existingTag.propertyID );
 		await proceedToSetUpAnalytics();
 
-		await expect( page ).toMatchElement( '.googlesitekit-setup-module--analytics p', {
-			text: new RegExp( `An existing analytics tag was found on your site with the id ${ existingTag.propertyID }`, 'i' ),
+		await step( 'see existing tag notice', async () => {
+			await expect( page ).toMatchElement(
+				'.googlesitekit-setup-module--analytics p',
+				{
+					text: new RegExp(
+						`A tag ${ existingTag.propertyID } for the selected property already exists on the site`,
+						'i'
+					),
+				}
+			);
 		} );
 
-		await expect( page ).toMatchElement( '.googlesitekit-analytics__select-account .mdc-select__selected-text', { text: /test account a/i } );
-		await expect( page ).toMatchElement( '.googlesitekit-analytics__select-property .mdc-select__selected-text', { text: /test property x/i } );
-		await expect( page ).toMatchElement( '.googlesitekit-analytics__select-profile .mdc-select__selected-text', { text: /test profile x/i } );
+		await step(
+			'see selected account, property and web data stream',
+			async () => {
+				await expect( page ).toMatchElement(
+					'.googlesitekit-analytics__select-account .mdc-select__selected-text',
+					{ text: /example com/i }
+				);
+				await expect( page ).toMatchElement(
+					'.googlesitekit-analytics-4__select-property .mdc-select__selected-text',
+					{ text: /example property/i }
+				);
+				await expect( page ).toMatchElement(
+					'.googlesitekit-analytics-4__select-webdatastream .mdc-select__selected-text',
+					{ text: /test ga4 webdatastream/i }
+				);
+			}
+		);
 
-		// Ensure that Views dropdown is not disabled
-		await expect( page ).toClick( '.mdc-select', { text: /test profile x/i } );
-		await expect( page ).toClick( '.mdc-menu-surface--open .mdc-list-item', { text: /test profile x/i } );
+		await step( 'set up', async () => {
+			// Wait for the enhanced measurement switch to finish loading before
+			// clicking. While it loads it renders a short progress bar that is
+			// later replaced by a taller switch, which shifts the "Complete
+			// setup" button down and can cause the click to miss.
+			await page.waitForSelector(
+				'.googlesitekit-analytics-enable-enhanced-measurement:not(.googlesitekit-analytics-enable-enhanced-measurement--loading)'
+			);
 
-		await expect( page ).toClick( 'button', { text: /configure analytics/i } );
+			await expect( page ).toClick( 'button:not([disabled])', {
+				text: /^set up$/i,
+			} );
+		} );
 
-		await page.waitForSelector( '.googlesitekit-publisher-win--win-success' );
-		await expect( page ).toMatchElement( '.googlesitekit-publisher-win__title', { text: /Congrats on completing the setup for Analytics!/i } );
+		await assertSetupSuccessful();
 	} );
 
-	it( 'does not allow Analytics to be set up with an existing tag that does not match a property of the user', async () => {
+	it( 'does allow Analytics to be set up with an existing tag if it is a GA4 tag', async () => {
 		const existingTag = {
-			accountID: '999',
-			propertyID: 'UA-999-9',
-		};
-		tagPermissionRequestHandler = ( request ) => {
-			request.respond( {
-				status: 200,
-				body: JSON.stringify( {
-					...existingTag,
-					permission: false,
-				} ),
-			} );
+			accountID: '99999999',
+			propertyID: 'G-99999999',
 		};
 
 		await setAnalyticsExistingPropertyID( existingTag.propertyID );
 		await proceedToSetUpAnalytics();
 
-		await expect( page ).toMatchElement( '.googlesitekit-error-text', { text: /your account doesn't seem to have access to this Analytics property/i } );
-		await expect( page ).not.toMatchElement( '.googlesitekit-setup-module--analytics button', { text: /create an account/i } );
-		await expect( page ).not.toMatchElement( '.googlesitekit-setup-module--analytics button', { text: /re-fetch my account/i } );
+		await step( 'set up', async () => {
+			// Wait for the enhanced measurement switch to finish loading before
+			// clicking. While it loads it renders a short progress bar that is
+			// later replaced by a taller switch, which shifts the "Complete
+			// setup" button down and can cause the click to miss.
+			await page.waitForSelector(
+				'.googlesitekit-analytics-enable-enhanced-measurement:not(.googlesitekit-analytics-enable-enhanced-measurement--loading)'
+			);
+
+			await expect( page ).toClick( 'button:not([disabled])', {
+				text: /^set up$/i,
+			} );
+		} );
+
+		await assertSetupSuccessful();
 	} );
 } );

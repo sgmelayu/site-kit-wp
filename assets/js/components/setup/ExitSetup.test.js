@@ -1,0 +1,152 @@
+/**
+ * ExitSetup component tests.
+ *
+ * Site Kit by Google, Copyright 2025 Google LLC
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     https://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+/**
+ * Internal dependencies
+ */
+import * as tracking from '@/js/util/tracking';
+import { mockLocation } from '@tests/js/mock-browser-utils';
+import {
+	createTestRegistry,
+	fireEvent,
+	provideSiteInfo,
+	render,
+	waitFor,
+} from '@tests/js/test-utils';
+import ExitSetup from './ExitSetup';
+
+const mockTrackEvent = jest.spyOn( tracking, 'trackEvent' );
+mockTrackEvent.mockImplementation( () => Promise.resolve() );
+
+describe( 'ExitSetup', () => {
+	mockLocation();
+
+	let registry;
+
+	beforeEach( () => {
+		registry = createTestRegistry();
+
+		provideSiteInfo( registry );
+	} );
+
+	afterEach( () => {
+		jest.resetAllMocks();
+	} );
+
+	it( 'should render correctly', () => {
+		const { container } = render( <ExitSetup />, {
+			registry,
+		} );
+
+		expect( container ).toMatchSnapshot();
+
+		expect( container.querySelector( 'button' ) ).toBeInTheDocument();
+	} );
+
+	it( 'should navigate to the WordPress dashboard when the user clicks the button', async () => {
+		const { getByRole } = render(
+			<ExitSetup
+				gaTrackingEventArgs={ {
+					category: 'test-category',
+					action: 'test-action',
+					label: 'test-label',
+				} }
+			/>,
+			{
+				registry,
+			}
+		);
+
+		fireEvent.click( getByRole( 'button' ) );
+
+		await waitFor( () => {
+			expect( global.location.assign ).toHaveBeenCalled();
+		} );
+
+		expect( global.location.assign ).toHaveBeenCalledWith(
+			'http://example.com/wp-admin'
+		);
+	} );
+
+	it( 'should navigate to the provided URL when the user clicks the button', async () => {
+		const { getByRole } = render(
+			<ExitSetup
+				gaTrackingEventArgs={ {
+					category: 'test-category',
+					action: 'test-action',
+					label: 'test-label',
+				} }
+				url="http://example.com/wp-admin/admin.php?page=googlesitekit-dashboard"
+			/>,
+			{
+				registry,
+			}
+		);
+
+		fireEvent.click( getByRole( 'button' ) );
+
+		await waitFor( () => {
+			expect( global.location.assign ).toHaveBeenCalled();
+		} );
+
+		expect( global.location.assign ).toHaveBeenCalledWith(
+			'http://example.com/wp-admin/admin.php?page=googlesitekit-dashboard'
+		);
+	} );
+
+	it( 'should track an event when the user clicks the button', () => {
+		const { getByRole } = render(
+			<ExitSetup
+				gaTrackingEventArgs={ {
+					category: 'test-category',
+					action: 'test-action',
+					label: 'test-label',
+				} }
+			/>,
+			{
+				registry,
+			}
+		);
+
+		fireEvent.click( getByRole( 'button' ) );
+
+		expect( mockTrackEvent ).toHaveBeenCalledWith(
+			'test-category',
+			'test-action',
+			'test-label'
+		);
+		expect( mockTrackEvent ).toHaveBeenCalledTimes( 1 );
+	} );
+
+	it( 'should still navigate without tracking an event when the category and action are missing', async () => {
+		const { getByRole } = render(
+			<ExitSetup gaTrackingEventArgs={ {} } />,
+			{
+				registry,
+			}
+		);
+
+		fireEvent.click( getByRole( 'button' ) );
+
+		await waitFor( () => {
+			expect( global.location.assign ).toHaveBeenCalled();
+		} );
+
+		expect( mockTrackEvent ).not.toHaveBeenCalled();
+	} );
+} );

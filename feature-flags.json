@@ -1,8 +1,12 @@
 [
-  "serviceSetupV2",
-  "storeErrorNotifications",
-  "userInput",
-  "widgets.dashboard",
-  "widgets.pageDashboard",
-  "widgets.moduleScreens"
+	"adsConversionTrackingIntent",
+	"datePicker",
+	"featureDiscoveryHub",
+	"googleTagGateway",
+	"gtagUserData",
+	"rrmExpressSetup",
+	"rrmSurveyCTA",
+	"siteGoalsInsights",
+	"trafficInsights",
+	"typicalTraffic"
 ]

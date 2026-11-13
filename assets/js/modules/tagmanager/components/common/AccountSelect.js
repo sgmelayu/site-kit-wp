@@ -17,6 +17,11 @@
  */
 
 /**
+ * External dependencies
+ */
+import PropTypes from 'prop-types';
+
+/**
  * WordPress dependencies
  */
 import { useCallback } from '@wordpress/element';
@@ -25,31 +30,62 @@ import { __ } from '@wordpress/i18n';
 /**
  * Internal dependencies
  */
-import Data from 'googlesitekit-data';
-import ProgressBar from '../../../../components/ProgressBar';
-import { Select, Option } from '../../../../material-components';
-import { STORE_NAME, ACCOUNT_CREATE } from '../../datastore/constants';
-const { useSelect, useDispatch } = Data;
+import { Option, ProgressBar, Select } from 'googlesitekit-components';
+import { useDispatch, useSelect } from 'googlesitekit-data';
+import useViewContext from '@/js/hooks/useViewContext';
+import {
+	ACCOUNT_CREATE,
+	MODULES_TAGMANAGER,
+} from '@/js/modules/tagmanager/datastore/constants';
+import { trackEvent } from '@/js/util/tracking';
 
-export default function AccountSelect() {
-	const { accounts, hasResolvedAccounts } = useSelect( ( select ) => ( {
-		accounts: select( STORE_NAME ).getAccounts(),
-		hasResolvedAccounts: select( STORE_NAME ).hasFinishedResolution( 'getAccounts' ),
-	} ) );
+export default function AccountSelect( { hasModuleAccess } ) {
+	const viewContext = useViewContext();
 
-	const accountID = useSelect( ( select ) => select( STORE_NAME ).getAccountID() );
-	const hasExistingTag = useSelect( ( select ) => select( STORE_NAME ).hasExistingTag() );
+	const accounts = useSelect( ( select ) =>
+		select( MODULES_TAGMANAGER ).getAccounts()
+	);
+	const hasResolvedAccounts = useSelect( ( select ) =>
+		select( MODULES_TAGMANAGER ).hasFinishedResolution( 'getAccounts' )
+	);
+	const accountID = useSelect( ( select ) =>
+		select( MODULES_TAGMANAGER ).getAccountID()
+	);
 
-	const { selectAccount } = useDispatch( STORE_NAME );
-	const onChange = useCallback( ( index, item ) => {
-		const newAccountID = item.dataset.value;
-		if ( accountID !== newAccountID ) {
-			selectAccount( newAccountID );
-		}
-	}, [ accountID ] );
+	const { selectAccount } = useDispatch( MODULES_TAGMANAGER );
+	const onChange = useCallback(
+		( index, item ) => {
+			const newAccountID = item.dataset.value;
+			if ( accountID !== newAccountID ) {
+				const eventAction =
+					newAccountID === ACCOUNT_CREATE
+						? 'change_account_new'
+						: 'change_account';
+				trackEvent( `${ viewContext }_tagmanager`, eventAction );
+
+				selectAccount( newAccountID );
+			}
+		},
+		[ accountID, selectAccount, viewContext ]
+	);
 
 	if ( ! hasResolvedAccounts ) {
 		return <ProgressBar small />;
+	}
+
+	if ( hasModuleAccess === false ) {
+		return (
+			<Select
+				className="googlesitekit-tagmanager__select-account"
+				label={ __( 'Account', 'google-site-kit' ) }
+				value={ accountID }
+				enhanced
+				outlined
+				disabled
+			>
+				<Option value={ accountID }>{ accountID }</Option>
+			</Select>
+		);
 	}
 
 	return (
@@ -58,7 +94,6 @@ export default function AccountSelect() {
 			label={ __( 'Account', 'google-site-kit' ) }
 			value={ accountID }
 			onEnhancedChange={ onChange }
-			disabled={ hasExistingTag }
 			enhanced
 			outlined
 		>
@@ -67,14 +102,22 @@ export default function AccountSelect() {
 					accountId: ACCOUNT_CREATE, // eslint-disable-line sitekit/acronym-case
 					name: __( 'Set up a new account', 'google-site-kit' ),
 				} )
-				.map( ( { accountId, name } ) => ( // eslint-disable-line sitekit/acronym-case
-					<Option
-						key={ accountId } // eslint-disable-line sitekit/acronym-case
-						value={ accountId } // eslint-disable-line sitekit/acronym-case
-					>
-						{ name }
-					</Option>
-				) ) }
+				.map(
+					(
+						{ accountId, name } // eslint-disable-line sitekit/acronym-case
+					) => (
+						<Option
+							key={ accountId } // eslint-disable-line sitekit/acronym-case
+							value={ accountId } // eslint-disable-line sitekit/acronym-case
+						>
+							{ name }
+						</Option>
+					)
+				) }
 		</Select>
 	);
 }
+
+AccountSelect.propTypes = {
+	hasModuleAccess: PropTypes.bool,
+};

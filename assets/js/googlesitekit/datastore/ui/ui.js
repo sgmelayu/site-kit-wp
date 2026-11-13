@@ -20,14 +20,60 @@
  * External dependencies
  */
 import invariant from 'invariant';
-import isPlainObject from 'lodash/isPlainObject';
+import { isBoolean, isPlainObject } from 'lodash';
+
+/**
+ * Internal dependencies
+ */
+import { commonActions, createReducer } from 'googlesitekit-data';
+import { CORE_UI } from './constants';
 
 const SET_VALUES = 'SET_VALUES';
 const SET_VALUE = 'SET_VALUE';
 
-export const initialState = {};
+export const initialState = {
+	useInViewResetCount: 0,
+	isOnline: true,
+};
 
 export const actions = {
+	/**
+	 * Resets all `useInView` hooks that have the `sticky` param set to `true`.
+	 *
+	 * @since 1.46.0
+	 * @private
+	 *
+	 * @return {Object} Redux-style action.
+	 */
+	*resetInViewHook() {
+		const registry = yield commonActions.getRegistry();
+
+		const useInViewResetCount = registry
+			.select( CORE_UI )
+			.getValue( 'useInViewResetCount' );
+
+		return yield actions.setValue(
+			'useInViewResetCount',
+			useInViewResetCount + 1
+		);
+	},
+
+	/* eslint-disable-next-line sitekit/jsdoc-no-unnamed-boolean-params */
+	/**
+	 * Sets `isOnline` state.
+	 *
+	 * @since 1.118.0
+	 * @private
+	 *
+	 * @param {boolean} value `isOnline` status.
+	 * @return {Object} Redux-style action.
+	 */
+	setIsOnline( value ) {
+		invariant( isBoolean( value ), 'value must be boolean.' );
+
+		return actions.setValue( 'isOnline', value );
+	},
+
 	/**
 	 * Stores site ui information.
 	 *
@@ -68,31 +114,20 @@ export const actions = {
 
 export const controls = {};
 
-export const reducer = ( state, { type, payload } ) => {
+export const reducer = createReducer( ( state, { type, payload } ) => {
 	switch ( type ) {
-		case SET_VALUES: {
-			const { values } = payload;
+		case SET_VALUES:
+			Object.assign( state, payload.values );
+			break;
 
-			return {
-				...state,
-				...values,
-			};
-		}
+		case SET_VALUE:
+			state[ payload.key ] = payload.value;
+			break;
 
-		case SET_VALUE: {
-			const { key, value } = payload;
-
-			return {
-				...state,
-				[ key ]: value,
-			};
-		}
-
-		default: {
-			return state;
-		}
+		default:
+			break;
 	}
-};
+} );
 
 export const resolvers = {};
 
@@ -109,6 +144,32 @@ export const selectors = {
 	 */
 	getValue( state, key ) {
 		return state[ key ];
+	},
+
+	/**
+	 * Gets the existing useInView hook reset count.
+	 *
+	 * @since 1.46.0
+	 * @private
+	 *
+	 * @param {Object} state Data store's state.
+	 * @return {number} Number of times `useInView` hooks have been reset.
+	 */
+	getInViewResetCount( state ) {
+		return state.useInViewResetCount;
+	},
+
+	/**
+	 * Gets the `isOnline` status.
+	 *
+	 * @since 1.118.0
+	 * @private
+	 *
+	 * @param {Object} state Data store's state.
+	 * @return {boolean} `isOnline` value.
+	 */
+	getIsOnline( state ) {
+		return state.isOnline;
 	},
 };
 

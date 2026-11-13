@@ -47,30 +47,29 @@ class Activation_NoticeTest extends TestCase {
 
 	protected function assertAdminActivationNoticeRegistered() {
 		$admin_notices = apply_filters( 'googlesitekit_admin_notices', array() );
-		$this->assertCount( 1, $admin_notices );
+		$this->assertCount( 1, $admin_notices, 'Should have exactly one admin notice registered.' );
 
 		$notice = array_pop( $admin_notices );
-		$this->assertInstanceOf( 'Google\Site_Kit\Core\Admin\Notice', $notice );
-		$this->assertEquals( 'activated', $notice->get_slug() );
+		$this->assertInstanceOf( 'Google\Site_Kit\Core\Admin\Notice', $notice, 'Notice should be an instance of Notice class.' );
+		$this->assertEquals( 'activated', $notice->get_slug(), 'Notice slug should be "activated".' );
 	}
 
 	protected function assertAssetsEnqueued() {
 		// Due to a static variable in Assets->enqueue_asset, assets will only be registered once, with no way to reset it.
 		// This test works without this call when run in isolation, but fails when run with the full suite.
-		$register_assets = new \ReflectionMethod( $this->assets, 'register_assets' );
-		$register_assets->setAccessible( true );
+		$register_assets = $this->get_accessible_method( $this->assets, 'register_assets' );
 		$register_assets->invoke( $this->assets );
 		// Reset enqueued styles.
 		wp_styles()->queue = array();
 
 		// googlesitekit-fonts is only enqueued in AMP context, only need to check admin css.
-		$this->assertFalse( wp_style_is( 'googlesitekit-admin-css', 'enqueued' ) );
+		$this->assertFalse( wp_style_is( 'googlesitekit-admin-css', 'enqueued' ), 'Admin CSS should not be enqueued initially.' );
 
 		// Set activation flag so that assets are enqueued.
 		$this->activation_flag->set_activation_flag( is_network_admin() );
 
 		do_action( 'admin_enqueue_scripts', 'plugins.php' );
 
-		$this->assertTrue( wp_style_is( 'googlesitekit-admin-css', 'enqueued' ) );
+		$this->assertTrue( wp_style_is( 'googlesitekit-admin-css', 'enqueued' ), 'Admin CSS should be enqueued after activation flag is set.' );
 	}
 }

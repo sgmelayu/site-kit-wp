@@ -6,6 +6,8 @@
  * @copyright 2021 Google LLC
  * @license   https://www.apache.org/licenses/LICENSE-2.0 Apache License 2.0
  * @link      https://sitekit.withgoogle.com
+ *
+ * phpcs:disable PHPCS.Commenting.RequireDocTagDescription -- Pre-existing violations; tracked for follow-up cleanup.
  */
 
 namespace Google\Site_Kit\Tests\Core\Util;
@@ -18,13 +20,15 @@ use Google\Site_Kit\Core\Authentication\Authentication;
 use Google\Site_Kit\Tests\TestCase;
 use Google\Site_Kit\Tests\Fake_Site_Connection_Trait;
 use Google\Site_Kit\Tests\FixWPCoreEntityRewriteTrait;
+use WP_Post;
 use WP_Query;
 
 /**
  * @group Util
  */
 class Entity_FactoryTest extends TestCase {
-	use Fake_Site_Connection_Trait, FixWPCoreEntityRewriteTrait;
+	use Fake_Site_Connection_Trait;
+	use FixWPCoreEntityRewriteTrait;
 
 	private static $orig_permalink_structure;
 	private static $orig_show_on_front;
@@ -199,15 +203,15 @@ class Entity_FactoryTest extends TestCase {
 
 		// Set admin context.
 		set_current_screen( 'dashboard' );
-		$this->assertTrue( is_admin() );
+		$this->assertTrue( is_admin(), 'Should be in admin context.' );
 
 		// Set up a global public post.
 		$public_post_id = $this->factory()->post->create();
 		( new WP_Query( array( 'p' => $public_post_id ) ) )->the_post();
-		$this->assertEquals( $public_post_id, get_post()->ID );
+		$this->assertEquals( $public_post_id, get_post()->ID, 'Global post should match created post ID.' );
 
 		// The entity is null by default.
-		$this->assertNull( Entity_Factory::from_context() );
+		$this->assertNull( Entity_Factory::from_context(), 'Entity should be null by default in admin context.' );
 
 		// The post edit screen should reference the global post.
 		set_current_screen( 'post.php' );
@@ -226,28 +230,28 @@ class Entity_FactoryTest extends TestCase {
 		// Set up a global private post.
 		$private_post_id = $this->factory()->post->create( array( 'post_status' => 'private' ) );
 		( new WP_Query( array( 'p' => $private_post_id ) ) )->the_post();
-		$this->assertEquals( $private_post_id, get_post()->ID );
+		$this->assertEquals( $private_post_id, get_post()->ID, 'Global post should match created private post ID.' );
 
 		// The entity is null despite editing a post, because that post is private.
-		$this->assertNull( Entity_Factory::from_context() );
+		$this->assertNull( Entity_Factory::from_context(), 'Entity should be null for private posts.' );
 	}
 
 	public function test_from_context_frontend() {
 		global $wp_the_query;
 
-		$this->assertFalse( is_admin() );
+		$this->assertFalse( is_admin(), 'Should not be in admin context.' );
 
 		// The entity is null by default (no main `WP_Query` available).
 		$wp_the_query = null;
-		$this->assertNull( Entity_Factory::from_context() );
+		$this->assertNull( Entity_Factory::from_context(), 'Entity should be null when no main query is available.' );
 
 		// Set up main `WP_Query` to query default 'posts' home page archive.
 		update_option( 'show_on_front', 'posts' );
 		$wp_the_query = new WP_Query();
 		$wp_the_query->query( array() );
-		$this->assertFalse( $wp_the_query->is_singular() );
-		$this->assertTrue( $wp_the_query->is_home() );
-		$this->assertTrue( $wp_the_query->is_front_page() );
+		$this->assertFalse( $wp_the_query->is_singular(), 'Query should not be singular for posts home.' );
+		$this->assertTrue( $wp_the_query->is_home(), 'Query should be home for posts home.' );
+		$this->assertTrue( $wp_the_query->is_front_page(), 'Query should be front page for posts home.' );
 
 		// Ensure that query instance is used (thus returns the home 'blog' entity).
 		$this->assertEntity(
@@ -264,7 +268,7 @@ class Entity_FactoryTest extends TestCase {
 
 	public function test_from_url() {
 		// URL is not part of the site.
-		$this->assertNull( Entity_Factory::from_url( 'https://www.google.com' ) );
+		$this->assertNull( Entity_Factory::from_url( 'https://www.google.com' ), 'External URL should return null entity.' );
 
 		// Set 'show_on_front' to 'posts' home page archive.
 		update_option( 'show_on_front', 'posts' );
@@ -286,7 +290,7 @@ class Entity_FactoryTest extends TestCase {
 
 		// High-level assertion to ensure 404s are considered as expected.
 		// In this example, it is a valid taxonomy term archive, but the pagination is out of bounds.
-		$this->assertNull( Entity_Factory::from_url( trailingslashit( get_term_link( self::$term_names_to_ids['Food'] ) ) . 'page/2/' ) );
+		$this->assertNull( Entity_Factory::from_url( trailingslashit( get_term_link( self::$term_names_to_ids['Food'] ) ) . 'page/2/' ), '404 URLs should return null entity.' );
 	}
 
 	/**
@@ -300,7 +304,7 @@ class Entity_FactoryTest extends TestCase {
 
 		add_filter(
 			'option_home',
-			function() {
+			function () {
 				return 'https://example.com';
 			}
 		);
@@ -325,7 +329,7 @@ class Entity_FactoryTest extends TestCase {
 		if ( $expected_entity ) {
 			$this->assertEntity( $expected_entity, $entity );
 		} else {
-			$this->assertNull( $entity );
+			$this->assertNull( $entity, 'Entity should be null for invalid queries.' );
 		}
 	}
 
@@ -346,9 +350,9 @@ class Entity_FactoryTest extends TestCase {
 		// * 'term' (taxonomy 'post_tag', slug 'food', title 'Food')
 		// * 'term' (taxonomy 'post_format', slug 'post-format-image', title 'post-format-image')
 		// * 'term' (taxonomy 'customtaxonomy', slug 'coffee', title 'Coffee')
-		// * 'user' (slug 'johndoe', title 'John Doe')
+		// * 'user' (slug 'johndoe', title 'John Doe').
 		return array(
-			'front page'                   => array(
+			'front page'            => array(
 				array(),
 				function () {
 					return new Entity(
@@ -361,7 +365,7 @@ class Entity_FactoryTest extends TestCase {
 					);
 				},
 			),
-			'blog page'                    => array(
+			'blog page'             => array(
 				array(
 					'pagename' => 'blog',
 				),
@@ -376,24 +380,7 @@ class Entity_FactoryTest extends TestCase {
 					);
 				},
 			),
-			'blog page, page 3'            => array(
-				array(
-					'pagename' => 'blog',
-					'paged'    => '3',
-				),
-				function () {
-					// TODO: This should be 'https://example.com/blog/page/3/'.
-					return new Entity(
-						'https://example.com/blog/',
-						array(
-							'type'  => 'blog',
-							'title' => 'Blog',
-							'id'    => self::$post_titles_to_ids['Blog'],
-						)
-					);
-				},
-			),
-			'single post'                  => array(
+			'single post'           => array(
 				array(
 					'name' => 'some-post',
 				),
@@ -408,24 +395,7 @@ class Entity_FactoryTest extends TestCase {
 					);
 				},
 			),
-			'single post, paginated'       => array(
-				array(
-					'name' => 'some-post',
-					'page' => '2',
-				),
-				function () {
-					// TODO: This should be 'https://example.com/blog/some-post/2/'.
-					return new Entity(
-						'https://example.com/blog/some-post/',
-						array(
-							'type'  => 'post',
-							'title' => 'Some Post',
-							'id'    => self::$post_titles_to_ids['Some Post'],
-						)
-					);
-				},
-			),
-			'single page'                  => array(
+			'single page'           => array(
 				array(
 					'pagename' => 'some-page',
 				),
@@ -440,7 +410,7 @@ class Entity_FactoryTest extends TestCase {
 					);
 				},
 			),
-			'category archives'            => array(
+			'category archives'     => array(
 				array(
 					'category_name' => 'uncategorized',
 				),
@@ -455,7 +425,7 @@ class Entity_FactoryTest extends TestCase {
 					);
 				},
 			),
-			'sub-category archives'        => array(
+			'sub-category archives' => array(
 				array(
 					'category_name' => 'uncategorized/subcat',
 				),
@@ -470,24 +440,7 @@ class Entity_FactoryTest extends TestCase {
 					);
 				},
 			),
-			'category archives, page 3'    => array(
-				array(
-					'category_name' => 'uncategorized',
-					'paged'         => '3',
-				),
-				function () {
-					// TODO: This should be 'https://example.com/blog/category/uncategorized/page/3/'.
-					return new Entity(
-						'https://example.com/blog/category/uncategorized/',
-						array(
-							'type'  => 'term',
-							'title' => 'Category: Uncategorized',
-							'id'    => self::$term_names_to_ids['Uncategorized'],
-						)
-					);
-				},
-			),
-			'tag archives'                 => array(
+			'tag archives'          => array(
 				array(
 					'tag' => 'food',
 				),
@@ -502,24 +455,7 @@ class Entity_FactoryTest extends TestCase {
 					);
 				},
 			),
-			'tag archives, page 3'         => array(
-				array(
-					'tag'   => 'food',
-					'paged' => '3',
-				),
-				function () {
-					// TODO: This should be 'https://example.com/blog/tag/food/page/3/'.
-					return new Entity(
-						'https://example.com/blog/tag/food/',
-						array(
-							'type'  => 'term',
-							'title' => 'Tag: Food',
-							'id'    => self::$term_names_to_ids['Food'],
-						)
-					);
-				},
-			),
-			'post format archives'         => array(
+			'post format archives'  => array(
 				array(
 					// Passing 'image' works for WP request parsing,
 					// but the query requires the actual 'post-format-image'.
@@ -537,27 +473,7 @@ class Entity_FactoryTest extends TestCase {
 					);
 				},
 			),
-			'post format archives, page 2' => array(
-				array(
-					// Passing 'image' works for WP request parsing,
-					// but the query requires the actual 'post-format-image'.
-					'post_format' => 'post-format-image',
-					'post_type'   => array( 'post' ),
-					'paged'       => '2',
-				),
-				function () {
-					// TODO: This should be 'https://example.com/blog/type/image/page/2/'.
-					return new Entity(
-						'https://example.com/blog/type/image/',
-						array(
-							'type'  => 'term',
-							'title' => 'Images',
-							'id'    => self::$term_names_to_ids['Images'],
-						)
-					);
-				},
-			),
-			'author archives'              => array(
+			'author archives'       => array(
 				array(
 					'author_name' => 'johndoe',
 				),
@@ -572,24 +488,7 @@ class Entity_FactoryTest extends TestCase {
 					);
 				},
 			),
-			'author archives, page 2'      => array(
-				array(
-					'author_name' => 'johndoe',
-					'paged'       => '2',
-				),
-				function () {
-					// TODO: This should be 'https://example.com/blog/author/johndoe/page/2/'.
-					return new Entity(
-						'https://example.com/blog/author/johndoe/',
-						array(
-							'type'  => 'user',
-							'title' => 'Author: John Doe',
-							'id'    => self::$user_display_names_to_ids['John Doe'],
-						)
-					);
-				},
-			),
-			'year archives'                => array(
+			'year archives'         => array(
 				array(
 					'year' => '2020',
 				),
@@ -603,23 +502,7 @@ class Entity_FactoryTest extends TestCase {
 					);
 				},
 			),
-			'year archives, page 3'        => array(
-				array(
-					'year'  => '2020',
-					'paged' => '3',
-				),
-				function () {
-					// TODO: This should be 'https://example.com/blog/2020/page/3/'.
-					return new Entity(
-						'https://example.com/blog/2020/',
-						array(
-							'type'  => 'year',
-							'title' => 'Year: 2020',
-						)
-					);
-				},
-			),
-			'month archives'               => array(
+			'month archives'        => array(
 				array(
 					'year'     => '2020',
 					'monthnum' => '08',
@@ -634,24 +517,7 @@ class Entity_FactoryTest extends TestCase {
 					);
 				},
 			),
-			'month archives, page 3'       => array(
-				array(
-					'year'     => '2020',
-					'monthnum' => '08',
-					'paged'    => '3',
-				),
-				function () {
-					// TODO: This should be 'https://example.com/blog/2020/08/page/3/'.
-					return new Entity(
-						'https://example.com/blog/2020/08/',
-						array(
-							'type'  => 'month',
-							'title' => 'Month: August 2020',
-						)
-					);
-				},
-			),
-			'day archives'                 => array(
+			'day archives'          => array(
 				array(
 					'year'     => '2020',
 					'monthnum' => '08',
@@ -667,25 +533,7 @@ class Entity_FactoryTest extends TestCase {
 					);
 				},
 			),
-			'day archives, page 3'         => array(
-				array(
-					'year'     => '2020',
-					'monthnum' => '08',
-					'day'      => '04',
-					'paged'    => '3',
-				),
-				function () {
-					// TODO: This should be 'https://example.com/blog/2020/08/04/page/3/'.
-					return new Entity(
-						'https://example.com/blog/2020/08/04/',
-						array(
-							'type'  => 'day',
-							'title' => 'Day: August 4, 2020',
-						)
-					);
-				},
-			),
-			'custom post type post'        => array(
+			'custom post type post' => array(
 				array(
 					'customposttype' => 'coffee',
 					'post_type'      => 'customposttype',
@@ -703,7 +551,7 @@ class Entity_FactoryTest extends TestCase {
 					);
 				},
 			),
-			'post type archives'           => array(
+			'post type archives'    => array(
 				array(
 					'post_type' => 'customposttype',
 				),
@@ -717,44 +565,11 @@ class Entity_FactoryTest extends TestCase {
 					);
 				},
 			),
-			'post type archives, page 3'   => array(
-				array(
-					'post_type' => 'customposttype',
-					'paged'     => '3',
-				),
-				function () {
-					// TODO: This should be 'https://example.com/blog/customposttype/page/3/'.
-					return new Entity(
-						'https://example.com/blog/customposttype/',
-						array(
-							'type'  => 'post_type',
-							'title' => 'Archives: Custom Post Type',
-						)
-					);
-				},
-			),
-			'taxonomy archives'            => array(
+			'taxonomy archives'     => array(
 				array(
 					'customtaxonomy' => 'coffee',
 				),
 				function () {
-					return new Entity(
-						'https://example.com/blog/customtaxonomy/coffee/',
-						array(
-							'type'  => 'term',
-							'title' => 'Custom Taxonomy: Coffee',
-							'id'    => self::$term_names_to_ids['Coffee'],
-						)
-					);
-				},
-			),
-			'taxonomy archives, page 3'    => array(
-				array(
-					'customtaxonomy' => 'coffee',
-					'paged'          => '3',
-				),
-				function () {
-					// TODO: This should be 'https://example.com/blog/customtaxonomy/coffee/page/3/'.
 					return new Entity(
 						'https://example.com/blog/customtaxonomy/coffee/',
 						array(
@@ -768,8 +583,338 @@ class Entity_FactoryTest extends TestCase {
 		);
 	}
 
+	/**
+	 * @dataProvider data_from_wp_query_paginated
+	 *
+	 * @param array $query_args           Query arguments.
+	 * @param Closure $get_expected_entity_args Function that returns an array of args used to construct the expected Entities.
+	 */
+	public function test_from_wp_query_paginated( array $query_args, Closure $get_expected_entity_args ) {
+		global $wp_rewrite;
+
+		$orig_permalink_structure = get_option( 'permalink_structure', '' );
+
+		$permalink_structures = array(
+			'',                  // Not using permalinks.
+			'/blog/%postname%/', // Using permalinks.
+		);
+
+		$expected_entity_args = $get_expected_entity_args();
+
+		foreach ( $permalink_structures as $index => $permalink_structure ) {
+			$wp_rewrite->set_permalink_structure( $permalink_structure );
+
+			$this->test_from_wp_query(
+				$query_args,
+				function () use ( $expected_entity_args, $index ) {
+					return new Entity(
+						$expected_entity_args['urls'][ $index ],
+						$expected_entity_args['args']
+					);
+				}
+			);
+		}
+
+		$wp_rewrite->set_permalink_structure( $orig_permalink_structure );
+	}
+
+	public function data_from_wp_query_paginated() {
+		// See notes in `data_from_wp_query()`.
+		// In the `urls` array, the first item is the non-permalinked URL, the second item is the permalinked URL.
+
+		return array(
+			'blog page, page 3'            => array(
+				array(
+					'pagename' => 'blog',
+					'paged'    => '3',
+				),
+				function () {
+					return array(
+						'urls' => array(
+							'https://example.com/?paged=3&page_id=' . self::$post_titles_to_ids['Blog'],
+							'https://example.com/blog/page/3/',
+						),
+						'args' => array(
+							'type'  => 'blog',
+							'title' => 'Blog',
+							'id'    => self::$post_titles_to_ids['Blog'],
+						),
+					);
+				},
+			),
+			'single post, paginated'       => array(
+				array(
+					'name' => 'some-post',
+					'page' => '2',
+				),
+				function () {
+					return array(
+						'urls' => array(
+							'https://example.com/?p=' . self::$post_titles_to_ids['Some Post'] . '&page=2',
+							'https://example.com/blog/some-post/2/',
+						),
+						'args' => array(
+							'type'  => 'post',
+							'title' => 'Some Post',
+							'id'    => self::$post_titles_to_ids['Some Post'],
+						),
+					);
+				},
+			),
+			'category archives, page 3'    => array(
+				array(
+					'category_name' => 'uncategorized',
+					'paged'         => '3',
+				),
+				function () {
+					return array(
+						'urls' => array(
+							'https://example.com/?paged=3&cat=' . self::$term_names_to_ids['Uncategorized'],
+							'https://example.com/blog/category/uncategorized/page/3/',
+						),
+						'args' => array(
+							'type'  => 'term',
+							'title' => 'Category: Uncategorized',
+							'id'    => self::$term_names_to_ids['Uncategorized'],
+						),
+					);
+				},
+			),
+			'tag archives, page 3'         => array(
+				array(
+					'tag'   => 'food',
+					'paged' => '3',
+				),
+				function () {
+					return array(
+						'urls' => array(
+							'https://example.com/?paged=3&tag=food',
+							'https://example.com/blog/tag/food/page/3/',
+						),
+						'args' => array(
+							'type'  => 'term',
+							'title' => 'Tag: Food',
+							'id'    => self::$term_names_to_ids['Food'],
+						),
+					);
+				},
+			),
+			'post format archives, page 2' => array(
+				array(
+					// Passing 'image' works for WP request parsing,
+					// but the query requires the actual 'post-format-image'.
+					'post_format' => 'post-format-image',
+					'post_type'   => array( 'post' ),
+					'paged'       => '2',
+				),
+				function () {
+					return array(
+						'urls' => array(
+							'https://example.com/?paged=2&post_format=image',
+							'https://example.com/blog/type/image/page/2/',
+						),
+						'args' => array(
+							'type'  => 'term',
+							'title' => 'Images',
+							'id'    => self::$term_names_to_ids['Images'],
+						),
+					);
+				},
+			),
+			'author archives, page 2'      => array(
+				array(
+					'author_name' => 'johndoe',
+					'paged'       => '2',
+				),
+				function () {
+					return array(
+						'urls' => array(
+							'https://example.com/?paged=2&author=' . self::$user_display_names_to_ids['John Doe'],
+							'https://example.com/blog/author/johndoe/page/2/',
+						),
+						'args' => array(
+							'type'  => 'user',
+							'title' => 'Author: John Doe',
+							'id'    => self::$user_display_names_to_ids['John Doe'],
+						),
+					);
+				},
+			),
+			'year archives, page 3'        => array(
+				array(
+					'year'  => '2020',
+					'paged' => '3',
+				),
+				function () {
+					return array(
+						'urls' => array(
+							'https://example.com/?paged=3&m=2020',
+							'https://example.com/blog/2020/page/3/',
+						),
+						'args' => array(
+							'type'  => 'year',
+							'title' => 'Year: 2020',
+						),
+					);
+				},
+			),
+			'month archives, page 3'       => array(
+				array(
+					'year'     => '2020',
+					'monthnum' => '08',
+					'paged'    => '3',
+				),
+				function () {
+					return array(
+						'urls' => array(
+							'https://example.com/?paged=3&m=202008',
+							'https://example.com/blog/2020/08/page/3/',
+						),
+						'args' => array(
+							'type'  => 'month',
+							'title' => 'Month: August 2020',
+						),
+					);
+				},
+			),
+			'day archives, page 3'         => array(
+				array(
+					'year'     => '2020',
+					'monthnum' => '08',
+					'day'      => '04',
+					'paged'    => '3',
+				),
+				function () {
+					return array(
+						'urls' => array(
+							'https://example.com/?paged=3&m=20200804',
+							'https://example.com/blog/2020/08/04/page/3/',
+						),
+						'args' => array(
+							'type'  => 'day',
+							'title' => 'Day: August 4, 2020',
+						),
+					);
+				},
+			),
+			'post type archives, page 3'   => array(
+				array(
+					'post_type' => 'customposttype',
+					'paged'     => '3',
+				),
+				function () {
+					return array(
+						'urls' => array(
+							'https://example.com/?paged=3&post_type=customposttype',
+							'https://example.com/blog/customposttype/page/3/',
+						),
+						'args' => array(
+							'type'  => 'post_type',
+							'title' => 'Archives: Custom Post Type',
+						),
+					);
+				},
+			),
+			'taxonomy archives, page 3'    => array(
+				array(
+					'customtaxonomy' => 'coffee',
+					'paged'          => '3',
+				),
+				function () {
+					return array(
+						'urls' => array(
+							'https://example.com/?paged=3&customtaxonomy=coffee',
+							'https://example.com/blog/customtaxonomy/coffee/page/3/',
+						),
+						'args' => array(
+							'type'  => 'term',
+							'title' => 'Custom Taxonomy: Coffee',
+							'id'    => self::$term_names_to_ids['Coffee'],
+						),
+					);
+				},
+			),
+		);
+	}
+
+	/**
+	 * @param $post_factory
+	 * @param $expected_url
+	 * @param $expected_title
+	 *
+	 * @dataProvider data_posts
+	 */
+	public function test_create_entity_for_post( Closure $post_factory, $expected_url, $expected_title, $pagenum = 1 ) {
+		$post = $post_factory();
+		$this->assertInstanceOf( WP_Post::class, $post, 'Post should be an instance of WP_Post.' );
+
+		$entity = Entity_Factory::create_entity_for_post( $post, $pagenum );
+
+		$this->assertEquals( $expected_url, $entity->get_url(), 'Entity URL should match expected URL.' );
+		$this->assertEquals( $expected_title, $entity->get_title(), 'Entity title should match expected title.' );
+	}
+
+	public function data_posts() {
+		$arabic_test = 'امتحان';
+
+		return array(
+			'basic post'                      => array(
+				fn () => $this->factory()->post->create_and_get(
+					array(
+						'post_name'  => 'test',
+						'post_title' => 'Test',
+					)
+				),
+				'http://example.org/blog/test/',
+				'Test',
+			),
+			'basic post with page num'        => array(
+				fn () => $this->factory()->post->create_and_get(
+					array(
+						'post_name'  => 'test',
+						'post_title' => 'Test',
+					)
+				),
+				'http://example.org/blog/test/3/',
+				'Test',
+				3,
+			),
+			'with utf8 slug'                  => array(
+				fn () => $this->factory()->post->create_and_get(
+					array(
+						'post_name'  => $arabic_test,
+						'post_title' => $arabic_test,
+					)
+				),
+				"http://example.org/blog/$arabic_test/",
+				$arabic_test,
+			),
+			'with utf8 slug and page'         => array(
+				fn () => $this->factory()->post->create_and_get(
+					array(
+						'post_name'  => $arabic_test . '-1',
+						'post_title' => $arabic_test,
+					)
+				),
+				"http://example.org/blog/$arabic_test-1/3/",
+				$arabic_test,
+				3,
+			),
+			'with special characters in slug' => array(
+				fn () => $this->factory()->post->create_and_get(
+					array(
+						'post_name'  => 'test-!@#$%^&*()',
+						'post_title' => 'Test',
+					)
+				),
+				'http://example.org/blog/test/',
+				'Test',
+			),
+		);
+	}
+
 	protected function assertEntity( Entity $expected, $actual ) {
-		$this->assertInstanceOf( Entity::class, $actual );
+		$this->assertInstanceOf( Entity::class, $actual, 'Entity should be an instance of Entity class.' );
 		$this->assertSame( $expected->get_url(), $actual->get_url(), "Failed asserting that entity URL {$actual->get_url()} is {$expected->get_url()}." );
 		$this->assertSame( $expected->get_type(), $actual->get_type(), "Failed asserting that entity type {$actual->get_type()} is {$expected->get_type()}." );
 		$this->assertSame( $expected->get_title(), $actual->get_title(), "Failed asserting that entity title {$actual->get_title()} is {$expected->get_title()}." );
@@ -778,7 +923,7 @@ class Entity_FactoryTest extends TestCase {
 
 	private function set_and_authorize_current_user( \WP_User $user ) {
 		wp_set_current_user( $user->ID );
-		// The only way to change the current user in bootstrapped Site Kit class instances (e.g. Permissions)
+		// The only way to change the current user in bootstrapped Site Kit class instances (e.g. Permissions).
 		do_action( 'wp_login', $user->user_login, $user );
 
 		// Fake setup and authentication for access to dashboard.
@@ -786,6 +931,6 @@ class Entity_FactoryTest extends TestCase {
 		remove_all_filters( 'googlesitekit_setup_complete' );
 		$authentication = new Authentication( new Context( GOOGLESITEKIT_PLUGIN_MAIN_FILE ) );
 		$authentication->verification()->set( true );
-		$authentication->get_oauth_client()->set_access_token( 'test-access-token', HOUR_IN_SECONDS );
+		$authentication->get_oauth_client()->set_token( array( 'access_token' => 'test-access-token' ) );
 	}
 }

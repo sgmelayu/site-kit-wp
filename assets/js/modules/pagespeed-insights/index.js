@@ -19,69 +19,32 @@
 /**
  * WordPress dependencies
  */
-import { addFilter } from '@wordpress/hooks';
+import { __ } from '@wordpress/i18n';
 
 /**
  * Internal dependencies
  */
-import { AREA_DASHBOARD_SPEED, AREA_PAGE_DASHBOARD_SPEED } from '../../googlesitekit/widgets/default-areas';
-import { getModulesData } from '../../util';
-import { createAddToFilter } from '../../util/helpers';
+import PageSpeedInsightsIcon from '@/svg/graphics/pagespeed-insights.svg';
 import { SettingsView } from './components/settings';
-import DashboardPageSpeedWidget from './components/dashboard/DashboardPageSpeedWidget';
-import LegacyDashboardPageSpeedCTA from './components/dashboard/LegacyDashboardPageSpeedCTA';
-import LegacyDashboardSpeed from './components/dashboard/LegacyDashboardSpeed';
-import PageSpeedInsightsIcon from '../../../svg/pagespeed-insights.svg';
-import { STORE_NAME } from './datastore/constants';
+import { MODULE_SLUG_PAGESPEED_INSIGHTS } from './constants';
+import { MODULES_PAGESPEED_INSIGHTS } from './datastore/constants';
 
 export { registerStore } from './datastore';
+export { registerWidgets } from './widgets';
+export { registerNotifications } from './notifications';
+export { registerFeatures } from './feature-discovery';
 
-const {
-	active,
-	setupComplete,
-} = getModulesData()[ 'pagespeed-insights' ];
-
-// @TODO: remove LegacyDashboardSpeed once all widgets have been migrated.
-if ( active && setupComplete ) {
-	// Add to main dashboard.
-	addFilter(
-		'googlesitekit.DashboardModule',
-		'googlesitekit.PageSpeedInsights',
-		createAddToFilter( <LegacyDashboardSpeed /> ),
-		45
-	);
-
-	// Add to dashboard-details view.
-	addFilter(
-		'googlesitekit.DashboardDetailsModule',
-		'googlesitekit.PageSpeedInsights',
-		createAddToFilter( <LegacyDashboardSpeed /> ),
-		45
-	);
-} else {
-	addFilter(
-		'googlesitekit.DashboardModule',
-		'googlesitekit.PageSpeedInsights',
-		createAddToFilter( <LegacyDashboardPageSpeedCTA /> ),
-		45
-	);
+export function registerModule( modules ) {
+	modules.registerModule( MODULE_SLUG_PAGESPEED_INSIGHTS, {
+		storeName: MODULES_PAGESPEED_INSIGHTS,
+		SettingsViewComponent: SettingsView,
+		Icon: PageSpeedInsightsIcon,
+		features: [
+			__(
+				'Website performance reports for mobile and desktop will be disabled',
+				'google-site-kit'
+			),
+		],
+		overrideSetupSuccessNotification: true,
+	} );
 }
-
-export const registerModule = ( modules ) => {
-	modules.registerModule(
-		'pagespeed-insights',
-		{
-			storeName: STORE_NAME,
-			SettingsViewComponent: SettingsView,
-			Icon: PageSpeedInsightsIcon,
-		}
-	);
-};
-
-export const registerWidgets = ( widgets ) => {
-	widgets.registerWidget( 'pagespeedInsightsWebVitals', {
-		Component: DashboardPageSpeedWidget,
-		width: widgets.WIDGET_WIDTHS.FULL,
-		wrapWidget: false,
-	}, [ AREA_DASHBOARD_SPEED, AREA_PAGE_DASHBOARD_SPEED ] );
-};

@@ -14,8 +14,8 @@ use Google\Site_Kit\Context;
 use Google\Site_Kit\Core\Authentication\Clients\OAuth_Client;
 use Google\Site_Kit\Core\Storage\Options;
 use Google\Site_Kit\Core\Storage\User_Options;
+use Google\Site_Kit\Core\Tracking\Tracking_Consent;
 use Google\Site_Kit\Core\Util\Migration_1_3_0;
-use Google\Site_Kit\Core\Util\Tracking_Consent;
 use Google\Site_Kit\Tests\TestCase;
 
 class Migration_1_3_0Test extends TestCase {
@@ -29,8 +29,8 @@ class Migration_1_3_0Test extends TestCase {
 	 */
 	protected $user_options;
 
-	public function setUp() {
-		parent::setUp();
+	public function set_up() {
+		parent::set_up();
 		$this->context      = new Context( GOOGLESITEKIT_PLUGIN_MAIN_FILE );
 		$this->user_options = new User_Options( $this->context );
 		$this->delete_db_version();
@@ -42,7 +42,11 @@ class Migration_1_3_0Test extends TestCase {
 
 		$migration->register();
 
-		$this->assertTrue( has_action( 'admin_init' ) );
+		$this->assertSame(
+			0,
+			has_action( 'admin_init', array( $migration, 'migrate' ) ),
+			'The migration should add `migrate()` to the `admin_init` action at priority 0, so it runs in `Plugin.php` registration order.'
+		);
 	}
 
 	public function test_migrate_without_tracking_enabled() {
@@ -52,12 +56,12 @@ class Migration_1_3_0Test extends TestCase {
 
 		$this->disable_global_tracking();
 		$this->create_user_without_access_token();
-		$this->assertEmpty( $this->get_opted_in_users() );
+		$this->assertEmpty( $this->get_opted_in_users(), 'Should have no opted-in users initially.' );
 
 		$migration->migrate();
 
-		$this->assertEmpty( $this->get_opted_in_users() );
-		$this->assertEquals( Migration_1_3_0::DB_VERSION, $this->get_db_version() );
+		$this->assertEmpty( $this->get_opted_in_users(), 'Should have no opted-in users when tracking is disabled.' );
+		$this->assertEquals( Migration_1_3_0::DB_VERSION, $this->get_db_version(), 'Database version should be updated after migration.' );
 	}
 
 	public function test_migrate_with_tracking_enabled_and_no_authenticated_users() {
@@ -67,12 +71,12 @@ class Migration_1_3_0Test extends TestCase {
 
 		$this->enable_global_tracking();
 		$this->create_user_without_access_token();
-		$this->assertEmpty( $this->get_users_with_access_tokens() );
+		$this->assertEmpty( $this->get_users_with_access_tokens(), 'Should have no users with access tokens initially.' );
 
 		$migration->migrate();
 
-		$this->assertEmpty( $this->get_opted_in_users() );
-		$this->assertEquals( Migration_1_3_0::DB_VERSION, $this->get_db_version() );
+		$this->assertEmpty( $this->get_opted_in_users(), 'Should have no opted-in users when no users have access tokens.' );
+		$this->assertEquals( Migration_1_3_0::DB_VERSION, $this->get_db_version(), 'Database version should be updated after migration.' );
 	}
 
 	public function test_migrate_with_tracking_enabled_and_one_authenticated_user() {
@@ -82,14 +86,14 @@ class Migration_1_3_0Test extends TestCase {
 
 		$this->enable_global_tracking();
 		$user_id = $this->create_user_with_access_token();
-		$this->assertCount( 1, $this->get_users_with_access_tokens() );
+		$this->assertCount( 1, $this->get_users_with_access_tokens(), 'Should have exactly one user with access token.' );
 
 		$migration->migrate();
 
 		$opted_in_users = $this->get_opted_in_users();
-		$this->assertCount( 1, $opted_in_users );
-		$this->assertEquals( $user_id, $opted_in_users[0] );
-		$this->assertEquals( Migration_1_3_0::DB_VERSION, $this->get_db_version() );
+		$this->assertCount( 1, $opted_in_users, 'Should have exactly one opted-in user.' );
+		$this->assertEquals( $user_id, $opted_in_users[0], 'Opted-in user should match the user with access token.' );
+		$this->assertEquals( Migration_1_3_0::DB_VERSION, $this->get_db_version(), 'Database version should be updated after migration.' );
 	}
 
 	public function test_migrate_with_tracking_enabled_and_multiple_authenticated_users() {
@@ -110,16 +114,17 @@ class Migration_1_3_0Test extends TestCase {
 
 		$this->enable_global_tracking();
 
-		$this->assertCount( 20, $users_with_access_tokens );
-		$this->assertCount( 20, $users_without_access_tokens );
+		$this->assertCount( 20, $users_with_access_tokens, 'Should have exactly 20 users with access tokens.' );
+		$this->assertCount( 20, $users_without_access_tokens, 'Should have exactly 20 users without access tokens.' );
 
 		$migration->migrate();
 
 		$this->assertEqualSets(
 			$users_with_access_tokens,
-			$this->get_opted_in_users()
+			$this->get_opted_in_users(),
+			'Opted-in users should match users with access tokens.'
 		);
-		$this->assertEquals( Migration_1_3_0::DB_VERSION, $this->get_db_version() );
+		$this->assertEquals( Migration_1_3_0::DB_VERSION, $this->get_db_version(), 'Database version should be updated after migration.' );
 	}
 
 	private function get_opted_in_users() {

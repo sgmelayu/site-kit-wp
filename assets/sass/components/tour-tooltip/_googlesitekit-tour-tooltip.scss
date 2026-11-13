@@ -16,59 +16,42 @@
  * limitations under the License.
  */
 
-$a-tags: "a, a:active, a:hover, a:visited";
-$indicator-inactive: #649df5;
+// Only override global Joyride styles when a Site Kit tour is active
+// as there is no other way to scope the selectors using Joyride.
+.googlesitekit-showing-feature-tour {
 
-.react-joyride__overlay {
-	mix-blend-mode: multiply !important;
-}
-
-.react-joyride__spotlight {
-	background-color: $c-white !important;
-	border: 2px solid $c-royal-blue !important;
-}
-
-.googlesitekit-tour-tooltip {
-
-	.googlesitekit-tooltip-card {
-		background-color: $c-royal-blue;
-		border-radius: 8px;
-		box-shadow: none;
-		color: $c-white;
-		position: relative;
-
-		#{$a-tags} {
-			color: $c-white;
-		}
+	.react-joyride__overlay {
+		mix-blend-mode: multiply !important;
 	}
-}
 
-.googlesitekit-tooltip-title {
-	color: $c-white;
-	font-family: $f-secondary;
-	font-weight: $fw-secondary-light;
-	margin-bottom: 4px;
-	margin-top: 0;
-
-	@include responsive-text("body2", "body2");
+	.react-joyride__spotlight {
+		// Ideally the border-radius would vary by the size of the spotlight element
+		// so we use the average radius here.
+		border-radius: $br-sm !important; // Override uncustomizable inline style.
+	}
 }
 
 .googlesitekit-tooltip-body {
 	box-sizing: border-box;
-	font-family: $f-primary;
-	font-weight: $fw-primary-light;
-	max-width: 352px;
-	padding: 24px 56px 2px 24px;
+	max-width: 332px;
+	padding: 32px $grid-gap-phone 0;
+}
 
-	@include responsive-text("body3", "body3");
+.googlesitekit-tooltip-title {
+	color: $c-content-on-primary;
+	font-weight: $fw-medium;
+	margin-bottom: 8px;
+	margin-top: 0;
+}
+.googlesitekit-tooltip-content {
+	color: $c-content-on-primary;
 }
 
 .googlesitekit-tooltip-buttons {
 	line-height: 1em;
 }
 
-.googlesitekit-tooltip-button,
-.googlesitekit-tooltip-button:not(:disabled) {
+.googlesitekit-tooltip-button {
 	color: $c-white;
 	height: auto;
 	letter-spacing: normal;
@@ -76,10 +59,10 @@ $indicator-inactive: #649df5;
 	min-width: initial;
 	padding: 0;
 	text-transform: none;
+}
 
-	&:not(:first-of-type) {
-		margin-left: 28px;
-	}
+.googlesitekit-tooltip-button:not(:disabled) {
+	@extend .googlesitekit-tooltip-button;
 }
 
 .googlesitekit-tooltip-close {
@@ -89,33 +72,196 @@ $indicator-inactive: #649df5;
 	position: absolute;
 	right: 29px;
 	top: 29px;
+
+	&:focus {
+		outline: 1px dotted $c-interactive-inverse-focus;
+		outline-offset: 6px;
+	}
+
+	.mdc-button__label {
+		display: none;
+	}
 }
 
 .mdc-card__actions.googlesitekit-tooltip-actions {
 	align-items: center;
 	display: flex;
 	justify-content: space-between;
-	padding: 12px 24px 18px 24px;
+	padding: 12px 24px 18px;
 	text-align: right;
 }
 
-.googlesitekit-tooltip-indicators {
-	display: flex;
-	margin: 0;
-	margin-right: 16px;
-	padding: 0;
+// Style the tooltip to appear in a modal style on mobile and tablet designs.
+// This class is set within the Joyride component based on the breakpoint.
+.googlesitekit-tour-tooltip__modal_step {
+	max-width: 352px;
+	width: calc(100vw - 64px);
+
+	.googlesitekit-tooltip-body {
+		max-width: 100%;
+		padding: 16px 16px 0;
+	}
+
+	.googlesitekit-tooltip-title {
+		margin-bottom: 10px;
+	}
+
+	.googlesitekit-tooltip-close {
+		display: none;
+	}
+
+	.googlesitekit-tooltip-actions {
+		padding: 0 16px;
+	}
 }
 
-.googlesitekit-tooltip-indicator {
-	background: $indicator-inactive;
-	border-radius: 50%;
-	height: 8px;
-	list-style: none;
-	margin-bottom: 0;
-	margin-right: 8px;
-	width: 8px;
+.googlesitekit-tour-tooltip {
+
+	.googlesitekit-tooltip-card {
+		--mdc-theme-surface: #{$c-content-primary};
+		border-radius: 8px;
+		box-shadow: none;
+		color: $c-content-on-primary;
+		position: relative;
+
+		a {
+			color: $c-content-on-primary;
+			text-decoration: underline;
+
+			&:active,
+			&:hover,
+			&:visited {
+				color: $c-content-on-primary;
+			}
+
+			&:focus {
+				box-shadow: none;
+				outline: 1px dotted $c-interactive-inverse-focus;
+				outline-offset: 3px;
+			}
+		}
+
+		svg {
+			color: $c-content-on-primary;
+		}
+	}
+
+	.googlesitekit-tooltip-title {
+		font-family: $f-primary;
+		font-size: $fs-title-md;
+		letter-spacing: $ls-xxs;
+		line-height: $lh-title-md;
+	}
+
+	.googlesitekit-tooltip-content {
+		font-family: $f-primary;
+		font-size: $fs-body-sm;
+		font-weight: $fw-normal;
+		letter-spacing: $ls-xs;
+		line-height: $lh-body-sm;
+	}
+
+	.googlesitekit-tooltip-close {
+		right: $grid-gap-phone;
+		top: $grid-gap-phone;
+	}
+
+	.googlesitekit-tooltip-button {
+		border-radius: $br-lg;
+		line-height: $lh-label-md;
+		padding: 6px $grid-gap-phone;
+
+		&:not(:first-of-type) {
+			margin-left: 10px;
+		}
+
+		// Tertiary button (Back) states.
+		&:hover {
+			background-color: $c-site-kit-sk-400;
+		}
+
+		&:focus {
+			background-color: $c-site-kit-sk-300;
+			outline: none;
+		}
+
+		&:active {
+			background-color: $c-site-kit-sk-400;
+		}
+	}
+
+	.googlesitekit-tooltip-button--primary {
+		background-color: $c-site-kit-sk-50;
+		box-shadow: none;
+		color: $c-content-on-primary-container;
+
+		&:hover {
+			background-color: $c-site-kit-sk-100;
+		}
+
+		&:focus {
+			background-color: $c-site-kit-sk-200;
+		}
+
+		&:active {
+			background-color: $c-site-kit-sk-100;
+		}
+	}
+
+	.googlesitekit-tooltip-steps {
+		font-family: $f-primary;
+		font-size: $fs-body-sm;
+		font-weight: $fw-normal;
+		letter-spacing: $ls-xs;
+		line-height: $lh-body-sm;
+		margin: 0;
+	}
+
+	.googlesitekit-tooltip-actions {
+		padding: $grid-gap-phone;
+	}
+
+	&.googlesitekit-tour-tooltip--no-title {
+
+		.googlesitekit-tooltip-body {
+			max-width: 223px;
+		}
+
+		.googlesitekit-tooltip-content {
+			font-size: $fs-body-md;
+		}
+
+		.googlesitekit-tooltip-button {
+			background-color: transparent;
+			color: $c-content-on-primary;
+		}
+
+		.googlesitekit-tooltip-actions {
+			padding: 0 $grid-gap-phone;
+		}
+	}
+
 }
 
-.googlesitekit-tooltip-indicator.active {
-	background: $c-white;
+// Fix AdminMenuTooltip jumping on scroll by using fixed positioning.
+// !important is required to override Joyride's inline styles.
+#react-joyride-step-0:has(.googlesitekit-tour-tooltip__fixed-settings-tooltip) > div.__floater {
+	left: 170px !important;
+	position: fixed !important;
+	top: 113px !important;
+	transform: none !important;
+}
+
+// !important is required to override Joyride's inline styles.
+.folded #react-joyride-step-0:has(.googlesitekit-tour-tooltip__fixed-settings-tooltip) > div.__floater {
+	left: 46px !important;
+	top: 46px !important;
+}
+
+// Fix the arrow alignment to make it consistent to allow fixed positioning
+// to align reliably.
+// !important is required to override Joyride's inline styles.
+#react-joyride-step-0:has(.googlesitekit-tour-tooltip__fixed-settings-tooltip) div.__floater__arrow > span {
+	margin-top: 42px !important;
+	top: 0 !important;
 }

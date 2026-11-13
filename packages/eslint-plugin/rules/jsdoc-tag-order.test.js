@@ -24,8 +24,8 @@ import { RuleTester } from 'eslint';
 /**
  * Internal dependencies
  */
-import rule from './jsdoc-tag-order';
 import { NEXT_VERSION } from './constants';
+import rule from './jsdoc-tag-order';
 
 const ruleTester = new RuleTester( {
 	parserOptions: {
@@ -89,8 +89,7 @@ export function exampleTestFunction( props ) {
       `,
 			errors: [
 				{
-					message:
-						'The @since tag should be before @private tag.',
+					message: 'The @since tag should be before @private tag.',
 				},
 			],
 		},

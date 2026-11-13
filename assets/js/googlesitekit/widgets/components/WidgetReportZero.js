@@ -29,11 +29,15 @@ import { useMemo } from '@wordpress/element';
 /**
  * Internal dependencies
  */
-import useWidgetStateEffect from '../hooks/useWidgetStateEffect';
-import ReportZero from '../../../components/ReportZero';
+import ReportZero from '@/js/components/ReportZero';
+import useWidgetStateEffect from '@/js/googlesitekit/widgets/hooks/useWidgetStateEffect';
 
 // The supported props must match `ReportZero` (except `widgetSlug`).
-export default function WidgetReportZero( { widgetSlug, moduleSlug, ...props } ) {
+export default function WidgetReportZero( {
+	widgetSlug,
+	moduleSlug,
+	...props
+} ) {
 	const metadata = useMemo( () => ( { moduleSlug } ), [ moduleSlug ] );
 	useWidgetStateEffect( widgetSlug, ReportZero, metadata );
 

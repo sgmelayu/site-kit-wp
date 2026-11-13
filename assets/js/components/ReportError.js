@@ -19,45 +19,158 @@
 /**
  * External dependencies
  */
+import { uniqWith } from 'lodash';
 import PropTypes from 'prop-types';
 
 /**
  * WordPress dependencies
  */
+import { Fragment } from '@wordpress/element';
 import { __, sprintf } from '@wordpress/i18n';
+import { removeQueryArgs } from '@wordpress/url';
 
 /**
  * Internal dependencies
  */
-import Data from 'googlesitekit-data';
-import { CORE_MODULES } from '../googlesitekit/modules/datastore/constants';
-import { isInsufficientPermissionsError } from '../util/errors';
-import { getInsufficientPermissionsErrorDescription } from '../util/insufficient-permissions-error-description';
-import ErrorText from '../components/ErrorText';
-import CTA from './legacy-notifications/cta';
+import { useSelect } from 'googlesitekit-data';
+import { SIZE_MEDIUM } from '@/js/components/Typography/constants';
+import P from '@/js/components/Typography/P';
+import { CORE_MODULES } from '@/js/googlesitekit/modules/datastore/constants';
+import useViewOnly from '@/js/hooks/useViewOnly';
+import {
+	getReportErrorMessage,
+	isInsufficientPermissionsError,
+} from '@/js/util/errors';
+import { getInsufficientPermissionsErrorDescription } from '@/js/util/insufficient-permissions-error-description';
+import { purify } from '@/js/util/purify';
+import ErrorNotice from './ErrorNotice';
+import CTA from './notifications/CTA';
+import ReportErrorActions from './ReportErrorActions';
 
-const { useSelect } = Data;
+export default function ReportError( {
+	moduleSlug,
+	error,
+	onRetry,
+	onRequestAccess,
+} ) {
+	const isViewOnly = useViewOnly();
+	const module = useSelect( ( select ) =>
+		select( CORE_MODULES ).getModule( moduleSlug )
+	);
 
-export default function ReportError( { moduleSlug, error } ) {
-	const module = useSelect( ( select ) => select( CORE_MODULES ).getModule( moduleSlug ) );
+	const errors = Array.isArray( error ) ? error : [ error ];
 
-	/* translators: %s: module name */
-	let title = sprintf( __( 'Data error in %s', 'google-site-kit' ), module?.name );
-	let message = error.message;
+	let title;
 
-	if ( isInsufficientPermissionsError( error ) ) {
-		/* translators: %s: module name */
-		title = sprintf( __( 'Insufficient permissions in %s', 'google-site-kit' ), module?.name );
-		message = getInsufficientPermissionsErrorDescription( message, module );
+	function getMessage( err ) {
+		if ( isInsufficientPermissionsError( err ) ) {
+			if ( isViewOnly ) {
+				title = sprintf(
+					/* translators: %s: module name */
+					__( 'Access lost to %s', 'google-site-kit' ),
+					module?.name
+				);
+
+				return sprintf(
+					/* translators: %s: module name */
+					__(
+						'The administrator sharing this module with you has lost access to the %s service, so you won’t be able to see stats from it on the Site Kit dashboard. You can contact them or another administrator to restore access.',
+						'google-site-kit'
+					),
+					module?.name
+				);
+			}
+
+			title = sprintf(
+				/* translators: %s: module name */
+				__( 'Insufficient permissions in %s', 'google-site-kit' ),
+				module?.name
+			);
+
+			return getInsufficientPermissionsErrorDescription(
+				err.message,
+				module
+			);
+		}
+
+		return getReportErrorMessage( err );
 	}
 
-	const reconnectURL = error?.data?.reconnectURL;
-	const description = reconnectURL ? <ErrorText message={ message } reconnectURL={ reconnectURL } /> : message;
+	const uniqueErrors = uniqWith(
+		errors.map( ( err ) => ( {
+			...err,
+			message: getMessage( err ),
+			// The `code` parameter contains a session ID which can vary
+			// between requests, so we ignore it for comparison below.
+			// To use the original `reconnectURL` elsewhere, use `err.data.reconnectURL`.
+			reconnectURL: err.data?.reconnectURL
+				? removeQueryArgs( err.data.reconnectURL, 'code' )
+				: undefined,
+		} ) ),
+		( errorA, errorB ) =>
+			errorA.message === errorB.message &&
+			errorA.reconnectURL === errorB.reconnectURL
+	);
 
-	return <CTA title={ title } description={ description } error />;
+	const hasInsufficientPermissionsError = errors.some( ( err ) =>
+		isInsufficientPermissionsError( err )
+	);
+
+	if ( ! hasInsufficientPermissionsError && uniqueErrors.length === 1 ) {
+		title = sprintf(
+			/* translators: %s: module name */
+			__( 'Data error in %s', 'google-site-kit' ),
+			module?.name
+		);
+	} else if ( ! hasInsufficientPermissionsError && uniqueErrors.length > 1 ) {
+		title = sprintf(
+			/* translators: %s: module name */
+			__( 'Data errors in %s', 'google-site-kit' ),
+			module?.name
+		);
+	}
+
+	const description = (
+		<Fragment>
+			{ uniqueErrors.map( ( errorForNotice ) => {
+				const reconnectURL = errorForNotice?.data?.reconnectURL;
+				return reconnectURL ? (
+					<ErrorNotice
+						key={ errorForNotice.message }
+						error={ errorForNotice }
+						message={ errorForNotice.message }
+					/>
+				) : (
+					<P key={ errorForNotice.message } size={ SIZE_MEDIUM }>
+						{ purify.sanitize( errorForNotice.message, {
+							// Ensures no HTML tags are passed as they would be
+							// escaped by React and appear as strings.
+							ALLOWED_TAGS: [],
+						} ) }
+					</P>
+				);
+			} ) }
+		</Fragment>
+	);
+
+	return (
+		<CTA title={ title } description={ description } error>
+			<ReportErrorActions
+				moduleSlug={ moduleSlug }
+				error={ error }
+				onRetry={ onRetry }
+				onRequestAccess={ onRequestAccess }
+			/>
+		</CTA>
+	);
 }
 
 ReportError.propTypes = {
 	moduleSlug: PropTypes.string.isRequired,
-	error: PropTypes.object.isRequired,
+	error: PropTypes.oneOfType( [
+		PropTypes.arrayOf( PropTypes.object ),
+		PropTypes.object,
+	] ).isRequired,
+	onRetry: PropTypes.func,
+	onRequestAccess: PropTypes.func,
 };

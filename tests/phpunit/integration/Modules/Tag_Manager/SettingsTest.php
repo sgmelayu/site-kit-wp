@@ -37,9 +37,9 @@ class SettingsTest extends SettingsTestCase {
 				'internalContainerID'    => '',
 				'internalAMPContainerID' => '',
 				'ownerID'                => 0,
-				'gaPropertyID'           => '',
 			),
-			get_option( Settings::OPTION )
+			get_option( Settings::OPTION ),
+			'Tag Manager default settings should match expected values.'
 		);
 	}
 
@@ -55,17 +55,18 @@ class SettingsTest extends SettingsTestCase {
 		$settings->register();
 
 		$option = $settings->get();
-		$this->assertArraySubset(
+		$this->assertArrayIntersection(
 			array(
 				// The first legacy key for the same new key wins.
 				'accountID'   => 'test-account-id-snake',
 				'containerID' => 'test-container-id-snake',
 			),
-			$option
+			$option,
+			'Legacy Tag Manager options should map to current keys with first legacy key winning.'
 		);
 
 		foreach ( array_keys( $legacy_option ) as $legacy_key ) {
-			$this->assertArrayNotHasKey( $legacy_key, $option );
+			$this->assertArrayNotHasKey( $legacy_key, $option, 'Legacy option key should not be present in current options.' );
 		}
 	}
 

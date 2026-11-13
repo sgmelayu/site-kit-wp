@@ -17,143 +17,270 @@
  */
 
 /**
+ * External dependencies
+ */
+import { createHashHistory } from 'history';
+
+/**
  * Internal dependencies
  */
+import { USER_SETTINGS_SELECTION_PANEL_OPENED_KEY } from '@/js/components/email-reporting/constants';
+import { VIEW_CONTEXT_SETTINGS } from '@/js/googlesitekit/constants';
+import { CORE_SITE } from '@/js/googlesitekit/datastore/site/constants';
+import { CORE_UI } from '@/js/googlesitekit/datastore/ui/constants';
+import { CORE_USER } from '@/js/googlesitekit/datastore/user/constants';
+import { MODULE_SLUG_ADSENSE } from '@/js/modules/adsense/constants';
+import { MODULE_SLUG_ANALYTICS_4 } from '@/js/modules/analytics-4/constants';
+import { MODULES_ANALYTICS_4 } from '@/js/modules/analytics-4/datastore/constants';
+import { MODULE_SLUG_PAGESPEED_INSIGHTS } from '@/js/modules/pagespeed-insights/constants';
+import { MODULE_SLUG_TAGMANAGER } from '@/js/modules/tagmanager/constants';
+import { mockCreateComponent } from '@tests/js/mock-component-utils';
+import {
+	createTestRegistry,
+	fireEvent,
+	muteFetch,
+	provideModules,
+	provideSiteInfo,
+	render,
+	waitFor,
+} from '@tests/js/test-utils';
 import SettingsApp from './SettingsApp';
-import { render, fireEvent, createTestRegistry, provideModules, waitFor } from '../../../../tests/js/test-utils';
-import { CORE_USER } from '../../googlesitekit/datastore/user/constants';
-import * as fixtures from '../../modules/analytics/datastore/__fixtures__';
+
+const coreUserTrackingSettingsEndpointRegExp = new RegExp(
+	'^/google-site-kit/v1/core/user/data/tracking'
+);
+const coreUserTrackingResponse = { status: 200, body: { enabled: false } };
+
+jest.mock( '@/js/components/email-reporting/UserSettingsSelectionPanel', () =>
+	mockCreateComponent( 'UserSettingsSelectionPanel' )
+);
+
+jest.mock( '@/js/components/settings/SettingsModules', () =>
+	mockCreateComponent( 'SettingsModules' )
+);
 
 describe( 'SettingsApp', () => {
+	// Create hash history to interact with HashRouter using `history.push`
+	const history = createHashHistory();
+	function getTabID( path ) {
+		return SettingsApp.basePathToTabIndex[ path ];
+	}
 	let registry;
-
-	const features = [ 'storeErrorNotifications' ];
-	const validResponse = {
-		accountID: 'pub-12345678',
-		clientID: 'ca-pub-12345678',
-		useSnippet: true,
-	};
 
 	beforeEach( () => {
 		global.location.hash = '';
 
 		registry = createTestRegistry();
-		registry.dispatch( CORE_USER ).receiveGetAuthentication( { needsReauthentication: false } );
+		registry
+			.dispatch( CORE_USER )
+			.receiveGetAuthentication( { needsReauthentication: false } );
+		registry.dispatch( CORE_USER ).receiveGetCapabilities( {} );
+		registry.dispatch( CORE_USER ).receiveGetDismissedItems( [] );
+		registry.dispatch( CORE_USER ).receiveGetDismissedPrompts( {} );
 		registry.dispatch( CORE_USER ).receiveConnectURL( 'test-url' );
-
-		provideModules( registry, [ {
-			slug: 'analytics',
-			name: 'Analytics',
-			active: true,
-			connected: true,
-			setupComplete: true,
-			SettingsEditComponent: () => <div data-testid="edit-component">edit</div>,
-		} ] );
-
-		global._googlesitekitLegacyData.modules.analytics = {
-			...global._googlesitekitLegacyData.modules.analytics,
-			active: true,
-			setupComplete: true,
-		};
-	} );
-
-	it( 'should change location hash & DOM correctly when module accordion clicked and opened', async () => {
-		fetchMock.getOnce(
-			/^\/google-site-kit\/v1\/modules\/analytics\/data\/settings/,
-			{ body: validResponse, status: 200 }
-		);
-
-		const { getByRole, findByRole } = render( <SettingsApp />, { features, registry } );
-
-		fireEvent.click( getByRole( 'tab', { name: /analytics/i } ) );
-		expect( global.location.hash ).toEqual( '#settings/analytics/view' );
-
-		const analyticsPanel = await findByRole( 'tabpanel', { hidden: false } );
-		expect( analyticsPanel ).toHaveAttribute( 'id', 'googlesitekit-settings-module__content--analytics' );
-	} );
-
-	it( 'should change location hash & DOM correctly when module accordion clicked and closed', async () => {
-		const { getByRole, findByRole, queryByRole } = render( <SettingsApp />, { features, registry } );
-
-		fireEvent.click( getByRole( 'tab', { name: /analytics/i } ) );
-
-		const analyticsPanel = await findByRole( 'tabpanel' );
-		expect( analyticsPanel ).toBeInTheDocument();
-
-		expect( global.location.hash ).toEqual( '#settings/analytics/view' );
-
-		fireEvent.click( getByRole( 'tab', { name: /analytics/i } ) );
-		// A closed state should not be reflected in the hash as it is implied as default.
-		expect( global.location.hash ).toEqual( '#settings' );
-
-		await waitFor( () => {
-			expect( queryByRole( 'tabpanel' ) ).toBeNull();
+		registry
+			.dispatch( CORE_SITE )
+			.receiveGetAdminBarSettings( { enabled: true } );
+		registry
+			.dispatch( CORE_SITE )
+			.receiveGetWPDashboardWidgetSettings( { enabled: true } );
+		registry
+			.dispatch( CORE_SITE )
+			.receiveGetConsentModeSettings( { enabled: false } );
+		registry.dispatch( CORE_SITE ).receiveGetConsentAPIInfo( {
+			hasConsentAPI: false,
+			wpConsentPlugin: {
+				installed: false,
+				activateURL:
+					'http://example.com/wp-admin/plugins.php?action=activate&plugin=some-plugin',
+				installURL:
+					'http://example.com/wp-admin/update.php?action=install-plugin&plugin=some-plugin',
+			},
 		} );
-	} );
+		registry
+			.dispatch( MODULES_ANALYTICS_4 )
+			.receiveGetAudienceSettings( {} );
 
-	it( 'should change location hash & DOM correctly when module is being edited', async () => {
-		fetchMock.getOnce(
-			/^\/google-site-kit\/v1\/modules\/analytics\/data\/accounts-properties-profiles/,
-			{ body: fixtures.accountsPropertiesProfiles, status: 200 }
-		);
-
-		const { getByRole, findByRole, queryByTestID } = render( <SettingsApp />, { features, registry } );
-
-		fireEvent.click( getByRole( 'tab', { name: /analytics/i } ) );
-
-		const analyticsPanel = await findByRole( 'tabpanel' );
-		expect( analyticsPanel ).toBeInTheDocument();
-
-		fireEvent.click( getByRole( 'button', { name: /edit/i } ) );
-
-		expect( global.location.hash ).toEqual( '#settings/analytics/edit' );
-
-		await waitFor( () => {
-			expect( queryByTestID( 'edit-component' ) ).toBeInTheDocument();
+		provideSiteInfo( registry, {
+			proxySupportLinkURL: 'https://test.com',
 		} );
+
+		provideModules( registry, [
+			{
+				slug: MODULE_SLUG_ANALYTICS_4,
+				active: true,
+				connected: true,
+				SettingsEditComponent() {
+					return <div data-testid="edit-component">edit</div>;
+				},
+			},
+			{
+				slug: MODULE_SLUG_TAGMANAGER,
+				active: true,
+				connected: true,
+			},
+			{
+				slug: MODULE_SLUG_ADSENSE,
+				active: true,
+				connected: true,
+			},
+			{
+				slug: MODULE_SLUG_PAGESPEED_INSIGHTS,
+				active: true,
+				connected: true,
+			},
+		] );
+		registry.dispatch( MODULES_ANALYTICS_4 ).receiveGetSettings( {} );
 	} );
 
-	it( 'should change location hash & DOM correctly when module is no longer being edited', async () => {
+	it( 'should switch to "/connected-services" route when corresponding tab is clicked.', async () => {
 		fetchMock.getOnce(
-			/^\/google-site-kit\/v1\/modules\/analytics\/data\/accounts-properties-profiles/,
-			{ body: fixtures.accountsPropertiesProfiles, status: 200 }
+			coreUserTrackingSettingsEndpointRegExp,
+			coreUserTrackingResponse
 		);
 
-		const { getByRole, findByRole } = render( <SettingsApp />, { features, registry } );
+		fetchMock.get(
+			new RegExp(
+				'^/google-site-kit/v1/modules/search-console/data/searchanalytics'
+			),
+			{
+				status: 200,
+				body: {},
+			}
+		);
+		fetchMock.get(
+			new RegExp(
+				'^/google-site-kit/v1/modules/analytics-4/data/report'
+			),
+			{
+				status: 200,
+				body: {},
+			}
+		);
 
-		fireEvent.click( getByRole( 'tab', { name: /analytics/i } ) );
+		registry.dispatch( CORE_USER ).receiveGetUserAudienceSettings( {
+			configuredAudiences: null,
+			isAudienceSegmentationWidgetHidden: false,
+		} );
 
-		const analyticsPanel = await findByRole( 'tabpanel' );
-		expect( analyticsPanel ).toBeInTheDocument();
+		history.push( '/admin-settings' );
 
-		fireEvent.click( getByRole( 'button', { name: /edit/i } ) );
-		expect( global.location.hash ).toEqual( '#settings/analytics/edit' );
+		const { getAllByRole, waitForRegistry } = render( <SettingsApp />, {
+			history,
+			registry,
+			viewContext: VIEW_CONTEXT_SETTINGS,
+		} );
+		await waitForRegistry();
 
-		fireEvent.click( getByRole( 'button', { name: /cancel/i } ) );
-		expect( global.location.hash ).toEqual( '#settings/analytics/view' );
+		fireEvent.click(
+			getAllByRole( 'tab' )[ getTabID( 'connected-services' ) ]
+		);
 
-		const finalAnalyticsPanel = await findByRole( 'tabpanel' );
-		expect( finalAnalyticsPanel ).toBeInTheDocument();
+		expect( global.location.hash ).toEqual( '#/connected-services' );
 	} );
 
-	it( 'should change location hash & DOM correctly when tab is clicked and changed', async () => {
-		fetchMock.getOnce(
-			/^\/google-site-kit\/v1\/core\/user\/data\/tracking/,
-			{ body: { enabled: true }, status: 200 }
+	it( 'should switch to "/connect-more-services" route when corresponding tab is clicked.', async () => {
+		const { getAllByRole, waitForRegistry } = render( <SettingsApp />, {
+			history,
+			registry,
+			viewContext: VIEW_CONTEXT_SETTINGS,
+		} );
+
+		fireEvent.click(
+			getAllByRole( 'tab' )[ getTabID( 'connect-more-services' ) ]
 		);
 
-		const { findByText, getAllByRole } = render( <SettingsApp />, { features, registry } );
+		await waitForRegistry();
 
-		fireEvent.click( getAllByRole( 'tab' )[ 1 ] );
-		expect( global.location.hash ).toEqual( '#connect' );
+		expect( global.location.hash ).toEqual( '#/connect-more-services' );
+	} );
 
-		const allConnected = await findByText( /congrats, you’ve connected all services/i );
-		expect( allConnected ).toBeInTheDocument();
+	it( 'should switch to "/admin-settings" route when corresponding tab is clicked.', async () => {
+		fetchMock.getOnce(
+			coreUserTrackingSettingsEndpointRegExp,
+			coreUserTrackingResponse
+		);
+		fetchMock.postOnce(
+			coreUserTrackingSettingsEndpointRegExp,
+			coreUserTrackingResponse
+		);
 
-		fireEvent.click( getAllByRole( 'tab' )[ 2 ] );
-		expect( global.location.hash ).toEqual( '#admin' );
+		muteFetch(
+			new RegExp( '^/google-site-kit/v1/modules/search-console/data' )
+		);
+		muteFetch(
+			new RegExp( '^/google-site-kit/v1/modules/analytics-4/data' )
+		);
 
-		const pluginStatus = await findByText( /plugin status/i );
-		expect( pluginStatus ).toBeInTheDocument();
+		registry.dispatch( CORE_USER ).receiveGetUserAudienceSettings( {
+			configuredAudiences: null,
+			isAudienceSegmentationWidgetHidden: false,
+		} );
+
+		await registry.dispatch( CORE_USER ).setTrackingEnabled( false );
+
+		const { getAllByRole, waitForRegistry } = render( <SettingsApp />, {
+			history,
+			registry,
+			viewContext: VIEW_CONTEXT_SETTINGS,
+		} );
+
+		await waitForRegistry();
+
+		fireEvent.click(
+			getAllByRole( 'tab' )[ getTabID( 'admin-settings' ) ]
+		);
+
+		expect( global.location.hash ).toEqual( '#/admin-settings' );
+	} );
+
+	it( 'should open email reporting panel from panel query arg and remove it from URL', async () => {
+		history.push( '/connected-services' );
+		global.history.replaceState(
+			{},
+			'',
+			'/wp-admin/admin.php?page=googlesitekit-settings&panel=email-reporting#/connected-services'
+		);
+
+		fetchMock.get(
+			new RegExp(
+				'^/google-site-kit/v1/modules/search-console/data/searchanalytics'
+			),
+			{
+				status: 200,
+				body: {},
+			}
+		);
+		fetchMock.get(
+			new RegExp(
+				'^/google-site-kit/v1/modules/analytics-4/data/report'
+			),
+			{
+				status: 200,
+				body: {},
+			}
+		);
+
+		registry.dispatch( CORE_USER ).receiveGetUserAudienceSettings( {
+			configuredAudiences: null,
+			isAudienceSegmentationWidgetHidden: false,
+		} );
+
+		const { waitForRegistry } = render( <SettingsApp />, {
+			history,
+			registry,
+			viewContext: VIEW_CONTEXT_SETTINGS,
+		} );
+
+		await waitForRegistry();
+		await waitFor( () =>
+			expect(
+				registry
+					.select( CORE_UI )
+					.getValue( USER_SETTINGS_SELECTION_PANEL_OPENED_KEY )
+			).toEqual( true )
+		);
+
+		expect( global.location.href ).not.toContain( 'panel=email-reporting' );
 	} );
 } );

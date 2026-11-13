@@ -21,17 +21,14 @@
  */
 import ampHTMLValidator from 'amphtml-validator';
 import jsdom from 'jsdom';
-const { JSDOM } = jsdom;
-
-/**
- * WordPress dependencies
- */
-import { createURL } from '@wordpress/e2e-test-utils';
 
 /**
  * Internal dependencies
  */
 import { fetchPageContent } from '../utils';
+import { createURL } from '../utils/create-url';
+
+const { JSDOM } = jsdom;
 
 /**
  * Determines if the path has valid AMP for visitors (not logged in).
@@ -42,18 +39,26 @@ import { fetchPageContent } from '../utils';
  * @return {Object} Matcher results.
  */
 export async function toHaveValidAMPForVisitor( path ) {
-	const urlToFetch = 'object' === typeof path ? path.url() : createURL( path );
+	const urlToFetch =
+		'object' === typeof path ? path.url() : createURL( path );
 
-	const html = await fetchPageContent( urlToFetch, { credentials: 'omit' } );
+	const html = await fetchPageContent( urlToFetch, {
+		credentials: 'omit',
+		timeout: 10000, // Fetching and evaluating the page is a slow operation so allow additional time to prevent timeouts in CI.
+	} );
 	// Make sure the admin bar is not present.
 	const jsDoc = new JSDOM( html ).window.document;
 	if ( jsDoc.querySelector( '#wpadminbar' ) ) {
-		throw new Error( 'toHaveValidAMPForVisitor failed. The admin bar was found.' );
+		throw new Error(
+			'toHaveValidAMPForVisitor failed. The admin bar was found.'
+		);
 	}
 	const validator = await ampHTMLValidator.getInstance();
 	const { status } = validator.validateString( html );
-	const pass = ( 'PASS' === status );
-	const message = () => `AMP Status: ${ status }`;
+	const pass = 'PASS' === status;
+	function message() {
+		return `AMP Status: ${ status }`;
+	}
 
 	return { pass, message };
 }

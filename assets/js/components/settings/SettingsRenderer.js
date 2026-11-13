@@ -17,21 +17,30 @@
  */
 
 /**
+ * External dependencies
+ */
+import { useParams } from 'react-router-dom';
+
+/**
  * WordPress dependencies
  */
-import { useEffect } from '@wordpress/element';
+import { useEffect, useState } from '@wordpress/element';
 
 /**
  * Internal dependencies
  */
-import Data from 'googlesitekit-data';
-import { CORE_MODULES } from '../../googlesitekit/modules/datastore/constants';
-const { useSelect, useDispatch } = Data;
+import { useDispatch, useSelect } from 'googlesitekit-data';
+import { CORE_MODULES } from '@/js/googlesitekit/modules/datastore/constants';
 
-export default function SettingsRenderer( { slug, isOpen, isEditing } ) {
-	const storeName = useSelect( ( select ) => select( CORE_MODULES ).getModuleStoreName( slug ) );
-	const isDoingSubmitChanges = useSelect( ( select ) => select( CORE_MODULES ).isDoingSubmitChanges( slug ) );
-	const haveSettingsChanged = useSelect( ( select ) => select( storeName )?.haveSettingsChanged?.() || false );
+export default function SettingsRenderer( { slug } ) {
+	const { action, moduleSlug } = useParams();
+	const isEditing = action === 'edit';
+	const isOpen = moduleSlug === slug;
+
+	const [ initiallyConnected, setInitiallyConnected ] = useState();
+	const isDoingSubmitChanges = useSelect( ( select ) =>
+		select( CORE_MODULES ).isDoingSubmitChanges( slug )
+	);
 	const {
 		SettingsEditComponent,
 		SettingsViewComponent,
@@ -46,23 +55,30 @@ export default function SettingsRenderer( { slug, isOpen, isEditing } ) {
 		};
 	} );
 
-	// Rollback any temporary selections to saved values if settings have changed and no longer editing.
-	const { rollbackSettings } = useDispatch( storeName ) || {};
+	// Store the initial connected state once the module is loaded.
 	useEffect( () => {
-		if ( rollbackSettings && haveSettingsChanged && ! isDoingSubmitChanges && ! isEditing ) {
-			rollbackSettings();
+		if ( moduleLoaded && initiallyConnected === undefined ) {
+			setInitiallyConnected( connected );
 		}
-	}, [ rollbackSettings, haveSettingsChanged, isDoingSubmitChanges, isEditing ] );
+	}, [ moduleLoaded, initiallyConnected, connected ] );
+
+	// Rollback any temporary selections to saved values if settings have changed and no longer editing.
+	const { rollbackChanges } = useDispatch( CORE_MODULES );
+	useEffect( () => {
+		if ( ! isDoingSubmitChanges && ! isEditing ) {
+			rollbackChanges( slug );
+		}
+	}, [ slug, rollbackChanges, isDoingSubmitChanges, isEditing ] );
 
 	if ( ! isOpen || ! moduleLoaded ) {
 		return null;
-	} else if ( isOpen && ! connected ) {
+	} else if ( isOpen && initiallyConnected === false ) {
 		return <SettingsSetupIncompleteComponent slug={ slug } />;
 	}
 
 	if ( isEditing && SettingsEditComponent ) {
 		return <SettingsEditComponent />;
-	} else if ( ! isEditing && SettingsViewComponent ) {
+	} else if ( SettingsViewComponent ) {
 		return <SettingsViewComponent />;
 	}
 

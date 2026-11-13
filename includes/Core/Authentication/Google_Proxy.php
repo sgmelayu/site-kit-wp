@@ -11,9 +11,10 @@
 namespace Google\Site_Kit\Core\Authentication;
 
 use Google\Site_Kit\Context;
-use Google\Site_Kit\Core\Util\Feature_Flags;
-use WP_Error;
+use Google\Site_Kit\Core\Authentication\Clients\OAuth_Client;
+use Google\Site_Kit\Core\Storage\User_Options;
 use Exception;
+use WP_Error;
 
 /**
  * Class for authentication service.
@@ -24,18 +25,51 @@ use Exception;
  */
 class Google_Proxy {
 
-	const BASE_URL                = 'https://sitekit.withgoogle.com';
-	const OAUTH2_SITE_URI         = '/o/oauth2/site/';
-	const OAUTH2_REVOKE_URI       = '/o/oauth2/revoke/';
-	const OAUTH2_TOKEN_URI        = '/o/oauth2/token/';
-	const OAUTH2_AUTH_URI         = '/o/oauth2/auth/';
-	const OAUTH2_DELETE_SITE_URI  = '/o/oauth2/delete-site/';
-	const SETUP_URI               = '/site-management/setup/';
-	const PERMISSIONS_URI         = '/site-management/permissions/';
-	const USER_INPUT_SETTINGS_URI = '/site-management/settings/';
-	const FEATURES_URI            = '/site-management/features/';
-	const ACTION_SETUP            = 'googlesitekit_proxy_setup';
-	const ACTION_PERMISSIONS      = 'googlesitekit_proxy_permissions';
+	const PRODUCTION_BASE_URL      = 'https://sitekit.withgoogle.com';
+	const STAGING_BASE_URL         = 'https://site-kit-dev.appspot.com';
+	const DEVELOPMENT_BASE_URL     = 'https://site-kit-local.appspot.com';
+	const OAUTH2_SITE_URI          = '/o/oauth2/site/';
+	const OAUTH2_REVOKE_URI        = '/o/oauth2/revoke/';
+	const OAUTH2_TOKEN_URI         = '/o/oauth2/token/';
+	const OAUTH2_AUTH_URI          = '/o/oauth2/auth/';
+	const OAUTH2_DELETE_SITE_URI   = '/o/oauth2/delete-site/';
+	const SETUP_V3_URI             = '/v3/site-management/setup/';
+	const PERMISSIONS_URI          = '/site-management/permissions/';
+	const FEATURES_URI             = '/site-management/features/';
+	const SURVEY_TRIGGER_URI       = '/survey/trigger/';
+	const SURVEY_EVENT_URI         = '/survey/event/';
+	const FEEDBACK_URI             = '/feedback/';
+	const SUPPORT_LINK_URI         = '/support';
+	const INTENT_URI               = '/intent/%s/';
+	const INTENT_COMPLETE_URI      = '/intent/%s/complete/';
+	const BENCHMARKING_INSIGHT_URI = '/v1/ai/benchmarking';
+
+	/**
+	 * Endpoint of the conversion insight request.
+	 *
+	 * @since n.e.x.t
+	 */
+	const CONVERSION_INSIGHT_URI = '/v1/ai/conversion-insights';
+
+	/**
+	 * Endpoint of an AI operation, with its ID in place of `%s`.
+	 *
+	 * @since 1.192.0
+	 * @since n.e.x.t Renamed from `BENCHMARKING_INSIGHT_OPERATION_URI`.
+	 */
+	const AI_OPERATION_URI = '/v1/ai/operations/%s';
+
+	const ACTION_EXCHANGE_SITE_CODE = 'googlesitekit_proxy_exchange_site_code';
+	const ACTION_SETUP              = 'googlesitekit_proxy_setup';
+	const ACTION_SETUP_START        = 'googlesitekit_proxy_setup_start';
+	const ACTION_PERMISSIONS        = 'googlesitekit_proxy_permissions';
+	const ACTION_VERIFY             = 'googlesitekit_proxy_verify';
+	const NONCE_ACTION              = 'googlesitekit_proxy_nonce';
+	const HEADER_REDIRECT_TO        = 'Redirect-To';
+	const PARAM_PURPOSE             = 'purpose';
+	const PURPOSE_INTENT            = 'intent';
+	const SETUP_MODE_ANALYTICS_STEP = 'analytics-step';
+	const SETUP_MODE_INTENT_STEP    = 'intent-step';
 
 	/**
 	 * Plugin context.
@@ -44,6 +78,17 @@ class Google_Proxy {
 	 * @var Context
 	 */
 	private $context;
+
+	/**
+	 * Required scopes list.
+	 *
+	 * Only set by setup, when an administrator signs in. Site Kit's service treats a site fields sync
+	 * without scopes as unattended and doesn't let it change the site's URL.
+	 *
+	 * @since 1.68.0
+	 * @var array
+	 */
+	private $required_scopes = array();
 
 	/**
 	 * Google_Proxy constructor.
@@ -57,6 +102,19 @@ class Google_Proxy {
 	}
 
 	/**
+	 * Sets required scopes to use when the site is registering at proxy.
+	 *
+	 * Call this only for a sync started by an administrator signing in; see `$required_scopes`.
+	 *
+	 * @since 1.68.0
+	 *
+	 * @param array $scopes List of scopes.
+	 */
+	public function with_scopes( array $scopes ) {
+		$this->required_scopes = $scopes;
+	}
+
+	/**
 	 * Returns the application name: a combination of the namespace and version.
 	 *
 	 * @since 1.27.0
@@ -64,7 +122,8 @@ class Google_Proxy {
 	 * @return string The application name.
 	 */
 	public static function get_application_name() {
-		return 'wordpress/google-site-kit/' . GOOGLESITEKIT_VERSION;
+		$platform = self::get_platform();
+		return $platform . '/google-site-kit/' . GOOGLESITEKIT_VERSION;
 	}
 
 	/**
@@ -78,19 +137,10 @@ class Google_Proxy {
 		$supports = array(
 			'credentials_retrieval',
 			'short_verification_token',
-			// Informs the proxy the user input feature is generally supported.
-			'user_input_flow',
 		);
 
-		$home_path = wp_parse_url( $this->context->get_canonical_home_url(), PHP_URL_PATH );
-		if ( ! $home_path || '/' === $home_path ) {
+		if ( Verification_File::is_supported( $this->context ) ) {
 			$supports[] = 'file_verification';
-		}
-
-		// Informs the proxy the user input feature is already enabled locally.
-		// TODO: Remove once the feature is fully rolled out.
-		if ( Feature_Flags::enabled( 'userInput' ) ) {
-			$supports[] = 'user_input_flow_feature';
 		}
 
 		return $supports;
@@ -99,46 +149,68 @@ class Google_Proxy {
 	/**
 	 * Returns the setup URL to the authentication proxy.
 	 *
-	 * @since 1.27.0
+	 * @since 1.49.0
+	 * @since 1.71.0 Uses the V2 setup flow by default.
+	 * @since 1.189.0 Includes the `verification_evidence` query parameter.
+	 * @since 1.191.0 Uses the V3 setup flow by default.
 	 *
-	 * @param Credentials $credentials  Credentials instance.
-	 * @param array       $query_params Optional. Additional query parameters.
+	 * @param array $query_params Query parameters to include in the URL.
 	 * @return string URL to the setup page on the authentication proxy.
+	 *
+	 * @throws Exception Thrown if called without the required query parameters.
 	 */
-	public function setup_url( Credentials $credentials, array $query_params = array() ) {
-		$params = array_merge(
-			$query_params,
-			array(
-				'supports' => rawurlencode( implode( ' ', $this->get_supports() ) ),
-				'nonce'    => rawurlencode( wp_create_nonce( self::ACTION_SETUP ) ),
-			)
-		);
-
-		if ( $credentials->has() ) {
-			$creds             = $credentials->get();
-			$params['site_id'] = $creds['oauth2_client_id'];
+	public function setup_url( array $query_params = array() ) {
+		if ( empty( $query_params['code'] ) ) {
+			throw new Exception( __( 'Missing code parameter for setup URL.', 'google-site-kit' ) ); // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- Returned to the browser as JSON via WP_Error, escaping would show HTML entities to the user.
 		}
+		if ( empty( $query_params['site_id'] ) && empty( $query_params['site_code'] ) ) {
+			throw new Exception( __( 'Missing site_id or site_code parameter for setup URL.', 'google-site-kit' ) ); // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- Returned to the browser as JSON via WP_Error, escaping would show HTML entities to the user.
+		}
+
+		$query_params['service_version']       = 'v3';
+		$query_params['steps']                 = 5;
+		$query_params['verification_evidence'] = ( new Verification_Evidence( $this->context ) )->get();
 
 		/**
-		 * Filters parameters included in proxy setup URL.
+		 * Filters parameters included in the proxy setup URL.
 		 *
-		 * @since 1.27.0
+		 * @since 1.184.0
+		 *
+		 * @param array $query_params Query parameters.
 		 */
-		$params = apply_filters( 'googlesitekit_proxy_setup_url_params', $params );
+		$query_params = apply_filters(
+			'googlesitekit_proxy_setup_url_params',
+			$query_params,
+		);
 
-		// If no site identification information is present, we need to provide details for a new site.
-		if ( empty( $params['site_id'] ) && empty( $params['site_code'] ) ) {
-			$site_fields = array_map( 'rawurlencode', $this->get_site_fields() );
-			$params      = array_merge( $params, $site_fields );
+		return add_query_arg(
+			$query_params,
+			$this->url( self::SETUP_V3_URI )
+		);
+	}
+
+	/**
+	 * Conditionally adds the `step` parameter to the passed query parameters, depending on the given error code.
+	 *
+	 * @since 1.49.0
+	 *
+	 * @param array  $query_params Query parameters.
+	 * @param string $error_code Error code.
+	 * @return array Query parameters with `step` included, depending on the error code.
+	 */
+	public function add_setup_step_from_error_code( $query_params, $error_code ) {
+		switch ( $error_code ) {
+			case 'missing_verification':
+				$query_params['step'] = 'verification';
+				break;
+			case 'missing_delegation_consent':
+				$query_params['step'] = 'delegation_consent';
+				break;
+			case 'missing_search_console_property':
+				$query_params['step'] = 'search_console_property';
+				break;
 		}
-
-		$user_fields = array_map( 'rawurlencode', $this->get_user_fields() );
-		$params      = array_merge( $params, $user_fields );
-
-		$params['application_name'] = rawurlencode( self::get_application_name() );
-		$params['hl']               = get_user_locale();
-
-		return add_query_arg( $params, $this->url( self::SETUP_URI ) );
+		return $query_params;
 	}
 
 	/**
@@ -159,7 +231,7 @@ class Google_Proxy {
 		}
 
 		$query_args['application_name'] = rawurlencode( self::get_application_name() );
-		$query_args['hl']               = get_user_locale();
+		$query_args['hl']               = $this->context->get_locale( 'user' );
 
 		return add_query_arg( $query_args, $this->url( self::PERMISSIONS_URI ) );
 	}
@@ -173,14 +245,13 @@ class Google_Proxy {
 	 * @return string Complete proxy URL.
 	 */
 	public function url( $path = '' ) {
-		if ( defined( 'GOOGLESITEKIT_PROXY_URL' ) && GOOGLESITEKIT_PROXY_URL ) {
-			$url = GOOGLESITEKIT_PROXY_URL;
-		} else {
-			$url = self::BASE_URL;
+		$url = self::PRODUCTION_BASE_URL;
+
+		if ( defined( 'GOOGLESITEKIT_PROXY_URL' ) ) {
+			$url = $this->sanitize_base_url( GOOGLESITEKIT_PROXY_URL );
 		}
 
 		$url = untrailingslashit( $url );
-
 		if ( $path && is_string( $path ) ) {
 			$url .= '/' . ltrim( $path, '/' );
 		}
@@ -189,9 +260,43 @@ class Google_Proxy {
 	}
 
 	/**
-	 * Sends a POST request to the Google Proxy server.
+	 * Sanitizes the given base URL.
+	 *
+	 * @since 1.154.0
+	 * @since 1.190.0 Allows URLs on the `.local` TLD.
+	 *
+	 * @param string $url Base URL to sanitize.
+	 * @return string Sanitized base URL.
+	 */
+	public function sanitize_base_url( $url ) {
+		$allowed_urls = array(
+			self::PRODUCTION_BASE_URL,
+			self::STAGING_BASE_URL,
+			self::DEVELOPMENT_BASE_URL,
+		);
+
+		if ( in_array( $url, $allowed_urls, true ) ) {
+			return $url;
+		}
+
+		// Allow for version-specific URLs to application instances.
+		if ( preg_match( '#^https://(?:\d{8}t\d{6}-dot-)?site-kit(?:-dev|-local)?(?:\.[a-z]{2}\.r)?\.appspot\.com/?$#', $url, $_ ) ) {
+			return $url;
+		}
+
+		// Allow for locally hosted instances, as the `.local` TLD can't resolve to public hosts.
+		if ( preg_match( '#^https?://(?:[a-z0-9-]+\.)+local(?::\d+)?/?$#', $url ) ) {
+			return $url;
+		}
+
+		return self::PRODUCTION_BASE_URL;
+	}
+
+	/**
+	 * Sends a request to the Google Proxy server.
 	 *
 	 * @since 1.27.0
+	 * @since 1.192.0 Added the `method` argument.
 	 *
 	 * @param string      $uri Endpoint to send the request to.
 	 * @param Credentials $credentials Credentials instance.
@@ -202,7 +307,10 @@ class Google_Proxy {
 		$request_args = array(
 			'headers' => ! empty( $args['headers'] ) && is_array( $args['headers'] ) ? $args['headers'] : array(),
 			'body'    => ! empty( $args['body'] ) && is_array( $args['body'] ) ? $args['body'] : array(),
+			'timeout' => isset( $args['timeout'] ) ? $args['timeout'] : 15,
 		);
+
+		$method = isset( $args['method'] ) && 'GET' === $args['method'] ? 'GET' : 'POST';
 
 		if ( $credentials && $credentials instanceof Credentials ) {
 			if ( ! $credentials->has() ) {
@@ -213,9 +321,13 @@ class Google_Proxy {
 				);
 			}
 
-			$creds                               = $credentials->get();
-			$request_args['body']['site_id']     = $creds['oauth2_client_id'];
-			$request_args['body']['site_secret'] = $creds['oauth2_client_secret'];
+			$creds                           = $credentials->get();
+			$request_args['body']['site_id'] = $creds['oauth2_client_id'];
+
+			// A GET request sends these values in the URL, so the site secret is only added to POST requests.
+			if ( 'POST' === $method ) {
+				$request_args['body']['site_secret'] = $creds['oauth2_client_secret'];
+			}
 		}
 
 		if ( ! empty( $args['access_token'] ) && is_string( $args['access_token'] ) ) {
@@ -227,13 +339,19 @@ class Google_Proxy {
 			$request_args['blocking'] = false;
 		}
 
-		if ( ! empty( $args['json_request'] ) ) {
+		$url = $this->url( $uri );
+
+		if ( 'GET' === $method ) {
+			$url = add_query_arg( urlencode_deep( $request_args['body'] ), $url );
+			unset( $request_args['body'] );
+		} elseif ( ! empty( $args['json_request'] ) ) {
 			$request_args['headers']['Content-Type'] = 'application/json';
 			$request_args['body']                    = wp_json_encode( $request_args['body'] );
 		}
 
-		$url      = $this->url( $uri );
-		$response = wp_remote_post( $url, $request_args );
+		$request_args['method'] = $method;
+		$response               = wp_remote_request( $url, $request_args );
+
 		if ( is_wp_error( $response ) ) {
 			return $response;
 		}
@@ -242,8 +360,24 @@ class Google_Proxy {
 		$body = wp_remote_retrieve_body( $response );
 		$body = json_decode( $body, true );
 		if ( $code < 200 || 299 < $code ) {
-			$message = is_array( $body ) && ! empty( $body['error'] ) ? $body['error'] : '';
-			return new WP_Error( 'request_failed', $message, array( 'status' => $code ) );
+			$message    = '';
+			$error_code = 'request_failed';
+
+			if ( is_array( $body ) ) {
+				if ( ! empty( $body['error'] ) ) {
+					$message = $body['error'];
+				}
+
+				if ( ! empty( $body['error_code'] ) ) {
+					$error_code = $body['error_code'];
+				}
+			}
+
+			return new WP_Error( $error_code, $message, array( 'status' => $code ) );
+		}
+
+		if ( ! empty( $args['return'] ) && 'response' === $args['return'] ) {
+			return $response;
 		}
 
 		if ( is_null( $body ) ) {
@@ -261,55 +395,112 @@ class Google_Proxy {
 	 * Gets site fields.
 	 *
 	 * @since 1.5.0
+	 * @since 1.189.0 Added `intent_uri` to the fields.
 	 *
 	 * @return array Associative array of $query_arg => $value pairs.
 	 */
 	public function get_site_fields() {
+		$return_uri             = admin_url( 'index.php' );
+		$analytics_redirect_uri = add_query_arg(
+			array(
+				'gatoscallback'   => 1,
+				'service_version' => 'v3',
+			),
+			admin_url( 'index.php' )
+		);
+
 		return array(
-			'name'                   => wp_specialchars_decode( get_bloginfo( 'name' ) ),
+			'name'                   => wp_specialchars_decode( get_bloginfo( 'name' ), ENT_QUOTES ),
 			'url'                    => $this->context->get_canonical_home_url(),
 			'redirect_uri'           => add_query_arg( 'oauth2callback', 1, admin_url( 'index.php' ) ),
 			'action_uri'             => admin_url( 'index.php' ),
-			'return_uri'             => $this->context->admin_url( 'splash' ),
-			'analytics_redirect_uri' => add_query_arg( 'gatoscallback', 1, admin_url( 'index.php' ) ),
+			'return_uri'             => $return_uri,
+			'analytics_redirect_uri' => $analytics_redirect_uri,
+			'intent_uri'             => $this->context->admin_url( 'dashboard' ),
 		);
 	}
 
 	/**
-	 * Fetch site fields
+	 * Gets an intent from the proxy.
 	 *
-	 * @since 1.22.0
+	 * @since 1.189.0
 	 *
-	 * @param Credentials $credentials Credentials instance.
-	 * @return array|WP_Error The response as an associative array or WP_Error on failure.
+	 * @param Credentials $credentials  Credentials instance.
+	 * @param string      $intent_id    Intent ID.
+	 * @param string      $code         One-time code for the intent.
+	 * @param string      $access_token Access token.
+	 * @return array|WP_Error Intent payload, or WP_Error on failure.
 	 */
-	public function fetch_site_fields( Credentials $credentials ) {
-		return $this->request( self::OAUTH2_SITE_URI, $credentials );
+	public function get_intent( Credentials $credentials, $intent_id, $code, $access_token ) {
+		return $this->request(
+			sprintf( self::INTENT_URI, $intent_id ),
+			$credentials,
+			array(
+				'access_token' => $access_token,
+				'body'         => array(
+					'intent_code' => $code,
+				),
+			)
+		);
 	}
 
 	/**
-	 * Are site fields synced
+	 * Completes an intent on the proxy.
 	 *
-	 * @since 1.22.0
+	 * @since 1.189.0
 	 *
-	 * @param Credentials $credentials Credentials instance.
-	 *
-	 * @return boolean|WP_Error Boolean do the site fields match or WP_Error on failure.
+	 * @param Credentials $credentials  Credentials instance.
+	 * @param string      $intent_id    Intent ID.
+	 * @param string      $code         One-time code for the intent.
+	 * @param string      $access_token Access token.
+	 * @return array|WP_Error Completion response holding the URL to send the user to, or WP_Error on failure.
 	 */
-	public function are_site_fields_synced( Credentials $credentials ) {
-		$site_fields = $this->fetch_site_fields( $credentials );
-		if ( is_wp_error( $site_fields ) ) {
-			return $site_fields;
-		}
+	public function complete_intent( Credentials $credentials, $intent_id, $code, $access_token ) {
+		return $this->request(
+			sprintf( self::INTENT_COMPLETE_URI, $intent_id ),
+			$credentials,
+			array(
+				'access_token' => $access_token,
+				'body'         => array(
+					'intent_code' => $code,
+				),
+			)
+		);
+	}
 
-		$get_site_fields = $this->get_site_fields();
-		foreach ( $get_site_fields as $key => $site_field ) {
-			if ( ! array_key_exists( $key, $site_fields ) || $site_fields[ $key ] !== $site_field ) {
-				return false;
-			}
-		}
+	/**
+	 * Gets metadata fields.
+	 *
+	 * @since 1.68.0
+	 * @since 1.189.0 Added the `verification_evidence` field.
+	 * @since 1.190.0 Added the `intent-step` mode for requests with `purpose=intent`.
+	 *
+	 * @return array Metadata fields array.
+	 */
+	public function get_metadata_fields() {
+		$is_intent_setup_flow = self::PURPOSE_INTENT === $this->context->input()->filter( INPUT_GET, self::PARAM_PURPOSE );
 
-		return true;
+		$metadata = array(
+			'supports'              => implode( ' ', $this->get_supports() ),
+			'nonce'                 => wp_create_nonce( self::NONCE_ACTION ),
+			'mode'                  => $is_intent_setup_flow ? self::SETUP_MODE_INTENT_STEP : '',
+			'hl'                    => $this->context->get_locale( 'user' ),
+			'application_name'      => self::get_application_name(),
+			'service_version'       => 'v3',
+			'verification_evidence' => ( new Verification_Evidence( $this->context ) )->get(),
+		);
+
+		/**
+		 * Filters the setup mode.
+		 *
+		 * @since 1.68.0
+		 * @since 1.190.0 The initial mode is `intent-step` when the setup flow fulfills an intent.
+		 *
+		 * @param string $mode An initial setup mode.
+		 */
+		$metadata['mode'] = apply_filters( 'googlesitekit_proxy_setup_mode', $metadata['mode'] );
+
+		return $metadata;
 	}
 
 	/**
@@ -345,53 +536,72 @@ class Google_Proxy {
 	}
 
 	/**
-	 * Synchronizes site fields with the proxy.
+	 * Registers the site on the proxy.
 	 *
-	 * @since 1.5.0
+	 * @since 1.68.0
 	 *
-	 * @param Credentials $credentials Credentials instance.
-	 * @param string      $mode        Sync mode.
-	 * @return array|WP_Error Response of the wp_remote_post request.
+	 * @param string $mode Sync mode.
+	 * @return string|WP_Error Redirect URL on success, otherwise an error.
 	 */
-	public function sync_site_fields( Credentials $credentials, $mode = 'async' ) {
-		return $this->request(
-			self::OAUTH2_SITE_URI,
-			$credentials,
-			array(
-				'mode' => $mode,
-				'body' => $this->get_site_fields(),
-			)
-		);
+	public function register_site( $mode = 'async' ) {
+		return $this->send_site_fields( null, $mode );
 	}
 
 	/**
-	 * Synchronizes user input settings with the proxy.
+	 * Synchronizes site fields with the proxy.
 	 *
-	 * @since 1.27.0
+	 * @since 1.5.0
+	 * @since 1.68.0 Updated the function to return redirect URL.
 	 *
-	 * @param Credentials $credentials  Credentials instance.
-	 * @param string      $access_token Access token.
-	 * @param array|null  $settings     Settings array.
-	 * @return array|WP_Error Response of the wp_remote_post request.
+	 * @param Credentials $credentials Credentials instance.
+	 * @param string      $mode        Sync mode.
+	 * @return string|WP_Error Redirect URL on success, otherwise an error.
 	 */
-	public function sync_user_input_settings( Credentials $credentials, $access_token, $settings = null ) {
-		$body = array();
-		if ( ! empty( $settings ) ) {
-			$body = array(
-				'settings'       => $settings,
-				'client_user_id' => (string) get_current_user_id(),
+	public function sync_site_fields( Credentials $credentials, $mode = 'async' ) {
+		return $this->send_site_fields( $credentials, $mode );
+	}
+
+	/**
+	 * Sends site fields to the proxy.
+	 *
+	 * @since 1.68.0
+	 *
+	 * @param Credentials $credentials Credentials instance.
+	 * @param string      $mode        Sync mode.
+	 * @return string|WP_Error Redirect URL on success, otherwise an error.
+	 */
+	private function send_site_fields( ?Credentials $credentials = null, $mode = 'async' ) {
+		$response = $this->request(
+			self::OAUTH2_SITE_URI,
+			$credentials,
+			array(
+				'return' => 'response',
+				'mode'   => $mode,
+				'body'   => array_merge(
+					$this->get_site_fields(),
+					$this->get_user_fields(),
+					$this->get_metadata_fields(),
+					array(
+						'scope' => implode( ' ', $this->required_scopes ),
+					)
+				),
+			)
+		);
+
+		if ( is_wp_error( $response ) ) {
+			return $response;
+		}
+
+		$redirect_to = wp_remote_retrieve_header( $response, self::HEADER_REDIRECT_TO );
+		if ( empty( $redirect_to ) ) {
+			return new WP_Error(
+				'failed_to_retrive_redirect',
+				__( 'Failed to retrieve redirect URL.', 'google-site-kit' ),
+				array( 'status' => 500 )
 			);
 		}
 
-		return $this->request(
-			self::USER_INPUT_SETTINGS_URI,
-			$credentials,
-			array(
-				'json_request' => true,
-				'access_token' => $access_token,
-				'body'         => $body,
-			)
-		);
+		return $redirect_to;
 	}
 
 	/**
@@ -434,21 +644,225 @@ class Google_Proxy {
 	 * Gets remote features.
 	 *
 	 * @since 1.27.0
+	 * @since 1.104.0 Added `php_version` to request.
+	 * @since 1.167.0 Added `amp_mode` to request.
 	 *
-	 * @param Credentials $credentials  Credentials instance.
-	 * @return array|WP_Error Response of the wp_remote_post request.
+	 * @param Credentials $credentials Credentials instance.
+	 * @return array|WP_Error Decoded JSON body of the proxy's response, or WP_Error on failure.
 	 */
 	public function get_features( Credentials $credentials ) {
+		global $wp_version;
+
+		$platform               = self::get_platform();
+		$user_count             = count_users();
+		$connectable_user_count = isset( $user_count['avail_roles']['administrator'] ) ? $user_count['avail_roles']['administrator'] : 0;
+		$amp_mode               = $this->context->get_amp_mode();
+
+		$body = array(
+			'platform'               => $platform . '/google-site-kit',
+			'version'                => GOOGLESITEKIT_VERSION,
+			'platform_version'       => $wp_version,
+			'php_version'            => phpversion(),
+			'user_count'             => $user_count['total_users'],
+			'connectable_user_count' => $connectable_user_count,
+			'connected_user_count'   => $this->count_connected_users(),
+			'amp_mode'               => $amp_mode ? $amp_mode : '',
+		);
+
+		/**
+		 * Filters additional context data sent with the body of a remote-controlled features request.
+		 *
+		 * @since 1.71.0
+		 *
+		 * @param array $body Context data to be sent with the features request.
+		 */
+		$body = apply_filters( 'googlesitekit_features_request_data', $body );
+
+		return $this->request( self::FEATURES_URI, $credentials, array( 'body' => $body ) );
+	}
+
+	/**
+	 * Gets the number of users who are connected (i.e. authenticated /
+	 * have an access token).
+	 *
+	 * @since 1.71.0
+	 *
+	 * @return int Number of WordPress user accounts connected to SiteKit.
+	 */
+	public function count_connected_users() {
+		$user_options    = new User_Options( $this->context );
+		$connected_users = get_users(
+			array(
+				'meta_key'     => $user_options->get_meta_key( OAuth_Client::OPTION_ACCESS_TOKEN ), // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_key
+				'meta_compare' => 'EXISTS',
+				'role'         => 'administrator',
+				'fields'       => 'ID',
+			)
+		);
+
+		return count( $connected_users );
+	}
+
+	/**
+	 * Gets the platform.
+	 *
+	 * @since 1.37.0
+	 *
+	 * @return string WordPress multisite or WordPress.
+	 */
+	public static function get_platform() {
+		if ( is_multisite() ) {
+			return 'wordpress-multisite';
+		}
+		return 'wordpress'; // phpcs:ignore WordPress.WP.CapitalPDangit.MisspelledInText
+	}
+
+	/**
+	 * Sends survey trigger ID to the proxy.
+	 *
+	 * @since 1.35.0
+	 *
+	 * @param Credentials $credentials  Credentials instance.
+	 * @param string      $access_token Access token.
+	 * @param string      $trigger_id   Token ID.
+	 * @return array|WP_Error Decoded JSON body of the proxy's response, or WP_Error on failure.
+	 */
+	public function send_survey_trigger( Credentials $credentials, $access_token, $trigger_id ) {
 		return $this->request(
-			self::FEATURES_URI,
+			self::SURVEY_TRIGGER_URI,
 			$credentials,
 			array(
-				'body' => array(
-					'platform' => 'wordpress/google-site-kit',
-					'version'  => GOOGLESITEKIT_VERSION,
+				'access_token' => $access_token,
+				'json_request' => true,
+				'body'         => array(
+					'trigger_context' => array(
+						'trigger_id' => $trigger_id,
+						'language'   => get_user_locale(),
+					),
 				),
 			)
 		);
 	}
 
+	/**
+	 * Sends survey event to the proxy.
+	 *
+	 * @since 1.35.0
+	 *
+	 * @param Credentials     $credentials  Credentials instance.
+	 * @param string          $access_token Access token.
+	 * @param array|\stdClass $session      Session object.
+	 * @param array|\stdClass $event        Event object.
+	 * @return array|WP_Error Decoded JSON body of the proxy's response, or WP_Error on failure.
+	 */
+	public function send_survey_event( Credentials $credentials, $access_token, $session, $event ) {
+		return $this->request(
+			self::SURVEY_EVENT_URI,
+			$credentials,
+			array(
+				'access_token' => $access_token,
+				'json_request' => true,
+				'body'         => array(
+					'session' => $session,
+					'event'   => $event,
+				),
+			)
+		);
+	}
+
+	/**
+	 * Sends feedback to the proxy.
+	 *
+	 * @since 1.192.0
+	 *
+	 * @param Credentials $credentials  Credentials instance.
+	 * @param string      $access_token Access token.
+	 * @param array       $feedback     Feedback data, with `namespace`, `group`, `key`, and `value` keys.
+	 * @return array|WP_Error Decoded JSON body of the proxy's response, or WP_Error on failure.
+	 */
+	public function send_feedback( Credentials $credentials, $access_token, array $feedback ) {
+		return $this->request(
+			self::FEEDBACK_URI,
+			$credentials,
+			array(
+				'access_token' => $access_token,
+				'json_request' => true,
+				'body'         => array_merge(
+					$feedback,
+					array(
+						'language'       => get_user_locale(),
+						'plugin_version' => GOOGLESITEKIT_VERSION,
+					)
+				),
+			)
+		);
+	}
+
+	/**
+	 * Sends a benchmarking insight request to the proxy.
+	 *
+	 * @since 1.192.0
+	 *
+	 * @param Credentials $credentials  Credentials instance.
+	 * @param string      $access_token Access token.
+	 * @param array       $payload      Benchmarking insight request payload.
+	 * @param string      $language_tag Language tag for the generated insight, such as `de-DE`.
+	 * @return array|WP_Error Operation, or generated insight when the proxy returns it from its cache, or WP_Error on failure.
+	 */
+	public function send_benchmarking_insight_request( Credentials $credentials, $access_token, array $payload, $language_tag ) {
+		return $this->request(
+			add_query_arg( 'hl', $language_tag, self::BENCHMARKING_INSIGHT_URI ),
+			$credentials,
+			array(
+				'access_token' => $access_token,
+				'json_request' => true,
+				'body'         => array_merge( $payload, array( 'async' => true ) ),
+			)
+		);
+	}
+
+	/**
+	 * Sends a conversion insight request to the proxy.
+	 *
+	 * @since n.e.x.t
+	 *
+	 * @param Credentials $credentials  Credentials instance.
+	 * @param string      $access_token Access token.
+	 * @param array       $payload      Conversion insight request payload.
+	 * @param string      $language_tag Language tag for the generated insight, such as `de-DE`.
+	 * @return array|WP_Error Operation, or generated insight when the proxy returns it from its cache, or WP_Error on failure.
+	 */
+	public function send_conversion_insight_request( Credentials $credentials, $access_token, array $payload, $language_tag ) {
+		return $this->request(
+			add_query_arg( 'hl', $language_tag, self::CONVERSION_INSIGHT_URI ),
+			$credentials,
+			array(
+				'access_token' => $access_token,
+				'json_request' => true,
+				'body'         => array_merge( $payload, array( 'async' => true ) ),
+			)
+		);
+	}
+
+	/**
+	 * Gets an AI operation from the proxy.
+	 *
+	 * @since 1.192.0
+	 * @since n.e.x.t Renamed from `get_benchmarking_insight_operation()`.
+	 *
+	 * @param Credentials $credentials  Credentials instance.
+	 * @param string      $access_token Access token.
+	 * @param string      $operation_id Operation ID.
+	 * @return array|WP_Error Operation, or WP_Error on failure.
+	 */
+	public function get_ai_operation( Credentials $credentials, $access_token, $operation_id ) {
+		return $this->request(
+			sprintf( self::AI_OPERATION_URI, rawurlencode( $operation_id ) ),
+			$credentials,
+			array(
+				'access_token' => $access_token,
+				'method'       => 'GET',
+			)
+		);
+	}
 }

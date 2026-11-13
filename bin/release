@@ -26,7 +26,7 @@ const { resolve, dirname } = require( 'path' );
 /**
  * External dependencies
  */
-const archiver = require( 'archiver' );
+const { ZipArchive } = require( 'archiver' );
 const fse = require( 'fs-extra' );
 const getRepoInfo = require( 'git-repo-info' );
 const sanitizeFilename = require( 'sanitize-filename' );
@@ -114,14 +114,16 @@ async function makeRelease() {
 		cp( 'google-site-kit.php' ),
 		cp( 'uninstall.php' ),
 		cp( 'dist/assets' ),
-		cp( 'dist/config.json' ),
+		cp( 'dist/config.php' ),
+		cp( 'dist/manifest.php' ),
 		cp( 'includes' ),
 		cp( 'third-party' ),
+		cp( 'gtg' ),
 	];
 	await Promise.all( fileCopyPromises );
 
 	// Archive the release directory.
-	const archive = archiver( 'zip', { zlib: { level: 9 } } );
+	const archive = new ZipArchive( { zlib: { level: 9 } } );
 	archive.pipe( fse.createWriteStream( filename ) );
 	archive.directory( pluginDir, 'google-site-kit' );
 	await archive.finalize();

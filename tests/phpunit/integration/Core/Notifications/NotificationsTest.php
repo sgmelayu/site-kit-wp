@@ -46,14 +46,22 @@ class NotificationsTest extends TestCase {
 				'core/site/data/notifications',
 				'core/site/data/mark-notification',
 			),
-			$routes
+			$routes,
+			'Notifications should register routes for retrieving and marking notifications.'
 		);
 	}
 
 	public function test_non_proxy_request_does_not_request_proxy() {
+		$notifications                  = new Notifications( new Context( GOOGLESITEKIT_PLUGIN_MAIN_FILE ) );
 		$context                        = new Context( GOOGLESITEKIT_PLUGIN_MAIN_FILE );
 		$google_proxy                   = new Google_Proxy( $context );
 		$google_proxy_notifications_url = $google_proxy->url( '/notifications/' );
+
+		// This ensures the REST server is initialized fresh for each test using it.
+		unset( $GLOBALS['wp_rest_server'] );
+		remove_all_filters( 'googlesitekit_rest_routes' );
+
+		$notifications->register();
 
 		// Create a user with access to the WP REST API and log in.
 		$user = $this->factory()->user->create_and_get( array( 'role' => 'administrator' ) );
@@ -79,6 +87,6 @@ class NotificationsTest extends TestCase {
 		$response = rest_get_server()->dispatch( $request );
 
 		// Confirm the request returns 200 status code.
-		$this->assertEquals( 200, $response->get_status() );
+		$this->assertEquals( 200, $response->get_status(), 'Non-proxy sites should receive a successful empty notifications response.' );
 	}
 }

@@ -20,59 +20,77 @@
  * External dependencies
  */
 import invariant from 'invariant';
-import isPlainObject from 'lodash/isPlainObject';
+import { isPlainObject } from 'lodash';
 
 /**
  * Internal dependencies
  */
-import API from 'googlesitekit-api';
-import Data from 'googlesitekit-data';
-import { STORE_NAME } from './constants';
-import { stringifyObject } from '../../../util';
-import { createFetchStore } from '../../../googlesitekit/data/create-fetch-store';
-import { isValidDateRange, isValidOrders, isValidStringularItems } from '../../../util/report-validation';
+import { get } from 'googlesitekit-api';
+import { combineStores, createReducer } from 'googlesitekit-data';
+import { createFetchStore } from '@/js/googlesitekit/data/create-fetch-store';
+import { createGetReportResolver } from '@/js/googlesitekit/data/create-get-report-resolver';
+import { MODULE_SLUG_ADSENSE } from '@/js/modules/adsense/constants';
+import {
+	validateDimensions,
+	validateMetrics,
+} from '@/js/modules/adsense/util/report-validation';
+import {
+	getCacheableReportOptions,
+	getReportCacheKey,
+} from '@/js/util/report-options';
+import {
+	isValidDateRange,
+	isValidOrders,
+	isValidStringularItems,
+} from '@/js/util/report-validation';
+import { MODULES_ADSENSE } from './constants';
 
 const fetchGetReportStore = createFetchStore( {
 	baseName: 'getReport',
-	controlCallback: ( { options } ) => {
-		return API.get( 'modules', 'adsense', 'earnings', options );
+	controlCallback: ( { options }, fetchOptions ) => {
+		return get(
+			'modules',
+			MODULE_SLUG_ADSENSE,
+			'report',
+			options,
+			fetchOptions
+		);
 	},
-	reducerCallback: ( state, report, { options } ) => {
-		return {
-			...state,
-			reports: {
-				...state.reports,
-				[ stringifyObject( options ) ]: report,
-			},
-		};
-	},
+	reducerCallback: createReducer( ( state, report, { options } ) => {
+		state.reports[ getReportCacheKey( options ) ] = report;
+	} ),
 	argsToParams: ( options ) => {
-		return { options };
+		return { options: getCacheableReportOptions( options ) };
 	},
 	validateParams: ( { options } = {} ) => {
 		invariant( isPlainObject( options ), 'options must be an object.' );
 
 		// Account for additional date ranges supported by AdSense module in PHP.
-		invariant( 'today' === options.dateRange || isValidDateRange( options ), 'Either date range or start/end dates must be provided for AdSense report.' );
+		invariant(
+			isValidDateRange( options ),
+			'Either date range or start/end dates must be provided for AdSense report.'
+		);
 
 		const { orderby, metrics, dimensions } = options;
 
 		invariant(
 			isValidStringularItems( metrics ),
-			'Metrics for an AdSense report must be either a string or an array of strings.',
+			'Metrics for an AdSense report must be either a string or an array of strings.'
 		);
+		validateMetrics( metrics );
 
 		if ( dimensions ) {
 			invariant(
 				isValidStringularItems( dimensions ),
-				'Dimensions for an AdSense report must be either a string or an array of strings.',
+				'Dimensions for an AdSense report must be either a string or an array of strings.'
 			);
+			validateDimensions( dimensions );
 		}
 
 		if ( orderby ) {
 			invariant(
 				isValidOrders( orderby ),
-				'Orders for an AdSense report must be either an object or an array of objects where each object should have "fieldName" and "sortOrder" properties.',
+				'Orders for an AdSense report must be either an object or an array of objects where each object should have "fieldName" and "sortOrder" properties.'
 			);
 		}
 	},
@@ -83,18 +101,7 @@ const baseInitialState = {
 };
 
 const baseResolvers = {
-	*getReport( options = {} ) {
-		const registry = yield Data.commonActions.getRegistry();
-		const existingReport = registry.select( STORE_NAME ).getReport( options );
-
-		// If there are already alerts loaded in state, consider it fulfilled
-		// and don't make an API request.
-		if ( existingReport ) {
-			return;
-		}
-
-		yield fetchGetReportStore.actions.fetchGetReport( options );
-	},
+	getReport: createGetReportResolver( MODULES_ADSENSE ),
 };
 
 const baseSelectors = {
@@ -103,40 +110,41 @@ const baseSelectors = {
 	 *
 	 * The report generated will include the following metrics:
 	 *
-	 * * 'EARNINGS'
-	 * * 'PAGE_VIEWS_RPM'
-	 * * 'IMPRESSIONS'
+	 * - 'ESTIMATED_EARNINGS'
+	 * - 'PAGE_VIEWS_RPM'
+	 * - 'IMPRESSIONS'
 	 *
 	 * An AdSense report will be returned; `undefined` if the report is not yet loaded.
 	 *
 	 * @since 1.9.0
+	 * @since 1.182.0 Accept optional fetch options as a second argument, such as `{ signal }` to cancel the report request.
+	 * @since 1.183.0 Treat report options that differ only in `reportID` as one report.
+	 * @since 1.190.0 Accept an optional `cacheTTL` fetch option, such as `{ cacheTTL }` to change how long the report response is cached.
 	 *
 	 * @param {Object}         state                Data store's state.
 	 * @param {Object}         options              Options for generating the report.
-	 * @param {string}         options.startDate    Required, unless dateRange is provided. Start date to query report data for as YYYY-mm-dd.
-	 * @param {string}         options.endDate      Required, unless dateRange is provided. Start date to query report data for as YYYY-mm-dd.
-	 * @param {string}         options.dateRange    Required, alternatively to startDate and endDate. A date range string. Default 'last-28-days'.
+	 * @param {string}         options.startDate    Required. Start date to query report data for as YYYY-mm-dd.
+	 * @param {string}         options.endDate      Required. Start date to query report data for as YYYY-mm-dd.
 	 * @param {Array.<string>} options.metrics      Required. List of {@link https://developers.google.com/adsense/management/metrics-dimensions#metrics|metrics} to query.
 	 * @param {Array.<string>} [options.dimensions] Optional. List of {@link https://developers.google.com/adsense/management/metrics-dimensions#dimensions|dimensions} to group results by.
 	 * @param {Array.<Object>} [options.orderby]    Optional. Order definition objects containing 'fieldName' and 'sortOrder'. 'sortOrder' must be either 'ASCENDING' or 'DESCENDING'. Default null.
 	 * @param {number}         [options.limit]      Optional. Maximum number of entries to return. Default 1000.
+	 * @param {Object}         [fetchOptions]       Optional. Fetch options that change how the request runs, such as `{ signal }` to cancel it or `{ cacheTTL }` to change how long the response is cached, in seconds.
 	 * @return {(Array.<Object>|undefined)} An AdSense report; `undefined` if not loaded.
 	 */
-	getReport( state, options = {} ) {
+	// eslint-disable-next-line no-unused-vars -- The fetch options only change how the request runs, so the selector does not read them.
+	getReport( state, options, fetchOptions ) {
 		const { reports } = state;
 
-		return reports[ stringifyObject( options ) ];
+		return reports[ getReportCacheKey( options ) ];
 	},
 };
 
-const store = Data.combineStores(
-	fetchGetReportStore,
-	{
-		initialState: baseInitialState,
-		resolvers: baseResolvers,
-		selectors: baseSelectors,
-	}
-);
+const store = combineStores( fetchGetReportStore, {
+	initialState: baseInitialState,
+	resolvers: baseResolvers,
+	selectors: baseSelectors,
+} );
 
 export const initialState = store.initialState;
 export const actions = store.actions;

@@ -19,7 +19,6 @@
 /**
  * External dependencies
  */
-import copyToClipboard from 'clipboard-copy';
 import PropTypes from 'prop-types';
 
 /**
@@ -27,14 +26,14 @@ import PropTypes from 'prop-types';
  */
 import { Component, Fragment } from '@wordpress/element';
 import { __ } from '@wordpress/i18n';
-import { Icon, check, stack } from '@wordpress/icons';
 
 /**
  * Internal dependencies
  */
-import Notification from '../legacy-notifications/notification';
-import Link from '../Link';
-import Button from '../Button';
+import GenericErrorHandlerActions from '@/js/components/GenericErrorHandlerActions';
+import ViewContextContext from '@/js/components/Root/ViewContextContext';
+import BannerNotification from '@/js/googlesitekit/notifications/components/layout/BannerNotification';
+import { trackEvent } from '@/js/util';
 
 class ErrorHandler extends Component {
 	constructor( props ) {
@@ -45,65 +44,69 @@ class ErrorHandler extends Component {
 			info: null,
 			copied: false,
 		};
-
-		this.onErrorClick = this.onErrorClick.bind( this );
 	}
 
 	componentDidCatch( error, info ) {
 		global.console.error( 'Caught an error:', error, info );
 
 		this.setState( { error, info } );
-	}
 
-	onErrorClick() {
-		const { error, info } = this.state;
-
-		// Copy message with wrapping backticks for code block formatting on wp.org.
-		copyToClipboard( `\`${ error?.message }\n${ info?.componentStack }\`` );
-
-		this.setState( { copied: true } );
+		trackEvent(
+			'react_error',
+			`handle_${ this.context || 'unknown' }_error`,
+			// label has a max-length of 500 bytes.
+			`${ error?.message }\n${ info?.componentStack }`.slice( 0, 500 )
+		);
 	}
 
 	render() {
-		const { children } = this.props;
-		const { error, info, copied } = this.state;
+		const { children, hideFilenamesInStack } = this.props;
+		const { error, info } = this.state;
 
 		// If there is no caught error, render the children components normally.
 		if ( ! error ) {
 			return children;
 		}
 
-		const icon = <Icon
-			className="mdc-button__icon"
-			icon={ copied ? check : stack }
-		/>;
+		let componentStack = info?.componentStack;
+
+		// Hide filenames in stack trace to prevent issues with Visual Regression
+		// tests and hashes changing in the stack trace.
+		if ( hideFilenamesInStack && componentStack ) {
+			componentStack = componentStack
+				.replace( /\(.*\)/g, '(filtered)' )
+				.replace( /at (.+) ?https?:\/\/.*/g, 'at $1 (filtered)' )
+				.replace( /at https?:\/\/.*/g, '' )
+				.replace( /\n    \n    /g, '\n    ' );
+		}
 
 		return (
-			<Notification
-				id="googlesitekit-error"
-				title={ __( 'Site Kit encountered an error', 'google-site-kit' ) }
-				description={ (
-					<Fragment>
-						<Button trailingIcon={ icon } onClick={ this.onErrorClick }>
-							{ __( 'Copy error to clipboard', 'google-site-kit' ) }
-						</Button>
-						<Link href="https://wordpress.org/support/plugin/google-site-kit/" external>
-							{ __( 'Report this problem', 'google-site-kit' ) }
-						</Link>
-					</Fragment>
+			<BannerNotification
+				notificationID="googlesitekit-error"
+				className="googlesitekit-error-handler"
+				type="error"
+				title={ __(
+					'Site Kit encountered an error',
+					'google-site-kit'
 				) }
-				isDismissable={ false }
-				format="small"
-				type="win-error"
-			>
-				<pre className="googlesitekit-overflow-auto">
-					{ error.message }
-					{ info.componentStack }
-				</pre>
-			</Notification>
+				description={
+					<Fragment>
+						<GenericErrorHandlerActions
+							message={ error.message }
+							componentStack={ componentStack }
+						/>
+						<pre className="googlesitekit-overflow-auto">
+							{ error.message }
+							{ componentStack }
+						</pre>
+					</Fragment>
+				}
+			/>
 		);
 	}
 }
+
+ErrorHandler.contextType = ViewContextContext;
 
 ErrorHandler.propTypes = {
 	/** @ignore */

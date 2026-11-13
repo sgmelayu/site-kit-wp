@@ -94,7 +94,7 @@ class WP_Query_FactoryTest extends TestCase {
 
 		add_filter(
 			'option_home',
-			function() {
+			function () {
 				return 'https://example.com';
 			}
 		);
@@ -114,7 +114,7 @@ class WP_Query_FactoryTest extends TestCase {
 		$query->enable_404_detection( false );
 		$query->get_posts();
 
-		$this->assertEqualSetsWithIndex( $expected_args, $query->query );
+		$this->assertEqualSetsWithIndex( $expected_args, $query->query, 'Query arguments should match expected values.' );
 
 		foreach ( $template_tags as $template_tag => $expected_result ) {
 			if ( $expected_result ) {
@@ -579,6 +579,26 @@ class WP_Query_FactoryTest extends TestCase {
 					'is_singular' => false,
 				),
 			),
+			'single post, path with no host'     => array(
+				'/?p=42',
+				array(
+					'p' => '42',
+				),
+				array(
+					'is_single'   => true,
+					'is_singular' => true,
+				),
+			),
+			'front page, path with no host'      => array(
+				'/',
+				array(),
+				array(
+					'is_front_page' => true,
+					'is_page'       => true,
+					'is_home'       => false,
+					'is_singular'   => true,
+				),
+			),
 		);
 	}
 
@@ -594,7 +614,7 @@ class WP_Query_FactoryTest extends TestCase {
 
 		add_filter(
 			'option_home',
-			function() {
+			function () {
 				return 'https://example.com';
 			}
 		);
@@ -619,7 +639,7 @@ class WP_Query_FactoryTest extends TestCase {
 		$query->enable_404_detection( false );
 		$query->get_posts();
 
-		$this->assertEqualSetsWithIndex( $expected_args, $query->query );
+		$this->assertEqualSetsWithIndex( $expected_args, $query->query, 'Query arguments should match expected values for rewrite URLs.' );
 
 		foreach ( $template_tags as $template_tag => $expected_result ) {
 			if ( $expected_result ) {
@@ -1025,7 +1045,7 @@ class WP_Query_FactoryTest extends TestCase {
 
 		add_filter(
 			'option_home',
-			function() {
+			function () {
 				return 'https://example.com';
 			}
 		);
@@ -1055,15 +1075,15 @@ class WP_Query_FactoryTest extends TestCase {
 		$query->enable_404_detection( false );
 		$query->get_posts();
 
-		$this->assertEqualSetsWithIndex( $expected_args, $query->query );
+		$this->assertEqualSetsWithIndex( $expected_args, $query->query, 'Query arguments should match expected values for homepage URLs.' );
 
-		$this->assertTrue( $query->is_front_page() );
+		$this->assertTrue( $query->is_front_page(), 'Homepage should be treated as front page.' );
 		if ( 'page' === $show_on_front ) {
-			$this->assertTrue( $query->is_page() );
-			$this->assertFalse( $query->is_home() );
+			$this->assertTrue( $query->is_page(), 'Static homepage should be treated as page.' );
+			$this->assertFalse( $query->is_home(), 'Static homepage should not be treated as home.' );
 		} else {
-			$this->assertTrue( $query->is_home() );
-			$this->assertFalse( $query->is_page() );
+			$this->assertTrue( $query->is_home(), 'Posts homepage should be treated as home.' );
+			$this->assertFalse( $query->is_page(), 'Posts homepage should not be treated as page.' );
 		}
 	}
 
@@ -1119,5 +1139,39 @@ class WP_Query_FactoryTest extends TestCase {
 				array(),
 			),
 		);
+	}
+
+	public function test_get_public_query_vars__before_the_main_request_is_parsed() {
+		add_filter(
+			'query_vars',
+			function ( $query_vars ) {
+				$query_vars[] = 'customvar';
+				return $query_vars;
+			}
+		);
+
+		$public_query_vars = WP_Query_Factory::get_public_query_vars();
+
+		$this->assertContains( 'p', $public_query_vars, 'The public query vars should include `p`, which WordPress registers.' );
+		$this->assertContains( 'customvar', $public_query_vars, 'The public query vars should include a query var that a `query_vars` filter adds, because WordPress has not run that filter yet.' );
+	}
+
+	public function test_get_public_query_vars__after_the_main_request_is_parsed() {
+		$this->go_to( home_url( '/' ) );
+
+		// WordPress has already run the `query_vars` filter for the main request,
+		// so a filter added now changes no query var that WordPress reads.
+		add_filter(
+			'query_vars',
+			function ( $query_vars ) {
+				$query_vars[] = 'customvar';
+				return $query_vars;
+			}
+		);
+
+		$public_query_vars = WP_Query_Factory::get_public_query_vars();
+
+		$this->assertContains( 'p', $public_query_vars, 'The public query vars should include `p` after WordPress read the main request.' );
+		$this->assertNotContains( 'customvar', $public_query_vars, 'The public query vars should leave out a query var that a `query_vars` filter adds after WordPress read the main request.' );
 	}
 }

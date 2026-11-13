@@ -1,0 +1,316 @@
+/**
+ * Site Kit by Google, Copyright 2026 Google LLC
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     https://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+.googlesitekit-plugin {
+
+	.googlesitekit-widget--analyticsOnlineStorePerformance,
+	.googlesitekit-widget--analyticsLeadGenerationPerformance {
+
+		.googlesitekit-widget__header {
+			border-bottom: 0;
+		}
+
+		.googlesitekit-widget__body {
+			padding-top: 6px;
+
+			// $grid-gap-desktop repeats what the layout grid already sets. The
+			// extra 30px lines the sections up with the widget title, which the
+			// chevron indents: 4px padding, 4px margin, 12px chevron, 10px gap.
+			@media (min-width: $bp-nonTablet) {
+				padding-left: $grid-gap-desktop + 30px;
+			}
+		}
+
+		// When the whole widget fails, its report error notice needs the
+		// standard top space, not the tight 6px the tiles use.
+		.googlesitekit-widget__body:has(> .googlesitekit-cta--error) {
+			padding-top: $grid-gap-phone;
+
+			@media (min-width: $bp-tablet) {
+				padding-top: $grid-gap-desktop;
+			}
+		}
+
+		.googlesitekit-widget__header .googlesitekit-widget__header-inner {
+
+			@media (min-width: $bp-tablet) {
+				// The toggle button holds the chevron and title, so it needs
+				// the same layout as the row.
+				&,
+				.googlesitekit-widget__header-toggle {
+					align-items: center;
+					display: flex;
+					gap: 10px;
+				}
+
+				// The row's gap already adds the space before the title
+				// (the flex `gap: 10px` this rule sets). IconWrapper's inline
+				// `margin-right: 10px` would move the title 10px right of
+				// the edge the sections align to. Only `!important`
+				// overrides an inline style.
+				.googlesitekit-icon-wrapper {
+					margin-right: 0 !important;
+				}
+			}
+
+			.googlesitekit-badge {
+				margin-top: 10px;
+
+				@media (min-width: $bp-tablet) {
+					margin-top: 0;
+				}
+			}
+		}
+	}
+
+	.googlesitekit-site-goals-tiles-group {
+
+		.googlesitekit-site-goals-change-drivers-cta {
+			white-space: nowrap;
+		}
+
+		.googlesitekit-site-goals-change-drivers-cta.googlesitekit-cta-link.googlesitekit-cta-link--link-button {
+			color: $c-content-secondary;
+			padding: 0 4px 0 2px;
+
+			.googlesitekit-icon-wrapper {
+				margin-right: 0 !important; // To override the inline set margin.
+			}
+		}
+	}
+
+	.googlesitekit-notice-container:has(
+			.googlesitekit-site-goals-breakdown-notice
+		),
+	.googlesitekit-notice-container:has(
+			.googlesitekit-site-goals-event-provider-deactivated-notice
+		) {
+		margin: 34px 0;
+	}
+
+	.googlesitekit-site-goals-breakdown-notice {
+			padding: $grid-gap-phone $grid-gap-desktop;
+
+			@media (min-width: $bp-tablet) {
+				padding: 14px $grid-gap-desktop;
+			}
+	}
+
+	.googlesitekit-site-goals-breakdown-notice .googlesitekit-notice__content {
+		font-size: $fs-label-md;
+		line-height: $lh-label-md;
+	}
+
+	.googlesitekit-site-goals-removal-error-notice {
+		margin-top: $grid-gap-phone;
+	}
+
+	.googlesitekit-site-goals-other-sources-notice {
+		margin-bottom: 24px;
+	}
+
+	.googlesitekit-site-goals-breakdown-tabs {
+		position: relative;
+
+		@media (min-width: $bp-tablet) {
+			margin-bottom: 34px;
+		}
+
+		&::after {
+			border-bottom: 1px solid $c-utility-divider;
+    		bottom: 0.5px;
+			content: " ";
+			display: block;
+    		left: 0;
+			position: absolute;
+    		width: 100%;
+			z-index: 0;
+		}
+
+		.mdc-tab-bar {
+			position: relative;
+    		z-index: 1;
+		}
+
+		.mdc-tab {
+			border-radius: 8px 8px 0 0;
+			color: $c-surfaces-on-background-variant;
+			font-size: $fs-body-md;
+			letter-spacing: 0.25px;
+			line-height: 20px;
+
+			// Drop pointer events on the tab itself so the info tooltip inside can
+			// be hovered (the tab button/ripple would otherwise capture them);
+			// re-enabled on the content below, mirroring the audience tiles tabs.
+			pointer-events: none;
+			transition: background-color 0.2s ease-in-out;
+
+			&:hover {
+				background-color: $c-site-kit-sk-10;
+			}
+
+			.mdc-tab__ripple::before,
+			.mdc-tab__ripple::after {
+				background-color: transparent;
+			}
+
+			.mdc-tab__content {
+				pointer-events: auto;
+			}
+
+			.googlesitekit-info-tooltip {
+				color: $c-neutral-n-500;
+				height: 16px;
+				margin-left: 4px;
+			}
+		}
+	}
+
+	.googlesitekit-site-goals-goal-drivers-group {
+		.googlesitekit-site-goals-tiles-group__tiles {
+			display: block;
+		}
+
+		.googlesitekit-site-goals-goal-drivers-section__tiles {
+			display: grid;
+			gap: 8px;
+			grid-template-columns: 1fr;
+
+			@media (min-width: $bp-nonMobile) {
+				align-items: start;
+				gap: 36px 42px;
+				grid-template-columns: repeat(2, minmax(0, 1fr));
+			}
+
+			@media (min-width: $bp-desktop) {
+				grid-template-columns: repeat(3, minmax(0, 1fr));
+			}
+		}
+
+		.googlesitekit-site-goals-goal-drivers-section__tile {
+			min-height: 81px;
+			min-width: 0;
+			padding: 8px 0 8px $tile-content-offset;
+			position: relative;
+
+			@media (min-width: $bp-tablet) {
+				height: 100%;
+			}
+
+			@include tile-connector(12px);
+
+			&.googlesitekit-site-goals-goal-drivers-section__tile--empty {
+				display: none;
+				padding: 0;
+
+				@media (min-width: $bp-tablet) {
+					display: block;
+				}
+
+				&::before,
+				&::after {
+					display: none;
+				}
+			}
+		}
+
+		.googlesitekit-site-goals-goal-drivers-section__show-more.googlesitekit-cta-link {
+			color: $c-content-secondary;
+			display: block;
+			font-size: $fs-label-sm;
+			font-weight: $fw-medium;
+			letter-spacing: $ls-xs;
+			line-height: 16px;
+			margin-top: 18px;
+			width: fit-content;
+		}
+
+		.googlesitekit-site-goals-goal-drivers-section__show-more.googlesitekit-cta-link.googlesitekit-cta-link--link-button {
+			padding-left: 0;
+			padding-right: 0;
+
+			&:focus,
+			&:focus-visible {
+				background-color: transparent;
+			}
+		}
+
+		.googlesitekit-site-goals-tiles-group__footer-cta {
+			margin-top: 10px;
+		}
+	}
+
+	.googlesitekit-site-goals-widget__feedback {
+		align-items: center;
+		display: flex;
+		gap: 6px;
+		margin-top: 20px;
+
+		@media (min-width: $bp-tablet) {
+			justify-content: flex-end;
+			margin-top: 14px;
+		}
+
+		@media (min-width: $bp-desktop) {
+			margin-top: 28px;
+		}
+	}
+
+	.googlesitekit-site-goals-widget__feedback-prompt {
+		color: $c-surfaces-on-background-variant;
+	}
+
+	.googlesitekit-table-tile {
+
+		.googlesitekit-table-tile__custom-dimensions-missing-title,
+		.googlesitekit-table-tile__custom-dimensions-missing-description {
+
+			&.googlesitekit-typography {
+				font-weight: $fw-normal;
+			}
+		}
+
+		.googlesitekit-table-tile__custom-dimensions-missing-title {
+			color: $c-surfaces-on-surface;
+			margin: 0 0 8px;
+		}
+
+		.googlesitekit-table-tile__custom-dimensions-missing-description {
+			color: $c-surfaces-on-surface;
+			margin: 0 0 16px;
+		}
+
+		.googlesitekit-table-tile__custom-dimensions-missing-button {
+			background-color: $c-utility-error;
+			color: $c-white;
+			font-size: $fs-label-md;
+			font-weight: $fw-medium;
+			line-height: $lh-label-md;
+			padding: 6px 16px;
+
+			&:hover,
+			&:focus {
+				background-color: $c-utility-error;
+				color: $c-white;
+			}
+
+			&:disabled {
+				cursor: default;
+				opacity: 0.6;
+			}
+		}
+	}
+}

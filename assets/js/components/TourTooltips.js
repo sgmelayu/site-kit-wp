@@ -19,9 +19,9 @@
 /**
  * External dependencies
  */
-import { useLocalStorage, useMount } from 'react-use';
-import Joyride, { ACTIONS, EVENTS, STATUS } from 'react-joyride';
 import PropTypes from 'prop-types';
+import Joyride, { ACTIONS, EVENTS, LIFECYCLE, STATUS } from 'react-joyride';
+import { useMount } from 'react-use';
 
 /**
  * WordPress dependencies
@@ -31,18 +31,27 @@ import { __ } from '@wordpress/i18n';
 /**
  * Internal dependencies
  */
-import Data from 'googlesitekit-data';
-import { CORE_UI } from '../googlesitekit/datastore/ui/constants';
+import { useDispatch, useRegistry, useSelect } from 'googlesitekit-data';
+import { CORE_UI } from '@/js/googlesitekit/datastore/ui/constants';
+import { CORE_USER } from '@/js/googlesitekit/datastore/user/constants';
+import { BREAKPOINT_SMALL, useBreakpoint } from '@/js/hooks/useBreakpoint';
+import useViewContext from '@/js/hooks/useViewContext';
+import { getWordPressAdminBarHeight } from '@/js/util/scroll';
+import { trackEvent } from '@/js/util/tracking';
 import TourTooltip from './TourTooltip';
-const { useSelect, useDispatch } = Data;
 
 /** For available options, see: {@link https://github.com/gilbarbara/react-joyride/blob/3e08384415a831b20ce21c8423b6c271ad419fbf/src/styles.js}. */
-const joyrideStyles = {
+export const joyrideStyles = {
 	options: {
-		arrowColor: '#1A73E8', // $c-royal-blue
-		backgroundColor: '#1A73E8', // $c-royal-blue
-		overlayColor: 'rgba(0, 0, 0, 0.6)',
-		textColor: '#ffffff', // $c-white
+		arrowColor: '#3c7251', // $c-content-primary
+		backgroundColor: '#3c7251', // $c-content-primary
+		overlayColor: 'rgba(0, 0, 0, 0.25)',
+		textColor: '#fff', // $c-content-on-primary
+		zIndex: 20000,
+	},
+	spotlight: {
+		border: 'none',
+		backgroundColor: '#fff',
 	},
 };
 
@@ -55,7 +64,7 @@ const joyrideLocale = {
 };
 
 /** For available options, see: {@link https://github.com/gilbarbara/react-floater#props}. */
-const floaterProps = {
+export const floaterProps = {
 	disableAnimation: true,
 	styles: {
 		arrow: {
@@ -69,32 +78,227 @@ const floaterProps = {
 	},
 };
 
-export default function TourTooltips( { steps, tourID } ) {
+const defaultStepOptions = {
+	disableBeacon: true,
+	isFixed: true,
+	placement: 'auto',
+};
+
+const responsiveStepOptions = {
+	placement: 'top',
+	offset: 0,
+};
+
+// GA Event Tracking actions (do not change!)
+export const GA_ACTIONS = {
+	VIEW: 'feature_tooltip_view',
+	NEXT: 'feature_tooltip_advance',
+	PREV: 'feature_tooltip_return',
+	DISMISS: 'feature_tooltip_dismiss',
+	COMPLETE: 'feature_tooltip_complete',
+};
+
+export default function TourTooltips( {
+	steps,
+	tourID,
+	gaEventCategory,
+	isRepeatable,
+	callback,
+} ) {
 	const stepKey = `${ tourID }-step`;
 	const runKey = `${ tourID }-run`;
 	const { setValue } = useDispatch( CORE_UI );
-	const [ shouldSkipTour, setShouldSkipTour ] = useLocalStorage( `sitekit-${ tourID }__has-encountered-tour` );
+	const { dismissTour, receiveCurrentTour } = useDispatch( CORE_USER );
+	const registry = useRegistry();
 
-	const stepIndex = useSelect( ( select ) => select( CORE_UI ).getValue( stepKey ) );
-	const run = useSelect( ( select ) => select( CORE_UI ).getValue( runKey ) || false );
+	const viewContext = useViewContext();
 
-	const changeStep = ( index, action ) => setValue(
-		stepKey,
-		index + ( action === ACTIONS.PREV ? -1 : 1 ),
+	const breakpoint = useBreakpoint();
+
+	const stepIndex = useSelect(
+		( select ) => select( CORE_UI ).getValue( stepKey ) || 0
 	);
+	const run = useSelect( ( select ) => {
+		const notDismissedOrRepeatable =
+			isRepeatable ||
+			select( CORE_USER ).isTourDismissed( tourID ) === false;
 
-	const startTour = () => {
-		// Checks if user has completed or skipped tour already, do not re-run tour if so.
-		if ( ! shouldSkipTour ) {
-			setValue( runKey, true );
+		return select( CORE_UI ).getValue( runKey ) && notDismissedOrRepeatable;
+	} );
+
+	function getStepClassName( index ) {
+		return `googlesitekit-showing-feature-tour--${ tourID }-${
+			steps[ index ].slug || index
+		}`;
+	}
+
+	function changeStep( index, action ) {
+		const newStepIndex = index + ( action === ACTIONS.PREV ? -1 : 1 );
+
+		global.document.body.classList.remove( getStepClassName( index ) );
+
+		if ( steps[ newStepIndex ] ) {
+			global.document.body.classList.add(
+				getStepClassName( newStepIndex )
+			);
 		}
-	};
 
-	const endTour = () => {
-		// Add to localStorage to avoid unwanted repeat viewing.
-		setShouldSkipTour( true );
-		setValue( runKey, false );
-	};
+		return setValue( stepKey, newStepIndex );
+	}
+
+	function startTour() {
+		global.document.body.classList.add(
+			'googlesitekit-showing-feature-tour',
+			`googlesitekit-showing-feature-tour--${ tourID }`,
+			getStepClassName( stepIndex )
+		);
+		setValue( runKey, true );
+	}
+
+	function endTour() {
+		global.document.body.classList.remove(
+			'googlesitekit-showing-feature-tour',
+			`googlesitekit-showing-feature-tour--${ tourID }`
+		);
+
+		// `stepIndex` may be out of bounds if the user has advanced beyond the last step.
+		if ( steps[ stepIndex ] ) {
+			global.document.body.classList.remove(
+				getStepClassName( stepIndex )
+			);
+		}
+
+		if ( isRepeatable ) {
+			setValue( runKey, false );
+			setValue( stepKey, null );
+			receiveCurrentTour( null );
+		} else {
+			// Dismiss tour to avoid unwanted repeat viewing.
+			dismissTour( tourID );
+		}
+	}
+
+	function trackAllTourEvents( {
+		index,
+		action,
+		lifecycle,
+		size,
+		status,
+		type,
+	} ) {
+		// The index is 0-based, but step numbers are 1-based.
+		const stepNumber = index + 1;
+
+		const eventCategory =
+			typeof gaEventCategory === 'function'
+				? gaEventCategory( viewContext )
+				: gaEventCategory;
+
+		if ( type === EVENTS.TOOLTIP && lifecycle === LIFECYCLE.TOOLTIP ) {
+			trackEvent( eventCategory, GA_ACTIONS.VIEW, stepNumber );
+		} else if (
+			action === ACTIONS.CLOSE &&
+			lifecycle === LIFECYCLE.COMPLETE
+		) {
+			trackEvent( eventCategory, GA_ACTIONS.DISMISS, stepNumber );
+		} else if (
+			action === ACTIONS.NEXT &&
+			status === STATUS.FINISHED &&
+			type === EVENTS.TOUR_END &&
+			// Here we need to additionally check the size === stepNumber because
+			// it is the only way to differentiate the status/event combination
+			// from an identical combination that happens immediately after completion
+			// on index `0` to avoid duplicate measurement.
+			size === stepNumber
+		) {
+			trackEvent( eventCategory, GA_ACTIONS.COMPLETE, stepNumber );
+		}
+
+		if ( lifecycle !== LIFECYCLE.COMPLETE || status === STATUS.FINISHED ) {
+			return;
+		}
+
+		if ( action === ACTIONS.PREV ) {
+			trackEvent( eventCategory, GA_ACTIONS.PREV, stepNumber );
+		}
+		if ( action === ACTIONS.NEXT ) {
+			trackEvent( eventCategory, GA_ACTIONS.NEXT, stepNumber );
+		}
+	}
+
+	/**
+	 * Scrolls the step into view.
+	 *
+	 * @since 1.179.0
+	 *
+	 * @param {Object} step The step object.
+	 */
+	function scrollStepIntoView( step ) {
+		let element = step.target;
+
+		if ( 'string' === typeof step.target ) {
+			element = global.document.querySelector( step.target );
+		}
+
+		if ( ! ( element instanceof Element ) ) {
+			return;
+		}
+
+		const tooltip = document.querySelector( '.__floater' );
+
+		if ( ! tooltip ) {
+			return;
+		}
+
+		const elementRect = element.getBoundingClientRect();
+		const tooltipRect = tooltip.getBoundingClientRect();
+
+		const elementBottom = window.scrollY + elementRect.bottom;
+		const elementTop = window.scrollY + elementRect.top;
+		const tooltipBottom = window.scrollY + tooltipRect.bottom;
+		const tooltipTop = window.scrollY + tooltipRect.top;
+
+		const bottom = Math.max( elementBottom, tooltipBottom );
+		const top = Math.min( elementTop, tooltipTop );
+
+		const combinedHeight = bottom - top;
+		const windowHeight = window.innerHeight;
+
+		const scrollMargin = 8; // Minimum distance from the viewport edge when scrolling a tooltip into view.
+		const wpAdminBarHeight = getWordPressAdminBarHeight();
+
+		const stepCenteredWindowHeight =
+			combinedHeight + wpAdminBarHeight + scrollMargin * 2;
+
+		const stepCenteredScrollTo =
+			top + combinedHeight / 2 - windowHeight / 2 - wpAdminBarHeight / 2;
+
+		// If the entire step fits within the viewport, with some spacing, center the step in the viewport.
+		if ( windowHeight > stepCenteredWindowHeight ) {
+			window.scrollTo( {
+				behavior: 'smooth',
+				top: stepCenteredScrollTo,
+			} );
+		}
+		// If the entire step doesnt fit, but the tooltip is outside the target, scroll the tooltip into view.
+		else if ( top === tooltipTop || bottom === tooltipBottom ) {
+			tooltip.style.scrollMarginBlock = `${ scrollMargin }px`;
+
+			tooltip.scrollIntoView( {
+				behavior: 'smooth',
+				block: top === tooltipTop ? 'start' : 'end',
+			} );
+		}
+		// If the entire step doesnt fit and the tooltip is inside the target, scroll the target into view.
+		else {
+			element.style.scrollMarginBlock = `${ scrollMargin }px`;
+
+			element.scrollIntoView( {
+				behavior: 'smooth',
+				block: 'start',
+			} );
+		}
+	}
 
 	/**
 	 * Handles `react-joyride` state changes using callback function.
@@ -106,50 +310,95 @@ export default function TourTooltips( { steps, tourID } ) {
 	 * @property {string} type   Specific type (tour, step, beacon).
 	 *
 	 * @since 1.28.0
+	 * @since 1.38.0 Calls new callback prop.
 	 * @see {@link https://docs.react-joyride.com/callback} Example data provided by `react-joyride`.
 	 * @see {@link https://docs.react-joyride.com/constants} State & lifecycle constants used by `react-joyride`.
 	 *
 	 * @param {JoyrideCallbackData} data Data object provided via `react-joyride` callback prop.
 	 */
-	const handleJoyrideCallback = ( data ) => {
-		const { action, index, status, type } = data;
+	function handleJoyrideCallback( data ) {
+		trackAllTourEvents( data );
+		const { action, index, status, step, type } = data;
 
 		const hasCloseAction = action === ACTIONS.CLOSE;
-		const shouldChangeStep = ! hasCloseAction && [ EVENTS.STEP_AFTER, EVENTS.TARGET_NOT_FOUND ].includes( type );
-		const isFinishedOrSkipped = [ STATUS.FINISHED, STATUS.SKIPPED ].includes( status );
-		const shouldCloseFromButtonClick = hasCloseAction && type === EVENTS.STEP_AFTER;
+		const shouldChangeStep =
+			! hasCloseAction &&
+			[ EVENTS.STEP_AFTER, EVENTS.TARGET_NOT_FOUND ].includes( type );
+		const isFinishedOrSkipped = [
+			STATUS.FINISHED,
+			STATUS.SKIPPED,
+		].includes( status );
+		const shouldCloseFromButtonClick =
+			hasCloseAction && type === EVENTS.STEP_AFTER;
 		const shouldEndTour = isFinishedOrSkipped || shouldCloseFromButtonClick;
+
+		// Center the target in the viewport when transitioning to the step.
+		if ( EVENTS.STEP_BEFORE === type ) {
+			scrollStepIntoView( step );
+		}
 
 		if ( shouldChangeStep ) {
 			changeStep( index, action );
 		} else if ( shouldEndTour ) {
 			endTour();
 		}
-	};
 
-	// Start tour on initial render
+		if ( callback ) {
+			callback( data, registry );
+		}
+	}
+
+	// Start tour on initial render.
 	useMount( startTour );
 
-	const parsedSteps = steps.map( ( step ) => ( {
-		disableBeacon: true,
-		isFixed: true,
-		placement: 'auto',
-		...step,
-	} ) );
+	const parsedSteps = steps.map( ( step ) =>
+		step.isResponsive && breakpoint === BREAKPOINT_SMALL
+			? {
+					...defaultStepOptions,
+					...step,
+					...responsiveStepOptions,
+					floaterProps: { ...step.floaterProps, target: step.target }, // The floater's target is overridden to match the step's target to make it positioned above its corresponding widget. This makes the floater's position consistent in the screen during the tour.
+			  }
+			: { ...defaultStepOptions, ...step }
+	);
+
+	// Flip tooltips before they're obscured by the admin bar.
+	const floaterOptions = {
+		...floaterProps.options,
+		flip: {
+			...floaterProps.options?.flip,
+			padding: {
+				bottom: 0,
+				top: getWordPressAdminBarHeight(),
+			},
+		},
+	};
+
+	const customFloaterProps = {
+		...floaterProps,
+		options: floaterOptions,
+		styles: {
+			...floaterProps.styles,
+			floater: {
+				filter: 'drop-shadow(rgba(0, 0, 0, 0.25) 0px 4px 16px)',
+			},
+		},
+	};
 
 	return (
 		<Joyride
 			callback={ handleJoyrideCallback }
-			continuous
-			disableOverlayClose
-			floaterProps={ floaterProps }
+			floaterProps={ customFloaterProps }
 			locale={ joyrideLocale }
 			run={ run }
-			showProgress
 			stepIndex={ stepIndex }
 			steps={ parsedSteps }
 			styles={ joyrideStyles }
 			tooltipComponent={ TourTooltip }
+			showProgress={ false }
+			continuous
+			disableOverlayClose
+			disableScrolling
 		/>
 	);
 }
@@ -158,4 +407,8 @@ export default function TourTooltips( { steps, tourID } ) {
 TourTooltips.propTypes = {
 	steps: PropTypes.arrayOf( PropTypes.object ).isRequired,
 	tourID: PropTypes.string.isRequired,
+	gaEventCategory: PropTypes.oneOfType( [ PropTypes.string, PropTypes.func ] )
+		.isRequired,
+	isRepeatable: PropTypes.bool,
+	callback: PropTypes.func,
 };

@@ -1,9 +1,13 @@
 /**
  * External dependencies
  */
-import intlLocalesSupported from 'intl-locales-supported';
 import intl from 'intl';
-import React from 'react';
+import intlLocalesSupported from 'intl-locales-supported';
+
+/**
+ * WordPress dependencies
+ */
+import React from '@wordpress/element';
 
 if ( global.Intl ) {
 	// Check for locales other than American English.
@@ -12,7 +16,9 @@ if ( global.Intl ) {
 		global.Intl.DateTimeFormat = intl.DateTimeFormat;
 	}
 } else {
-	throw new Error( 'Your version of node is very old and does not support `Intl`. Please use at least node 10.' );
+	throw new Error(
+		'Your version of node is very old and does not support `Intl`. Please use at least node 10.'
+	);
 }
 
 // The rest of our code relies on a global, external React being available.
@@ -20,37 +26,27 @@ global.React = React;
 
 global._googlesitekitLegacyData = {
 	admin: {
-		connectURL: 'http://sitekit.withgoogle.com/wp-admin/admin.php?googlesitekit_connect=1&nonce=12345&page=googlesitekit-splash',
-		adminRoot: 'http://sitekit.withgoogle.com/wp-admin/admin.php',
+		connectURL:
+			'http://example.com/wp-admin/index.php?action=googlesitekit_connect&nonce=abc123',
 	},
-	modules: {
-		'search-console': {
-			slug: 'search-console',
-			name: 'Search Console',
-		},
-		'pagespeed-insights': {
-			slug: 'pagespeed-insights',
-			name: 'PageSpeed Insights',
-		},
-		analytics: {
-			slug: 'analytics',
-			name: 'Analytics',
-		},
-	},
-	setup: {
-
-	},
+	setup: {},
 };
 
 global._googlesitekitUserData = {
 	user: {},
+	connectURL:
+		'http://example.com/wp-admin/index.php?action=googlesitekit_connect&nonce=abc123',
 };
 
-global._googlesitekitBaseData = {};
+global._googlesitekitBaseData = {
+	storagePrefix: 'abc123',
+};
 global._googlesitekitEntityData = {};
 
+global.GOOGLESITEKIT_VERSION = '1.23.0';
+
 // eslint-disable-next-line no-undef
-global.gtag = function( type, name, sendto, category, label, value ) {
+global.gtag = function ( type, name, sendto, category, label, value ) {
 	return {
 		type,
 		name,
@@ -66,7 +62,34 @@ global._googlesitekitAPIFetchData = global._googlesitekitAPIFetchData || {};
 
 global._googlesitekitAPIFetchData.rootURL = 'http://sitekit.test/';
 global._googlesitekitAPIFetchData.nonceMiddleware = '6af976d56d';
-global._googlesitekitAPIFetchData.nonceEndpoint = 'http://sitekit.test/wp-admin/admin-ajax.php?action=rest-nonce';
+global._googlesitekitAPIFetchData.nonceEndpoint =
+	'http://sitekit.test/wp-admin/admin-ajax.php?action=rest-nonce';
 
 // Instantiate global to which we'll assign to the value imported from fetch-mock-jest during Jest's setupFilesAfterEnv execution.
 global.fetchMock = undefined;
+
+if ( global.document ) {
+	// Provide a stub for createRange (needed for rendering Joyride components)
+	global.document.createRange = () => ( {
+		setStart: () => {},
+		setEnd: () => {},
+		commonAncestorContainer: {
+			nodeName: 'BODY',
+			ownerDocument: document,
+		},
+	} );
+}
+
+// Provide a stub for scrollTo, as it's not implemented by JSDOM. See https://github.com/jsdom/jsdom/pull/2626.
+global.scrollTo = () => {};
+
+// Provide a stub for ResizeObserver, as it's not implemented by JSDOM.
+global.ResizeObserver = class ResizeObserver {
+	observe() {}
+	unobserve() {}
+	disconnect() {}
+};
+
+// Provide the desktop viewport as default because SK is not mobile-first app. Global dimensions are used in the useWindowSize hook.
+global.innerWidth = 1024;
+global.innerHeight = 768;

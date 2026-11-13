@@ -19,24 +19,108 @@
 /**
  * Internal dependencies
  */
+import Null from '@/js/components/Null';
+import RecoverableModules from '@/js/components/RecoverableModules';
+import ReportZero from '@/js/components/ReportZero';
+import { WIDGET_WIDTHS } from '@/js/googlesitekit/widgets/datastore/constants';
+import { MODULE_SLUG_ANALYTICS_4 } from '@/js/modules/analytics-4/constants';
+import { MODULE_SLUG_SEARCH_CONSOLE } from '@/js/modules/search-console/constants';
 import { combineWidgets } from './combine-widgets';
 import { getWidgetLayout } from './get-widget-layout';
-import { WIDTH_GRID_CLASS_MAP, HIDDEN_CLASS } from './constants';
-import { WIDGET_WIDTHS } from '../datastore/constants';
-import ReportZero from '../../../components/ReportZero';
-import ActivateModuleCTA from '../../../components/ActivateModuleCTA';
-import CompleteModuleActivationCTA from '../../../components/CompleteModuleActivationCTA';
-import Null from '../../../components/Null';
 
 describe( 'combineWidgets', () => {
-	const getQuarterWidget = ( slug ) => ( { slug, width: WIDGET_WIDTHS.QUARTER } );
-	const getHalfWidget = ( slug ) => ( { slug, width: WIDGET_WIDTHS.HALF } );
+	function getQuarterWidget( slug ) {
+		return {
+			slug,
+			width: WIDGET_WIDTHS.QUARTER,
+		};
+	}
+	function getHalfWidget( slug ) {
+		return { slug, width: WIDGET_WIDTHS.HALF };
+	}
+	function getFullWidget( slug ) {
+		return { slug, width: WIDGET_WIDTHS.FULL };
+	}
 
-	const getRegularState = () => null;
-	const getReportZeroState = ( moduleSlug ) => ( { Component: ReportZero, metadata: { moduleSlug } } );
-	const getActivateModuleCTAState = ( moduleSlug ) => ( { Component: ActivateModuleCTA, metadata: { moduleSlug } } );
-	const getCompleteModuleActivationCTAState = ( moduleSlug ) => ( { Component: CompleteModuleActivationCTA, metadata: { moduleSlug } } );
-	const getNullState = () => ( { Component: Null, metadata: {} } );
+	function getRegularState() {
+		return null;
+	}
+	function getReportZeroState( moduleSlug ) {
+		return {
+			Component: ReportZero,
+			metadata: { moduleSlug },
+		};
+	}
+	function getRecoverableModulesState( moduleSlugs ) {
+		return {
+			Component: RecoverableModules,
+			metadata: { moduleSlugs },
+		};
+	}
+	function getNullState() {
+		return { Component: Null, metadata: {} };
+	}
+
+	it( 'should combine widgets beyond their row if all of them have the same special state', () => {
+		const widgets = [
+			getFullWidget( 'test1' ),
+			getFullWidget( 'test2' ),
+			getFullWidget( 'test3' ),
+			getFullWidget( 'test4' ),
+		];
+		const widgetStates = {
+			test1: getReportZeroState( MODULE_SLUG_ANALYTICS_4 ),
+			test2: getReportZeroState( MODULE_SLUG_ANALYTICS_4 ),
+			test3: getReportZeroState( MODULE_SLUG_ANALYTICS_4 ),
+			test4: getReportZeroState( MODULE_SLUG_ANALYTICS_4 ),
+		};
+
+		const expected = {
+			overrideComponents: [
+				getReportZeroState( MODULE_SLUG_ANALYTICS_4 ),
+			],
+			gridColumnWidths: [ 12, 0, 0, 0 ],
+		};
+
+		const layout = getWidgetLayout( widgets, widgetStates );
+		expect( combineWidgets( widgets, widgetStates, layout ) ).toEqual(
+			expected
+		);
+	} );
+
+	it( 'should not combine widgets in the same special state beyond their row if they are from different modules', () => {
+		const widgets = [
+			getQuarterWidget( 'test1' ),
+			getQuarterWidget( 'test2' ),
+			getQuarterWidget( 'test3' ),
+			getQuarterWidget( 'test4' ),
+		];
+		const widgetStates = {
+			// The following widgets should be combined as they are all from the same
+			// module and in the same state.
+			test1: getReportZeroState( MODULE_SLUG_ANALYTICS_4 ),
+			test2: getReportZeroState( MODULE_SLUG_ANALYTICS_4 ),
+			test3: getReportZeroState( MODULE_SLUG_ANALYTICS_4 ),
+			// This widget should not be combined even though it is in the same
+			// special state as the others.
+			test4: getReportZeroState( MODULE_SLUG_SEARCH_CONSOLE ),
+		};
+
+		const expected = {
+			overrideComponents: [
+				null,
+				null,
+				getReportZeroState( MODULE_SLUG_ANALYTICS_4 ),
+				null,
+			],
+			gridColumnWidths: [ 0, 0, 9, 3 ],
+		};
+
+		const layout = getWidgetLayout( widgets, widgetStates );
+		expect( combineWidgets( widgets, widgetStates, layout ) ).toEqual(
+			expected
+		);
+	} );
 
 	// Every test case below corresponds to a matching story in `stories/widgets.stories.js` under
 	// "Global/Widgets/Widget Area/Special combination states".
@@ -50,27 +134,18 @@ describe( 'combineWidgets', () => {
 		const widgetStates = {
 			// Every widget here is in a different state than the adjacent ones, so there is nothing to combine.
 			test1: getRegularState(),
-			test2: getReportZeroState( 'search-console' ),
-			test3: getReportZeroState( 'analytics' ),
-			test4: getActivateModuleCTAState( 'adsense' ),
+			test2: getReportZeroState( MODULE_SLUG_SEARCH_CONSOLE ),
+			test3: getReportZeroState( MODULE_SLUG_ANALYTICS_4 ),
 		};
 		const expected = {
-			gridClassNames: [
-				WIDTH_GRID_CLASS_MAP[ WIDGET_WIDTHS.QUARTER ],
-				WIDTH_GRID_CLASS_MAP[ WIDGET_WIDTHS.QUARTER ],
-				WIDTH_GRID_CLASS_MAP[ WIDGET_WIDTHS.QUARTER ],
-				WIDTH_GRID_CLASS_MAP[ WIDGET_WIDTHS.QUARTER ],
-			],
-			overrideComponents: [
-				null,
-				null,
-				null,
-				null,
-			],
+			gridColumnWidths: [ 3, 3, 3, 3 ],
+			overrideComponents: [ null, null, null, null ],
 		};
 
 		const layout = getWidgetLayout( widgets, widgetStates );
-		expect( combineWidgets( widgets, widgetStates, layout ) ).toEqual( expected );
+		expect( combineWidgets( widgets, widgetStates, layout ) ).toEqual(
+			expected
+		);
 	} );
 
 	it( 'combines adjacent widgets of the same component per the same metadata', () => {
@@ -83,18 +158,13 @@ describe( 'combineWidgets', () => {
 		const widgetStates = {
 			// This will result in two groups, one for test1 and test2, the other for test3 and test4, since both
 			// widgets in each group have matching state.
-			test1: getReportZeroState( 'search-console' ),
-			test2: getReportZeroState( 'search-console' ),
-			test3: getReportZeroState( 'analytics' ),
-			test4: getReportZeroState( 'analytics' ),
+			test1: getReportZeroState( MODULE_SLUG_SEARCH_CONSOLE ),
+			test2: getReportZeroState( MODULE_SLUG_SEARCH_CONSOLE ),
+			test3: getReportZeroState( MODULE_SLUG_ANALYTICS_4 ),
+			test4: getReportZeroState( MODULE_SLUG_ANALYTICS_4 ),
 		};
 		const expected = {
-			gridClassNames: [
-				[ HIDDEN_CLASS ],
-				[ 'mdc-layout-grid__cell', 'mdc-layout-grid__cell--span-6' ],
-				[ HIDDEN_CLASS ],
-				[ 'mdc-layout-grid__cell', 'mdc-layout-grid__cell--span-6' ],
-			],
+			gridColumnWidths: [ 0, 6, 0, 6 ],
 			overrideComponents: [
 				null,
 				widgetStates.test2,
@@ -104,7 +174,9 @@ describe( 'combineWidgets', () => {
 		};
 
 		const layout = getWidgetLayout( widgets, widgetStates );
-		expect( combineWidgets( widgets, widgetStates, layout ) ).toEqual( expected );
+		expect( combineWidgets( widgets, widgetStates, layout ) ).toEqual(
+			expected
+		);
 	} );
 
 	it( 'combines adjacent widgets of the same component and metadata only within the same row', () => {
@@ -117,28 +189,20 @@ describe( 'combineWidgets', () => {
 		const widgetStates = {
 			// Only test3 and test4 will be combined. While test2 is adjacent and has matching state, it is within
 			// the previous row, so should not be included in the combination.
-			test1: getReportZeroState( 'search-console' ),
-			test2: getActivateModuleCTAState( 'analytics' ),
-			test3: getActivateModuleCTAState( 'analytics' ),
-			test4: getActivateModuleCTAState( 'analytics' ),
+			test1: getReportZeroState( MODULE_SLUG_SEARCH_CONSOLE ),
+			test2: getRecoverableModulesState( [ MODULE_SLUG_ANALYTICS_4 ] ),
+			test3: getRecoverableModulesState( [ MODULE_SLUG_ANALYTICS_4 ] ),
+			test4: getRecoverableModulesState( [ MODULE_SLUG_ANALYTICS_4 ] ),
 		};
 		const expected = {
-			gridClassNames: [
-				WIDTH_GRID_CLASS_MAP[ WIDGET_WIDTHS.HALF ],
-				WIDTH_GRID_CLASS_MAP[ WIDGET_WIDTHS.HALF ],
-				[ HIDDEN_CLASS ],
-				[ 'mdc-layout-grid__cell', 'mdc-layout-grid__cell--span-12' ],
-			],
-			overrideComponents: [
-				null,
-				null,
-				null,
-				widgetStates.test4,
-			],
+			gridColumnWidths: [ 6, 6, 0, 12 ],
+			overrideComponents: [ null, null, null, widgetStates.test4 ],
 		};
 
 		const layout = getWidgetLayout( widgets, widgetStates );
-		expect( combineWidgets( widgets, widgetStates, layout ) ).toEqual( expected );
+		expect( combineWidgets( widgets, widgetStates, layout ) ).toEqual(
+			expected
+		);
 	} );
 
 	it( 'combines adjacent widgets of the same component and metadata, using a more complex example', () => {
@@ -154,24 +218,16 @@ describe( 'combineWidgets', () => {
 		const widgetStates = {
 			// Only test1 and test2 will be combined. test3 has matching state but is within the following row,
 			// test4 and test6 are not adjacent so they won't be combined despite having the same state.
-			test1: getCompleteModuleActivationCTAState( 'search-console' ),
-			test2: getCompleteModuleActivationCTAState( 'search-console' ),
-			test3: getCompleteModuleActivationCTAState( 'search-console' ),
-			test4: getCompleteModuleActivationCTAState( 'analytics' ),
+			test1: getRecoverableModulesState( [ MODULE_SLUG_SEARCH_CONSOLE ] ),
+			test2: getRecoverableModulesState( [ MODULE_SLUG_SEARCH_CONSOLE ] ),
+			test3: getRecoverableModulesState( [ MODULE_SLUG_SEARCH_CONSOLE ] ),
+			test4: getRecoverableModulesState( [ MODULE_SLUG_ANALYTICS_4 ] ),
 			test5: getRegularState(),
-			test6: getCompleteModuleActivationCTAState( 'analytics' ),
-			test7: getNullState( 'analytics' ),
+			test6: getRecoverableModulesState( [ MODULE_SLUG_ANALYTICS_4 ] ),
+			test7: getNullState( MODULE_SLUG_ANALYTICS_4 ),
 		};
 		const expected = {
-			gridClassNames: [
-				[ HIDDEN_CLASS ],
-				[ 'mdc-layout-grid__cell', 'mdc-layout-grid__cell--span-12' ],
-				WIDTH_GRID_CLASS_MAP[ WIDGET_WIDTHS.QUARTER ],
-				WIDTH_GRID_CLASS_MAP[ WIDGET_WIDTHS.QUARTER ],
-				WIDTH_GRID_CLASS_MAP[ WIDGET_WIDTHS.QUARTER ],
-				WIDTH_GRID_CLASS_MAP[ WIDGET_WIDTHS.QUARTER ],
-				[ HIDDEN_CLASS ],
-			],
+			gridColumnWidths: [ 0, 12, 3, 3, 3, 3, 0 ],
 			overrideComponents: [
 				null,
 				widgetStates.test2,
@@ -184,6 +240,17 @@ describe( 'combineWidgets', () => {
 		};
 
 		const layout = getWidgetLayout( widgets, widgetStates );
-		expect( combineWidgets( widgets, widgetStates, layout ) ).toEqual( expected );
+		expect( combineWidgets( widgets, widgetStates, layout ) ).toEqual(
+			expected
+		);
+	} );
+
+	it( 'works with no widgets', () => {
+		const widgets = [];
+		const widgetStates = [];
+		const layout = getWidgetLayout( widgets, widgetStates );
+		expect( () =>
+			combineWidgets( widgets, widgetStates, layout )
+		).not.toThrow();
 	} );
 } );

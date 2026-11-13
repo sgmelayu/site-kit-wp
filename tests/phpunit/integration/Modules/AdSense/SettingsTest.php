@@ -29,9 +29,9 @@ class SettingsTest extends SettingsTestCase {
 		$settings->register();
 
 		update_option( Settings::OPTION, array( 'accountID' => 'saved-account-id' ) );
-		$this->assertArraySubset( array( 'accountID' => 'saved-account-id' ), get_option( Settings::OPTION ) );
+		$this->assertArrayIntersection( array( 'accountID' => 'saved-account-id' ), get_option( Settings::OPTION ), 'Saved accountID should be present in option.' );
 		add_filter( 'googlesitekit_adsense_account_id', '__return_empty_string' );
-		$this->assertArraySubset( array( 'accountID' => 'saved-account-id' ), get_option( Settings::OPTION ) );
+		$this->assertArrayIntersection( array( 'accountID' => 'saved-account-id' ), get_option( Settings::OPTION ), 'Filter returning empty should not override saved accountID.' );
 		remove_filter( 'googlesitekit_adsense_account_id', '__return_empty_string' );
 
 		add_filter(
@@ -40,13 +40,13 @@ class SettingsTest extends SettingsTestCase {
 				return 'filtered-adsense-account-id';
 			}
 		);
-		$this->assertArraySubset( array( 'accountID' => 'filtered-adsense-account-id' ), get_option( Settings::OPTION ) );
+		$this->assertArrayIntersection( array( 'accountID' => 'filtered-adsense-account-id' ), get_option( Settings::OPTION ), 'Filter should override accountID value.' );
 
 		// Default value filtered into saved value.
-		$this->assertArraySubset( array( 'useSnippet' => true ), get_option( Settings::OPTION ) );
+		$this->assertArrayIntersection( array( 'useSnippet' => true ), get_option( Settings::OPTION ), 'Default filtered useSnippet should be true.' );
 		update_option( Settings::OPTION, array( 'useSnippet' => false ) );
 		// Default respects saved value.
-		$this->assertArraySubset( array( 'useSnippet' => false ), get_option( Settings::OPTION ) );
+		$this->assertArrayIntersection( array( 'useSnippet' => false ), get_option( Settings::OPTION ), 'Saved useSnippet should be respected over default.' );
 	}
 
 	public function test_get_default() {
@@ -55,17 +55,23 @@ class SettingsTest extends SettingsTestCase {
 
 		$this->assertEqualSetsWithIndex(
 			array(
-				'accountID'            => '',
-				'clientID'             => '',
-				'accountStatus'        => '',
-				'siteStatus'           => '',
-				'accountSetupComplete' => false,
-				'siteSetupComplete'    => false,
-				'useSnippet'           => true,
-				'ownerID'              => 0,
-				'webStoriesAdUnit'     => '',
+				'accountID'                         => '',
+				'clientID'                          => '',
+				'accountStatus'                     => '',
+				'siteStatus'                        => '',
+				'accountSetupComplete'              => false,
+				'siteSetupComplete'                 => false,
+				'useSnippet'                        => true,
+				'ownerID'                           => 0,
+				'webStoriesAdUnit'                  => '',
+				'autoAdsDisabled'                   => array(),
+				'setupCompletedTimestamp'           => null,
+				'useAdBlockingRecoverySnippet'      => false,
+				'useAdBlockingRecoveryErrorSnippet' => false,
+				'adBlockingRecoverySetupStatus'     => '',
 			),
-			get_option( Settings::OPTION )
+			get_option( Settings::OPTION ),
+			'Default AdSense settings should match expected structure and values.'
 		);
 	}
 
@@ -82,7 +88,7 @@ class SettingsTest extends SettingsTestCase {
 		$settings->register();
 
 		$option = $settings->get();
-		$this->assertArraySubset(
+		$this->assertArrayIntersection(
 			array(
 				'accountID'            => 'test-account-id',
 				'accountStatus'        => 'test-account-status',
@@ -91,11 +97,12 @@ class SettingsTest extends SettingsTestCase {
 				'accountSetupComplete' => 'test-setup-complete',
 				'siteSetupComplete'    => 'test-setup-complete',
 			),
-			$option
+			$option,
+			'Legacy options should be mapped to current keys.'
 		);
 
 		foreach ( array_keys( $legacy_option ) as $legacy_key ) {
-			$this->assertArrayNotHasKey( $legacy_key, $option );
+			$this->assertArrayNotHasKey( $legacy_key, $option, 'Legacy key should not be present in current option.' );
 		}
 
 		// Ensure valid/current keys are not overridden by legacy.
@@ -107,8 +114,75 @@ class SettingsTest extends SettingsTestCase {
 			)
 		);
 		$option = $settings->get();
-		$this->assertEquals( 'test-current-account-id', $option['accountID'] );
-		$this->assertArrayNotHasKey( 'account_id', $option );
+		$this->assertEquals( 'test-current-account-id', $option['accountID'], 'Current accountID should override legacy key.' );
+		$this->assertArrayNotHasKey( 'account_id', $option, 'Legacy account_id should not be present when current key is set.' );
+	}
+
+	public function test_setup_completed_timestamp__new_setup() {
+		$settings = new Settings( new Options( new Context( GOOGLESITEKIT_PLUGIN_MAIN_FILE ) ) );
+		$settings->register();
+
+		$this->assertNull( $settings->get()['setupCompletedTimestamp'], 'setupCompletedTimestamp should be null initially.' );
+
+		// Change only account status.
+		$settings->merge(
+			array(
+				'accountStatus' => 'ready',
+			)
+		);
+
+		$this->assertNull( $settings->get()['setupCompletedTimestamp'], 'Changing only account status should not set setupCompletedTimestamp.' );
+
+		// Change only site status.
+		$settings->merge(
+			array(
+				'accountStatus' => '',
+				'siteStatus'    => 'ready',
+			)
+		);
+
+		$this->assertNull( $settings->get()['setupCompletedTimestamp'], 'Changing only site status should not set setupCompletedTimestamp.' );
+
+		// Change both account and site status.
+		$settings->merge(
+			array(
+				'accountStatus' => 'ready',
+				'siteStatus'    => 'ready',
+			)
+		);
+
+		$this->assertTrue( gmdate( 'Ymd' ) === gmdate( 'Ymd', $settings->get()['setupCompletedTimestamp'] ), 'Changing both statuses should set today as setupCompletedTimestamp.' );
+	}
+
+	public function test_setup_completed_timestamp__existing_setup() {
+		$settings = new Settings( new Options( new Context( GOOGLESITEKIT_PLUGIN_MAIN_FILE ) ) );
+		$settings->register();
+
+		remove_all_filters( 'pre_update_option_' . Settings::OPTION );
+
+		// Change both account and site status.
+		$settings->merge(
+			array(
+				'accountStatus' => 'ready',
+				'siteStatus'    => 'ready',
+			)
+		);
+		$settings->register();
+
+		$this->assertNull( $settings->get()['setupCompletedTimestamp'], 'Existing setup should not have setupCompletedTimestamp by default upon re-register.' );
+
+		// Change any AdSense setting.
+		$settings->merge(
+			array(
+				'useSnippet' => false,
+			)
+		);
+
+		$test_date            = (int) gmdate( 'Ymd', strtotime( '-1 month' ) );
+		$setup_completed_date = (int) gmdate( 'Ymd', $settings->get()['setupCompletedTimestamp'] );
+
+		// Test date can be greater than setup completed date if the `setupCompletedTimestamp` was saved on midnight.
+		$this->assertTrue( $test_date >= $setup_completed_date, 'setupCompletedTimestamp should be in the past after change.' );
 	}
 
 	protected function get_testcase() {

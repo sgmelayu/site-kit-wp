@@ -25,23 +25,23 @@ import invariant from 'invariant';
  * WordPress dependencies
  */
 import apiFetch from '@wordpress/api-fetch';
+import { __ } from '@wordpress/i18n';
 import { addQueryArgs } from '@wordpress/url';
 
 /**
  * Internal dependencies
  */
+import { CORE_USER } from '@/js/googlesitekit/datastore/user/constants';
+import { HOUR_IN_SECONDS, stringifyObject } from '@/js/util';
+import { trackAPIError } from '@/js/util/api';
+import { isAuthError, isPermissionScopeError } from '@/js/util/errors';
 import {
+	STORAGE_KEY_PREFIX_ROOT,
 	deleteItem,
 	getItem,
 	getKeys,
 	setItem,
 } from './cache';
-import { stringifyObject } from '../../util';
-import { ERROR_CODE_MISSING_REQUIRED_SCOPE } from '../../util/errors';
-import { trackAPIError } from '../../util/api';
-
-// Specific error to handle here, see below.
-import { CORE_USER } from '../datastore/user/constants';
 
 // Caching is enabled by default.
 let cachingEnabled = true;
@@ -55,28 +55,34 @@ const KEY_SEPARATOR = '::';
  * @private
  *
  * @param {string} type        The data to access. One of 'core' or 'modules'.
- * @param {string} identifier  The data identifier, eg. a module slug like `'search-console'`.
+ * @param {string} identifier  The data identifier, eg. a module slug like `search-console`.
  * @param {string} datapoint   The endpoint to request data from.
  * @param {Object} queryParams Query params to send with the request.
  * @return {string} The cache key to use for this set of values.
  */
-export const createCacheKey = ( type, identifier, datapoint, queryParams = {} ) => {
-	const keySections = [ type, identifier, datapoint ].filter( ( keySection ) => {
-		return !! keySection && keySection.length;
-	} );
+export function createCacheKey(
+	type,
+	identifier,
+	datapoint,
+	queryParams = {}
+) {
+	const keySections = [ type, identifier, datapoint ].filter(
+		( keySection ) => {
+			return !! keySection && keySection.length;
+		}
+	);
 
 	if (
 		keySections.length === 3 &&
-		( !! queryParams ) && ( queryParams.constructor === Object ) &&
+		!! queryParams &&
+		queryParams.constructor === Object &&
 		Object.keys( queryParams ).length
 	) {
-		keySections.push(
-			stringifyObject( queryParams )
-		);
+		keySections.push( stringifyObject( queryParams ) );
 	}
 
 	return keySections.join( KEY_SEPARATOR );
-};
+}
 
 /**
  * Dispatches an error to the store, whether it's a permission or auth error.
@@ -85,29 +91,30 @@ export const createCacheKey = ( type, identifier, datapoint, queryParams = {} ) 
  *
  * @param {Object} error Error object to dispatch.
  */
-export const dispatchAPIError = ( error ) => {
+export function dispatchAPIError( error ) {
 	// Check to see if this error was a `ERROR_CODE_MISSING_REQUIRED_SCOPE` error;
 	// if so and there is a data store available to dispatch on, dispatch a
 	// `setPermissionScopeError()` action.
 	// Kind of a hack, but scales to all components.
 	const dispatch = global.googlesitekit?.data?.dispatch?.( CORE_USER );
 	if ( dispatch ) {
-		if ( error.code === ERROR_CODE_MISSING_REQUIRED_SCOPE ) {
+		if ( isPermissionScopeError( error ) ) {
 			dispatch.setPermissionScopeError( error );
-		} else if ( error.data?.reconnectURL ) {
+		} else if ( isAuthError( error ) ) {
 			dispatch.setAuthError( error );
 		}
 	}
-};
+}
 
 /**
  * Makes a request to a WP REST API Site Kit endpoint.
  *
  * @since 1.5.0
+ * @since 1.187.0 Normalizes falsy errors returned by the API fetch implementation.
  * @private
  *
  * @param {string}  type                The data to access. One of 'core' or 'modules'.
- * @param {string}  identifier          The data identifier, eg. a module slug like `'search-console'`.
+ * @param {string}  identifier          The data identifier, eg. a module slug like `search-console`.
  * @param {string}  datapoint           The endpoint to request data from.
  * @param {Object}  options             Optional. Options to pass to the request.
  * @param {number}  options.cacheTTL    The oldest cache data to use, in seconds.
@@ -115,15 +122,22 @@ export const dispatchAPIError = ( error ) => {
  * @param {number}  options.method      HTTP method to use for this request.
  * @param {Object}  options.queryParams Query params to send with the request.
  * @param {boolean} options.useCache    Enable or disable caching for this request only. Caching is only used for `GET` requests.
+ * @param {Object}  options.signal      Abort the fetch request.
  * @return {Promise} Response of HTTP request.
  */
-export const siteKitRequest = async ( type, identifier, datapoint, {
-	bodyParams,
-	cacheTTL = 3600,
-	method = 'GET',
-	queryParams,
-	useCache = undefined,
-} = {} ) => {
+export async function siteKitRequest(
+	type,
+	identifier,
+	datapoint,
+	{
+		bodyParams,
+		cacheTTL = HOUR_IN_SECONDS,
+		method = 'GET',
+		queryParams,
+		useCache = undefined,
+		signal,
+	} = {}
+) {
 	invariant( type, '`type` argument for requests is required.' );
 	invariant( identifier, '`identifier` argument for requests is required.' );
 	invariant( datapoint, '`datapoint` argument for requests is required.' );
@@ -131,7 +145,9 @@ export const siteKitRequest = async ( type, identifier, datapoint, {
 	// Don't check for a `false`-y `useCache` value to ensure we don't fallback
 	// to the `usingCache()` behavior when caching is manually disabled on a
 	// per-request basis.
-	const useCacheForRequest = method === 'GET' && ( useCache !== undefined ? useCache : usingCache() );
+	const useCacheForRequest =
+		method === 'GET' &&
+		( useCache !== undefined ? useCache : usingCache() );
 	const cacheKey = createCacheKey( type, identifier, datapoint, queryParams );
 
 	if ( useCacheForRequest ) {
@@ -152,6 +168,7 @@ export const siteKitRequest = async ( type, identifier, datapoint, {
 		const response = await apiFetch( {
 			data: bodyParams,
 			method,
+			signal,
 			path: addQueryArgs(
 				`/google-site-kit/v1/${ type }/${ identifier }/data/${ datapoint }`,
 				queryParams
@@ -164,17 +181,41 @@ export const siteKitRequest = async ( type, identifier, datapoint, {
 
 		return response;
 	} catch ( error ) {
+		if ( signal?.aborted ) {
+			// If the request was canceled, don't do any
+			// error handling and just re-throw the error.
+			throw error;
+		}
+
+		// A failed request can reject with a falsy value, e.g. when an error
+		// response has a body that parses to `false` or `0`. Substitute a
+		// generic error so that the error is always set and reported.
+		error = error || {
+			code: 'unknown_error',
+			message: __( 'An unknown error occurred.', 'google-site-kit' ),
+		};
+
 		if ( error?.data?.cacheTTL ) {
-			await setItem( cacheKey, error, { ttl: error.data.cacheTTL, isError: true } );
+			await setItem( cacheKey, error, {
+				ttl: error.data.cacheTTL,
+				isError: true,
+			} );
 		}
 
 		trackAPIError( { method, datapoint, type, identifier, error } );
 		dispatchAPIError( error );
-		global.console.error( 'Google Site Kit API Error', `method:${ method }`, `datapoint:${ datapoint }`, `type:${ type }`, `identifier:${ identifier }`, `error:"${ error.message }"` );
+		global.console.error(
+			'Google Site Kit API Error',
+			`method:${ method }`,
+			`datapoint:${ datapoint }`,
+			`type:${ type }`,
+			`identifier:${ identifier }`,
+			`error:"${ error.message }"`
+		);
 
 		throw error;
 	}
-};
+}
 
 /**
  * Gets Google Site Kit data.
@@ -187,28 +228,30 @@ export const siteKitRequest = async ( type, identifier, datapoint, {
  *
  * @since 1.5.0
  *
- * @param {string}  type             The data to access. One of 'core' or 'modules'.
- * @param {string}  identifier       The data identifier, eg. a module slug like `'search-console'`.
- * @param {string}  datapoint        The endpoint to request data from.
- * @param {Object}  data             Data (query params) to send with the request.
- * @param {Object}  options          Extra options for this request.
- * @param {number}  options.cacheTTL The oldest cache data to use, in seconds.
- * @param {boolean} options.useCache Enable or disable caching for this request only.
+ * @param {string}  type               The data to access. One of 'core' or 'modules'.
+ * @param {string}  identifier         The data identifier, eg. a module slug like `search-console`.
+ * @param {string}  datapoint          The endpoint to request data from.
+ * @param {Object}  data               Data (query params) to send with the request.
+ * @param {Object}  options            Extra options for this request.
+ * @param {number}  [options.cacheTTL] Optional. The oldest cache data to use, in seconds.
+ * @param {boolean} [options.useCache] Optional. Enable or disable caching for this request only.
+ * @param {Object}  [options.signal]   Optional. Abort the fetch request.
  * @return {Promise} A promise for the `fetch` request.
  */
-export const get = async (
+export function get(
 	type,
 	identifier,
 	datapoint,
 	data,
-	{ cacheTTL = 3600, useCache = undefined } = {}
-) => {
+	{ cacheTTL = HOUR_IN_SECONDS, useCache = undefined, signal } = {}
+) {
 	return siteKitRequest( type, identifier, datapoint, {
 		cacheTTL,
 		queryParams: data,
 		useCache,
+		signal,
 	} );
-};
+}
 
 /**
  * Sets Google Site Kit data.
@@ -229,27 +272,30 @@ export const get = async (
  * @param {Object}  options             Extra options for this request.
  * @param {number}  options.method      HTTP method to use for this request.
  * @param {boolean} options.queryParams Query params to send with the request.
+ * @param {Object}  options.signal      Abort the fetch request.
  * @return {Promise} A promise for the `fetch` request.
  */
-export const set = async (
+export async function set(
 	type,
 	identifier,
 	datapoint,
 	data,
-	{ method = 'POST', queryParams = {} } = {}
-) => {
+	{ method = 'POST', queryParams = {}, signal } = {}
+) {
 	const response = await siteKitRequest( type, identifier, datapoint, {
 		bodyParams: { data },
 		method,
 		queryParams,
 		useCache: false,
+		signal,
 	} );
 
 	await invalidateCache( type, identifier, datapoint );
 
 	return response;
-};
+}
 
+/* eslint-disable-next-line sitekit/jsdoc-no-unnamed-boolean-params */
 /**
  * Enables/disables caching.
  *
@@ -263,11 +309,11 @@ export const set = async (
  * @param {boolean} shouldUseCache Set to `true` to use this cache across requests; set to `false` to disable caching.
  * @return {boolean} The new caching state (`true` for on, `false` for off).
  */
-export const setUsingCache = ( shouldUseCache ) => {
+export function setUsingCache( shouldUseCache ) {
 	cachingEnabled = !! shouldUseCache;
 
 	return cachingEnabled;
-};
+}
 
 /**
  * Gets the current caching state for the API.
@@ -276,9 +322,9 @@ export const setUsingCache = ( shouldUseCache ) => {
  *
  * @return {boolean} The current caching state (`true` for on, `false` for off).
  */
-export const usingCache = () => {
+export function usingCache() {
 	return cachingEnabled;
-};
+}
 
 /**
  * Invalidates the cache for a specific datapoint or all data.
@@ -296,17 +342,21 @@ export const usingCache = () => {
  * @param {string} identifier The data identifier, eg. a module slug like `'adsense'`.
  * @param {string} datapoint  The endpoint to invalidate cache data for.
  */
-export const invalidateCache = async ( type, identifier, datapoint ) => {
+export async function invalidateCache( type, identifier, datapoint ) {
 	const groupPrefix = createCacheKey( type, identifier, datapoint );
 
 	const allKeys = await getKeys();
 
 	allKeys.forEach( ( key ) => {
-		if ( key.indexOf( groupPrefix ) === 0 ) {
+		if (
+			new RegExp(
+				`^${ STORAGE_KEY_PREFIX_ROOT }([^_]+_){2}${ groupPrefix }`
+			).test( key )
+		) {
 			deleteItem( key );
 		}
 	} );
-};
+}
 
 const API = {
 	invalidateCache,

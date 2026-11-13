@@ -6,7 +6,7 @@
  * @copyright 2021 Google LLC
  * @license   https://www.apache.org/licenses/LICENSE-2.0 Apache License 2.0
  * @link      https://sitekit.withgoogle.com
- */
+ * */
 
 namespace Google\Site_Kit\Tests\Core\Authentication;
 
@@ -35,22 +35,24 @@ class CredentialsTest extends TestCase {
 
 		$this->assertEqualSets(
 			$this->registered_default,
-			$encrypted_options->get( Credentials::OPTION )
+			$encrypted_options->get( Credentials::OPTION ),
+			'Encrypted credentials should contain the registered defaults.'
 		);
 		$this->assertEqualSets(
 			$this->registered_default,
-			$credentials->get()
+			$credentials->get(),
+			'Credentials should return registered defaults.'
 		);
 
 		$encrypted_options->set( Credentials::OPTION, array( 'oauth2_client_id' => 'test-client-id' ) );
 
-		// Defaults are merged before returning
 		$this->assertEqualSets(
 			array(
 				'oauth2_client_id'     => 'test-client-id',
 				'oauth2_client_secret' => '',
 			),
-			$credentials->get()
+			$credentials->get(),
+			'Credentials should merge stored values with defaults.'
 		);
 
 		$encrypted_options->set(
@@ -66,7 +68,8 @@ class CredentialsTest extends TestCase {
 				'oauth2_client_id'     => 'test-client-id',
 				'oauth2_client_secret' => 'test-client-secret',
 			),
-			$credentials->get()
+			$credentials->get(),
+			'Credentials should return stored OAuth client values.'
 		);
 	}
 
@@ -76,15 +79,15 @@ class CredentialsTest extends TestCase {
 		$credentials       = new Credentials( $encrypted_options );
 
 		// Use proxy by default.
-		$this->assertTrue( $credentials->using_proxy() );
+		$this->assertTrue( $credentials->using_proxy(), 'Credentials should use proxy by default.' );
 
 		// Don't use proxy when regular OAuth client ID is used.
 		$this->fake_site_connection();
-		$this->assertFalse( $credentials->using_proxy() );
+		$this->assertFalse( $credentials->using_proxy(), 'Credentials should not use proxy when regular OAuth client ID is used.' );
 
 		// Use proxy when proxy site ID is used.
 		$this->fake_proxy_site_connection();
-		$this->assertTrue( $credentials->using_proxy() );
+		$this->assertTrue( $credentials->using_proxy(), 'Credentials should use proxy when proxy site ID is used.' );
 	}
 
 	public function test_set() {
@@ -92,9 +95,9 @@ class CredentialsTest extends TestCase {
 		$encrypted_options = new Encrypted_Options( $options );
 		$credentials       = new Credentials( $encrypted_options );
 
-		$this->assertEqualSets( $this->registered_default, $encrypted_options->get( Credentials::OPTION ) );
-		$this->assertTrue( $credentials->set( array( 'test-credentials' ) ) );
-		$this->assertEquals( array( 'test-credentials' ), $encrypted_options->get( Credentials::OPTION ) );
+		$this->assertEqualSets( $this->registered_default, $encrypted_options->get( Credentials::OPTION ), 'Encrypted credentials should contain defaults before set.' );
+		$this->assertTrue( $credentials->set( array( 'test-credentials' ) ), 'Setting credentials should return true.' );
+		$this->assertEquals( array( 'test-credentials' ), $encrypted_options->get( Credentials::OPTION ), 'Encrypted options should contain the set credentials.' );
 	}
 
 	public function test_has() {
@@ -102,20 +105,20 @@ class CredentialsTest extends TestCase {
 		$encrypted_options = new Encrypted_Options( $options );
 		$credentials       = new Credentials( $encrypted_options );
 
-		$this->assertFalse( $options->has( Credentials::OPTION ) );
-		$this->assertFalse( $encrypted_options->has( Credentials::OPTION ) );
-		$this->assertFalse( $credentials->has() );
+		$this->assertFalse( $options->has( Credentials::OPTION ), 'Options should not have credentials option initially.' );
+		$this->assertFalse( $encrypted_options->has( Credentials::OPTION ), 'Encrypted options should not have credentials option initially.' );
+		$this->assertFalse( $credentials->has(), 'Credentials should not exist initially.' );
 		// Credentials missing all required keys are considered missing
-		// Test dummy credentials
-		$this->assertTrue( $credentials->set( array( 'test-credentials' ) ) );
-		$this->assertFalse( $credentials->has() );
-		// Test client id only
+		// Test placeholder credentials.
+		$this->assertTrue( $credentials->set( array( 'test-credentials' ) ), 'Setting placeholder credentials should return true.' );
+		$this->assertFalse( $credentials->has(), 'Credentials should not exist with placeholder data.' );
+		// Test client id only.
 		$encrypted_options->set( Credentials::OPTION, array( 'oauth2_client_id' => 'test-client-id' ) );
-		$this->assertFalse( $credentials->has() );
-		// Test client secret only
+		$this->assertFalse( $credentials->has(), 'Credentials should not exist with only client ID.' );
+		// Test client secret only.
 		$encrypted_options->set( Credentials::OPTION, array( 'oauth2_client_secret' => 'test-client-secret' ) );
-		$this->assertFalse( $credentials->has() );
-		// Test client id and empty secret
+		$this->assertFalse( $credentials->has(), 'Credentials should not exist with only client secret.' );
+		// Test client id and empty secret.
 		$encrypted_options->set(
 			Credentials::OPTION,
 			array(
@@ -123,8 +126,8 @@ class CredentialsTest extends TestCase {
 				'oauth2_client_secret' => '',
 			)
 		);
-		$this->assertFalse( $credentials->has() );
-		// Test empty client id with a secret
+		$this->assertFalse( $credentials->has(), 'Credentials should not exist with client ID and empty secret.' );
+		// Test empty client id with a secret.
 		$encrypted_options->set(
 			Credentials::OPTION,
 			array(
@@ -132,8 +135,8 @@ class CredentialsTest extends TestCase {
 				'oauth2_client_secret' => 'test-client-secret',
 			)
 		);
-		$this->assertFalse( $credentials->has() );
-		// Test with provided client id and secret
+		$this->assertFalse( $credentials->has(), 'Credentials should not exist with empty client ID and secret.' );
+		// Test with provided client id and secret.
 		$encrypted_options->set(
 			Credentials::OPTION,
 			array(
@@ -141,6 +144,6 @@ class CredentialsTest extends TestCase {
 				'oauth2_client_secret' => 'test-client-secret',
 			)
 		);
-		$this->assertTrue( $credentials->has() );
+		$this->assertTrue( $credentials->has(), 'Credentials should exist with both client ID and secret.' );
 	}
 }

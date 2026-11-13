@@ -19,21 +19,23 @@
 /**
  * Internal dependencies
  */
-import Data from 'googlesitekit-data';
+import { combineStores, commonStore } from 'googlesitekit-data';
+import { createErrorStore } from '@/js/googlesitekit/data/create-error-store';
 import areas from './areas';
+import { CORE_WIDGETS } from './constants';
+import contexts from './contexts';
 import widgets from './widgets';
-import { createErrorStore } from '../../data/create-error-store';
-import { STORE_NAME } from './constants';
 
-const store = Data.combineStores(
-	Data.commonStore,
+const store = combineStores(
+	commonStore,
 	areas,
 	widgets,
-	createErrorStore(),
+	contexts,
+	createErrorStore( CORE_WIDGETS )
 );
 
-export const registerStore = ( registry ) => {
-	registry.registerStore( STORE_NAME, store );
-};
+export function registerStore( registry ) {
+	registry.registerStore( CORE_WIDGETS, store );
+}
 
 export default store;

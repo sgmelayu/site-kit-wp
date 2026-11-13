@@ -17,25 +17,21 @@
  */
 
 /**
- * WordPress dependencies
- */
-import { deactivatePlugin } from '@wordpress/e2e-test-utils';
-
-/**
  * Internal dependencies
  */
 import {
 	activateAMPWithMode,
-	setupAnalytics,
-	setupSiteKit,
+	deactivatePlugin,
 	resetSiteKit,
+	setupAnalytics4,
+	setupSiteKit,
 } from '../../../utils';
 
 describe( 'AMP homepage validates with Analytics enabled', () => {
 	beforeEach( async () => {
 		await setupSiteKit();
 		await activateAMPWithMode( 'primary' );
-		await setupAnalytics();
+		await setupAnalytics4();
 	} );
 	afterEach( async () => {
 		await deactivatePlugin( 'amp' );

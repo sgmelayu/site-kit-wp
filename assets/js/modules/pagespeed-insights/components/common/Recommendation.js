@@ -22,23 +22,43 @@
 import PropTypes from 'prop-types';
 
 /**
+ * WordPress dependencies
+ */
+import { useCallback } from '@wordpress/element';
+
+/**
  * Internal dependencies
  */
-import Data from 'googlesitekit-data';
-import { STORE_NAME, STRATEGY_MOBILE, STRATEGY_DESKTOP } from '../../datastore/constants';
-import Accordion from '../../../../components/Accordion';
-import { sanitizeHTML, markdownToHTML } from '../../../../util';
-const { useSelect } = Data;
+import { useSelect } from 'googlesitekit-data';
+import Accordion from '@/js/components/Accordion';
+import useViewContext from '@/js/hooks/useViewContext';
+import {
+	MODULES_PAGESPEED_INSIGHTS,
+	STRATEGY_DESKTOP,
+	STRATEGY_MOBILE,
+} from '@/js/modules/pagespeed-insights/datastore/constants';
+import { markdownToHTML, sanitizeHTML, trackEvent } from '@/js/util';
 
 export default function Recommendation( props ) {
-	const {
-		auditID,
-		title,
-		referenceURL,
-		strategy,
-	} = props;
+	const { auditID, title, referenceURL, strategy } = props;
+	const viewContext = useViewContext();
 
-	const stackPack = useSelect( ( select ) => select( STORE_NAME ).getStackPackDescription( referenceURL, strategy, auditID, 'wordpress' ) );
+	const onOpen = useCallback( () => {
+		trackEvent(
+			`${ viewContext }_pagespeed-widget`,
+			'stack_pack_expand',
+			auditID
+		);
+	}, [ auditID, viewContext ] );
+
+	const stackPack = useSelect( ( select ) =>
+		select( MODULES_PAGESPEED_INSIGHTS ).getStackPackDescription(
+			referenceURL,
+			strategy,
+			auditID,
+			'wordpress'
+		)
+	);
 	if ( ! stackPack ) {
 		return null;
 	}
@@ -50,8 +70,13 @@ export default function Recommendation( props ) {
 	};
 
 	return (
-		<Accordion id={ auditID } title={ title }>
-			<div dangerouslySetInnerHTML={ sanitizeHTML( content, sanitizeArgs ) } />
+		<Accordion id={ auditID } title={ title } onOpen={ onOpen }>
+			<div
+				dangerouslySetInnerHTML={ sanitizeHTML(
+					content,
+					sanitizeArgs
+				) }
+			/>
 		</Accordion>
 	);
 }
@@ -60,5 +85,6 @@ Recommendation.propTypes = {
 	auditID: PropTypes.string.isRequired,
 	title: PropTypes.string.isRequired,
 	referenceURL: PropTypes.string.isRequired,
-	strategy: PropTypes.oneOf( [ STRATEGY_MOBILE, STRATEGY_DESKTOP ] ).isRequired,
+	strategy: PropTypes.oneOf( [ STRATEGY_MOBILE, STRATEGY_DESKTOP ] )
+		.isRequired,
 };

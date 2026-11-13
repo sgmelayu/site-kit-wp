@@ -17,13 +17,124 @@
  */
 
 /**
+ * External dependencies
+ */
+import invariant from 'invariant';
+
+/**
  * Internal dependencies
  */
-import { STORE_NAME } from './constants';
-import { createNotificationsStore } from '../../data/create-notifications-store';
+import { set } from 'googlesitekit-api';
+import { combineStores } from 'googlesitekit-data';
+import { actions as errorStoreActions } from '@/js/googlesitekit/data/create-error-store';
+import { createFetchStore } from '@/js/googlesitekit/data/create-fetch-store';
+import { createNotificationsStore } from '@/js/googlesitekit/data/create-notifications-store';
+import { createValidatedAction } from '@/js/googlesitekit/data/utils';
+import { CORE_SITE } from './constants';
 
-const notifications = createNotificationsStore( 'core', 'site', 'notifications', {
-	storeName: STORE_NAME,
+const ACCEPTED = 'accepted';
+const DISMISSED = 'dismissed';
+
+function isValidNotificationID( notificationID ) {
+	return 'string' === typeof notificationID;
+}
+
+const fetchMarkNotificationStore = createFetchStore( {
+	baseName: 'markNotification',
+	controlCallback: ( { notificationID, notificationState } ) => {
+		return set( 'core', 'site', 'mark-notification', {
+			notificationID,
+			notificationState,
+		} );
+	},
+	argsToParams: ( { notificationID, notificationState } ) => {
+		return { notificationID, notificationState };
+	},
+	validateParams: ( { notificationID, notificationState } = {} ) => {
+		invariant(
+			[ ACCEPTED, DISMISSED ].includes( notificationState ),
+			'notificationState must be accepted or dismissed.'
+		);
+		invariant(
+			isValidNotificationID( notificationID ),
+			'a valid notification ID is required to mark a notification.'
+		);
+	},
+	isAction: true,
 } );
+
+const baseActions = {
+	/**
+	 * Marks the given notification as accepted.
+	 *
+	 * @since 1.47.0
+	 *
+	 * @param {string} id Notification ID.
+	 * @return {Object} Object with `response` and `error`.
+	 */
+	acceptNotification: createValidatedAction(
+		( notificationID ) => {
+			invariant(
+				isValidNotificationID( notificationID ),
+				'a valid notification ID is required to accept a notification.'
+			);
+		},
+		function* ( notificationID ) {
+			const { response, error } =
+				yield fetchMarkNotificationStore.actions.fetchMarkNotification(
+					{ notificationID, notificationState: ACCEPTED }
+				);
+			if ( error ) {
+				yield errorStoreActions.setErrorForAction(
+					error,
+					'acceptNotification',
+					[ notificationID ]
+				);
+			}
+			return { response, error };
+		}
+	),
+
+	/**
+	 * Marks the given notification as dismissed.
+	 *
+	 * @since 1.47.0
+	 *
+	 * @param {string} id Notification ID.
+	 * @return {Object} Object with `response` and `error`.
+	 */
+	dismissNotification: createValidatedAction(
+		( notificationID ) => {
+			invariant(
+				isValidNotificationID( notificationID ),
+				'a valid notification ID is required to dismiss a notification.'
+			);
+		},
+		function* ( notificationID ) {
+			const { response, error } =
+				yield fetchMarkNotificationStore.actions.fetchMarkNotification(
+					{ notificationID, notificationState: DISMISSED }
+				);
+			if ( error ) {
+				yield errorStoreActions.setErrorForAction(
+					error,
+					'dismissNotification',
+					[ notificationID ]
+				);
+			}
+			return { response, error };
+		}
+	),
+};
+
+const notifications = combineStores(
+	createNotificationsStore( 'core', 'site', 'notifications', {
+		storeName: CORE_SITE,
+	} ),
+	fetchMarkNotificationStore,
+	{
+		actions: baseActions,
+	}
+);
 
 export default notifications;

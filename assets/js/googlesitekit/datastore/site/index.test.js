@@ -19,9 +19,9 @@
 /**
  * Internal dependencies
  */
-import { createTestRegistry, unsubscribeFromAll } from 'tests/js/utils';
+import { createTestRegistry, provideSiteInfo } from '@tests/js/utils';
+import { CORE_SITE } from './constants';
 import { initialState } from './index';
-import { STORE_NAME } from './constants';
 
 describe( 'core/site store', () => {
 	let registry;
@@ -29,11 +29,7 @@ describe( 'core/site store', () => {
 
 	beforeEach( () => {
 		registry = createTestRegistry();
-		store = registry.stores[ STORE_NAME ].store;
-	} );
-
-	afterEach( () => {
-		unsubscribeFromAll( registry );
+		store = registry.stores[ CORE_SITE ].store;
 	} );
 
 	describe( 'reducer', () => {
@@ -41,6 +37,33 @@ describe( 'core/site store', () => {
 			const state = store.getState();
 
 			expect( state ).toEqual( initialState );
+		} );
+	} );
+
+	describe( 'snapshot and restore', () => {
+		it( 'does not overwrite siteInfo when restoring a snapshot', async () => {
+			provideSiteInfo( registry, {
+				setupErrorMessage: null,
+				setupErrorCode: null,
+			} );
+
+			await registry.dispatch( CORE_SITE ).createSnapshot();
+
+			// Simulate the page reload after OAuth error by providing
+			// site info with an error message.
+			provideSiteInfo( registry, {
+				setupErrorMessage: 'An error occurred',
+				setupErrorCode: 'access_denied',
+			} );
+
+			// Restore the snapshot (simulating what happens on page load).
+			await registry.dispatch( CORE_SITE ).restoreSnapshot();
+
+			// The setupErrorMessage should still be present because
+			// the snapshot only includes conversionTracking, not siteInfo.
+			expect( registry.select( CORE_SITE ).getSetupErrorMessage() ).toBe(
+				'An error occurred'
+			);
 		} );
 	} );
 } );

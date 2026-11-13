@@ -10,12 +10,10 @@
 
 namespace Google\Site_Kit\Core\Feature_Tours;
 
-use Google\Site_Kit\Context;
 use Google\Site_Kit\Core\Permissions\Permissions;
 use Google\Site_Kit\Core\REST_API\REST_Route;
 use Google\Site_Kit\Core\REST_API\REST_Routes;
-use Google\Site_Kit\Core\Storage\User_Options;
-use WP_Error;
+use Google\Site_Kit\Core\REST_API\Schema\String_List_Schema;
 use WP_REST_Request;
 use WP_REST_Response;
 use WP_REST_Server;
@@ -30,22 +28,6 @@ use WP_REST_Server;
 class REST_Feature_Tours_Controller {
 
 	/**
-	 * Context instance.
-	 *
-	 * @since 1.27.0
-	 * @var Context
-	 */
-	protected $context;
-
-	/**
-	 * User_Options instance.
-	 *
-	 * @since 1.27.0
-	 * @var User_Options
-	 */
-	protected $user_options;
-
-	/**
 	 * Dismissed_Tours instance.
 	 *
 	 * @since 1.27.0
@@ -58,13 +40,10 @@ class REST_Feature_Tours_Controller {
 	 *
 	 * @since 1.27.0
 	 *
-	 * @param Context      $context Plugin context.
-	 * @param User_Options $user_options Optional. User option API. Default is a new instance.
+	 * @param Dismissed_Tours $dismissed_tours Dismissed tours instance.
 	 */
-	public function __construct( Context $context, User_Options $user_options = null ) {
-		$this->context         = $context;
-		$this->user_options    = $user_options ?: new User_Options( $context );
-		$this->dismissed_tours = new Dismissed_Tours( $this->user_options );
+	public function __construct( Dismissed_Tours $dismissed_tours ) {
+		$this->dismissed_tours = $dismissed_tours;
 	}
 
 	/**
@@ -96,12 +75,13 @@ class REST_Feature_Tours_Controller {
 	 * Gets REST route instances.
 	 *
 	 * @since 1.27.0
+	 * @since n.e.x.t Declares the argument and resource schemas of each route.
 	 *
 	 * @return REST_Route[] List of REST_Route objects.
 	 */
 	protected function get_rest_routes() {
-		$can_authenticate = function () {
-			return current_user_can( Permissions::AUTHENTICATE );
+		$can_dismiss_tour = function () {
+			return current_user_can( Permissions::AUTHENTICATE ) || current_user_can( Permissions::VIEW_SHARED_DASHBOARD );
 		};
 
 		return array(
@@ -112,7 +92,10 @@ class REST_Feature_Tours_Controller {
 					'callback'            => function () {
 						return new WP_REST_Response( $this->dismissed_tours->get() );
 					},
-					'permission_callback' => $can_authenticate,
+					'permission_callback' => $can_dismiss_tour,
+				),
+				array(
+					'schema' => array( String_List_Schema::class, 'get' ),
 				)
 			),
 			new REST_Route(
@@ -120,28 +103,29 @@ class REST_Feature_Tours_Controller {
 				array(
 					'methods'             => WP_REST_Server::CREATABLE,
 					'callback'            => function ( WP_REST_Request $request ) {
-						$data = $request['data'];
-
-						if ( empty( $data['slug'] ) ) {
-							return new WP_Error(
-								'missing_required_param',
-								/* translators: %s: Missing parameter name */
-								sprintf( __( 'Request parameter is empty: %s.', 'google-site-kit' ), 'slug' ),
-								array( 'status' => 400 )
-							);
-						}
-
-						$this->dismissed_tours->add( $data['slug'] );
+						$this->dismissed_tours->add( $request['data']['slug'] );
 
 						return new WP_REST_Response( $this->dismissed_tours->get() );
 					},
-					'permission_callback' => $can_authenticate,
+					'permission_callback' => $can_dismiss_tour,
 					'args'                => array(
 						'data' => array(
-							'type'     => 'object',
-							'required' => true,
+							'type'        => 'object',
+							'description' => __( 'The feature tour to dismiss.', 'google-site-kit' ),
+							'required'    => true,
+							'properties'  => array(
+								'slug' => array(
+									'type'        => 'string',
+									'description' => __( 'Slug of the feature tour.', 'google-site-kit' ),
+									'required'    => true,
+									'minLength'   => 1,
+								),
+							),
 						),
 					),
+				),
+				array(
+					'schema' => array( String_List_Schema::class, 'get' ),
 				)
 			),
 		);

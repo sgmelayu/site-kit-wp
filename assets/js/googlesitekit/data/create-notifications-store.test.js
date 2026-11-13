@@ -24,12 +24,9 @@ import { createRegistry } from '@wordpress/data';
 /**
  * Internal dependencies
  */
-import API from 'googlesitekit-api';
-import {
-	muteFetch,
-	subscribeUntil,
-	unsubscribeFromAll,
-} from '../../../../tests/js/utils';
+import { setUsingCache } from 'googlesitekit-api';
+import { combineStores, commonStore } from 'googlesitekit-data';
+import { muteFetch, subscribeUntil } from '@tests/js/utils';
 import { createNotificationsStore } from './create-notifications-store';
 
 const STORE_ARGS = [ 'core', 'site', 'notifications' ];
@@ -42,132 +39,44 @@ describe( 'createNotificationsStore store', () => {
 	let store;
 
 	beforeAll( () => {
-		API.setUsingCache( false );
+		setUsingCache( false );
 	} );
 
 	beforeEach( () => {
 		registry = createRegistry();
 
 		storeDefinition = createNotificationsStore( ...STORE_ARGS );
-		registry.registerStore( storeDefinition.STORE_NAME, storeDefinition );
+
+		store = registry.registerStore(
+			storeDefinition.STORE_NAME,
+			combineStores( commonStore, storeDefinition )
+		);
+
 		dispatch = registry.dispatch( storeDefinition.STORE_NAME );
-		store = registry.stores[ storeDefinition.STORE_NAME ].store;
 		select = registry.select( storeDefinition.STORE_NAME );
 	} );
 
 	afterAll( () => {
-		API.setUsingCache( true );
-	} );
-
-	afterEach( () => {
-		unsubscribeFromAll( registry );
+		setUsingCache( true );
 	} );
 
 	describe( 'name', () => {
 		it( 'returns the correct default store name', () => {
-			expect( storeDefinition.STORE_NAME ).toEqual( `${ STORE_ARGS[ 0 ] }/${ STORE_ARGS[ 1 ] }` );
+			expect( storeDefinition.STORE_NAME ).toEqual(
+				`${ STORE_ARGS[ 0 ] }/${ STORE_ARGS[ 1 ] }`
+			);
 		} );
 	} );
 
 	describe( 'actions', () => {
-		describe( 'addNotification', () => {
-			it( 'requires the notification param', () => {
-				expect( () => {
-					dispatch.addNotification();
-				} ).toThrow( 'notification is required.' );
-			} );
-
-			it( 'adds the notification to client notifications', () => {
-				const notification = { id: 'added_notification' };
-				dispatch.addNotification( notification );
-
-				const state = store.getState();
-
-				expect( state.clientNotifications ).toMatchObject( {
-					[ notification.id ]: notification,
-				} );
-			} );
-		} );
-
-		describe( 'removeNotification', () => {
-			it( 'requires the id param', () => {
-				expect( () => {
-					dispatch.removeNotification();
-				} ).toThrow( 'id is required.' );
-			} );
-
-			it( 'does not fail when there are no notifications', () => {
-				dispatch.removeNotification( 'not_a_real_id' );
-
-				muteFetch( /^\/google-site-kit\/v1\/core\/site\/data\/notifications/, [] );
-				expect( select.getNotifications() ).toEqual( undefined );
-			} );
-
-			it( 'does not fail when no matching notification is found', () => {
-				const notification = { id: 'client_notification' };
-				dispatch.addNotification( notification );
-
-				dispatch.removeNotification( 'not_a_real_id' );
-
-				muteFetch( /^\/google-site-kit\/v1\/core\/site\/data\/notifications/, [] );
-				expect( select.getNotifications() ).toEqual( [ notification ] );
-			} );
-
-			it( 'removes the notification from client notifications', () => {
-				const notification = { id: 'notification_to_remove' };
-				dispatch.addNotification( notification );
-
-				dispatch.removeNotification( notification.id );
-
-				const state = store.getState();
-
-				expect( state.clientNotifications ).toMatchObject( {} );
-			} );
-
-			it( 'removes the notification from client notifications even when no server notifications exist', () => {
-				const notification = { id: 'notification_to_remove' };
-				dispatch.addNotification( notification );
-
-				dispatch.removeNotification( notification.id );
-
-				const state = store.getState();
-
-				expect( state.clientNotifications ).toMatchObject( {} );
-				muteFetch( /^\/google-site-kit\/v1\/core\/site\/data\/notifications/, [] );
-				expect( select.getNotifications() ).toMatchObject( {} );
-			} );
-
-			it( 'does not remove server notifications and emits a warning if they are sent to removeNotification', async () => {
-				const serverNotifications = [ { id: 'server_notification' } ];
-				fetchMock.getOnce(
-					/^\/google-site-kit\/v1\/core\/site\/data\/notifications/,
-					{ body: serverNotifications, status: 200 }
-				);
-
-				const clientNotification = { id: 'client_notification' };
-
-				select.getNotifications();
-				dispatch.addNotification( clientNotification );
-
-				await subscribeUntil( registry,
-					() => (
-						store.getState().serverNotifications !== undefined
-					),
-				);
-
-				dispatch.removeNotification( serverNotifications[ 0 ].id );
-
-				expect( console ).toHaveWarned();
-				expect( global.console.warn ).toHaveBeenCalledWith( `Cannot remove server-side notification with ID "${ serverNotifications[ 0 ].id }"; this may be changed in a future release.` );
-				expect(
-					select.getNotifications()
-				).toEqual( expect.arrayContaining( serverNotifications ) );
-			} );
-		} );
-
 		describe( 'fetchGetNotifications', () => {
 			it( 'does not require any params', () => {
-				muteFetch( /^\/google-site-kit\/v1\/core\/site\/data\/notifications/, [] );
+				muteFetch(
+					new RegExp(
+						'^/google-site-kit/v1/core/site/data/notifications'
+					),
+					[]
+				);
 				expect( () => {
 					dispatch.fetchGetNotifications();
 				} ).not.toThrow();
@@ -199,17 +108,18 @@ describe( 'createNotificationsStore store', () => {
 			it( 'uses a resolver to make a network request', async () => {
 				const response = [ { id: 'test_notification' } ];
 				fetchMock.getOnce(
-					/^\/google-site-kit\/v1\/core\/site\/data\/notifications/,
+					new RegExp(
+						'^/google-site-kit/v1/core/site/data/notifications'
+					),
 					{ body: response, status: 200 }
 				);
 
 				const initialNotifications = select.getNotifications();
 				// Notifications will be their initial value while being fetched.
 				expect( initialNotifications ).toEqual( undefined );
-				await subscribeUntil( registry,
-					() => (
-						select.getNotifications() !== undefined
-					),
+				await subscribeUntil(
+					registry,
+					() => select.getNotifications() !== undefined
 				);
 
 				const notifications = select.getNotifications();
@@ -222,23 +132,6 @@ describe( 'createNotificationsStore store', () => {
 				expect( notificationsSelect ).toEqual( notifications );
 			} );
 
-			it( 'returns client notifications even if server notifications have not loaded', () => {
-				const notification = { id: 'added_notification' };
-				fetchMock.getOnce(
-					/^\/google-site-kit\/v1\/core\/site\/data\/notifications/,
-					{ body: [], status: 200 }
-				);
-				dispatch.addNotification( notification );
-
-				// Return client notifications even if the server notifications have not
-				// resolved yet. They won't have here because it's the first time
-				// the selector has run in this test. This ensures `undefined` is not
-				// returned when server notifications haven't loaded yet, but client
-				// notifications have been dispatched.
-				muteFetch( /^\/google-site-kit\/v1\/core\/site\/data\/notifications/, [] );
-				expect( select.getNotifications() ).toEqual( [ notification ] );
-			} );
-
 			it( 'dispatches an error if the request fails', async () => {
 				const response = {
 					code: 'internal_server_error',
@@ -246,13 +139,15 @@ describe( 'createNotificationsStore store', () => {
 					data: { status: 500 },
 				};
 				fetchMock.getOnce(
-					/^\/google-site-kit\/v1\/core\/site\/data\/notifications/,
+					new RegExp(
+						'^/google-site-kit/v1/core/site/data/notifications'
+					),
 					{ body: response, status: 500 }
 				);
 
 				select.getNotifications();
-				await subscribeUntil( registry,
-					() => select.hasFinishedResolution( 'getNotifications' ),
+				await subscribeUntil( registry, () =>
+					select.hasFinishedResolution( 'getNotifications' )
 				);
 
 				const notifications = select.getNotifications();
@@ -270,24 +165,25 @@ describe( 'createNotificationsStore store', () => {
 				const [ type, identifier, datapoint ] = STORE_ARGS;
 				const response = { type, identifier, datapoint };
 
-				fetchMock.getOnce(
-					`path:/google-site-kit/v1/${ type }/${ identifier }/data/${ datapoint }`,
-					{ body: response, status: 200 }
-				).catch(
-					{
+				fetchMock
+					.getOnce(
+						`path:/google-site-kit/v1/${ type }/${ identifier }/data/${ datapoint }`,
+						{ body: response, status: 200 }
+					)
+					.catch( {
 						body: {
 							code: 'incorrect_api_endpoint',
 							message: 'Incorrect API endpoint',
 							data: { status: 400 },
 						},
 						init: { status: 400 },
-					}
-				);
+					} );
 
-				const result = await storeDefinition.controls.FETCH_GET_NOTIFICATIONS( {
-					payload: { params: {} },
-					type: 'FETCH_GET_NOTIFICATIONS',
-				} );
+				const result =
+					await storeDefinition.controls.FETCH_GET_NOTIFICATIONS( {
+						payload: { params: {} },
+						type: 'FETCH_GET_NOTIFICATIONS',
+					} );
 				expect( result ).toEqual( response );
 				// Ensure `console.error()` wasn't called, which will happen if the API
 				// request fails.

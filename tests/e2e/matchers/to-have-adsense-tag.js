@@ -1,7 +1,7 @@
 /**
- * WordPress dependencies
+ * Internal dependencies
  */
-import { createURL } from '@wordpress/e2e-test-utils';
+import { createURL } from '../utils/create-url';
 
 /**
  * Asserts the URL at the given path contains an AdSense tag.
@@ -18,9 +18,12 @@ export async function toHaveAdSenseTag( path ) {
 	await page.goto( createURL( path ) );
 
 	try {
-		await expect( page ).toMatchElement( 'script[src="//pagead2.googlesyndication.com/pagead/js/adsbygoogle.js"]' );
+		await expect( page ).toMatchElement(
+			'script[src*="//pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client="]'
+		);
 		result.pass = true;
-		result.message = () => `Expected ${ path } not to contain an Adsense tag.`;
+		result.message = () =>
+			`Expected ${ path } not to contain an Adsense tag.`;
 	} catch {
 		result.pass = false;
 		result.message = () => `Expected ${ path } to contain an Adsense tag.`;

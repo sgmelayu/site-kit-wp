@@ -17,7 +17,7 @@
  */
 
 /**
- * Fetches markup for any given URL in the context of Puppeteer.
+ * Fetches markup for any given URL in the context of the test page.
  *
  * @since 1.10.0
  *
@@ -28,14 +28,26 @@
 export async function fetchPageContent( url, options = {} ) {
 	try {
 		// Wait until apiFetch is available on the client.
-		await page.waitForFunction( () => window.fetch !== undefined );
-	} catch ( e ) {
+		await page.waitForFunction( () => window.fetch !== undefined, {
+			timeout: options?.timeout,
+		} );
+	} catch ( error ) {
 		// eslint-disable-next-line no-console
-		console.warn( 'fetchPageContent failure', page.url(), JSON.stringify( options ) );
-		throw e;
+		console.warn(
+			'fetchPageContent failure',
+			page.url(),
+			JSON.stringify( options )
+		);
+		throw error;
 	}
 
-	return await page.evaluate( ( fetchURL, fetchOptions ) => {
-		return window.fetch( fetchURL, fetchOptions ).then( ( res ) => res.text() );
-	}, url, options );
+	return await page.evaluate(
+		( fetchURL, fetchOptions ) => {
+			return window
+				.fetch( fetchURL, fetchOptions )
+				.then( ( res ) => res.text() );
+		},
+		url,
+		options
+	);
 }

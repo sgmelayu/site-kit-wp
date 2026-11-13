@@ -22,44 +22,88 @@
 import memize from 'memize';
 
 /**
+ * WordPress dependencies
+ */
+import { forwardRef } from '@wordpress/element';
+
+/**
  * Internal dependencies
  */
-import Widget from '../components/Widget';
-import WidgetReportZero from '../components/WidgetReportZero';
-import WidgetReportError from '../components/WidgetReportError';
-import WidgetActivateModuleCTA from '../components/WidgetActivateModuleCTA';
-import WidgetCompleteModuleActivationCTA from '../components/WidgetCompleteModuleActivationCTA';
-import WidgetNull from '../components/WidgetNull';
+import Widget from '@/js/googlesitekit/widgets/components/Widget';
+import WidgetNull from '@/js/googlesitekit/widgets/components/WidgetNull';
+import WidgetRecoverableModules from '@/js/googlesitekit/widgets/components/WidgetRecoverableModules';
+import WidgetReportError from '@/js/googlesitekit/widgets/components/WidgetReportError';
+import WidgetReportZero from '@/js/googlesitekit/widgets/components/WidgetReportZero';
+import WPDashboardReportError from '@/js/googlesitekit/widgets/components/WPDashboardReportError';
+
+/**
+ * Widget props type.
+ *
+ * @since 1.179.0
+ *
+ * @typedef {Object} WidgetComponentProps
+ * @property {string} widgetSlug The widget's slug.
+ * @property {WPComponent} Widget The `Widget` component, pre-bound to this widget's slug.
+ * @property {WPComponent} WidgetRecoverableModules The `WidgetRecoverableModules` component, pre-bound to this widget's slug.
+ * @property {WPComponent} WidgetReportZero The `WidgetReportZero` component, pre-bound to this widget's slug.
+ * @property {WPComponent} WidgetReportError The `WidgetReportError` component, pre-bound to this widget's slug.
+ * @property {WPComponent} WidgetNull The `WidgetNull` component, pre-bound to this widget's slug.
+ */
+
+/**
+ * Builds the widget-scoped component props for a single widget.
+ *
+ * `withWidgetSlug()` wraps each component in `forwardRef`, which TypeScript
+ * would otherwise use to infer a stricter type than the `WidgetComponentProps`
+ * type declared below. Declaring that return type here forces TypeScript to
+ * use it instead, so TS widget components (e.g. `WidgetNull`) don't fail to
+ * type-check.
+ *
+ * @since 1.188.0
+ *
+ * @param {string} widgetSlug The widget's slug.
+ * @return {WidgetComponentProps} The widget-scoped component props.
+ */
+function buildWidgetComponentProps( widgetSlug ) {
+	return {
+		widgetSlug,
+		Widget: withWidgetSlug( widgetSlug )( Widget ),
+		WidgetRecoverableModules: withWidgetSlug( widgetSlug )(
+			WidgetRecoverableModules
+		),
+		WidgetReportZero: withWidgetSlug( widgetSlug )( WidgetReportZero ),
+		WidgetReportError: withWidgetSlug( widgetSlug )( WidgetReportError ),
+		WidgetNull: withWidgetSlug( widgetSlug )( WidgetNull ),
+	};
+}
 
 /**
  * Gets the props to pass to a widget's component.
  *
  * @since 1.25.0
+ * @since 1.107.0 Added `widgetSlug` to the returned props.
  *
  * @param {string} widgetSlug The widget's slug.
- * @return {Object} Props to pass to the widget component.
+ * @return {WidgetComponentProps} Props to pass to the widget component.
  */
-export const getWidgetComponentProps = memize(
-	( widgetSlug ) => {
-		// Scope widget-specific components to the widget instance so that the
-		// component does not need to (re-)specify the widget slug.
-		return {
-			Widget: withWidgetSlug( widgetSlug )( Widget ),
-			WidgetReportZero: withWidgetSlug( widgetSlug )( WidgetReportZero ),
-			WidgetReportError: withWidgetSlug( widgetSlug )( WidgetReportError ),
-			WidgetActivateModuleCTA: withWidgetSlug( widgetSlug )( WidgetActivateModuleCTA ),
-			WidgetCompleteModuleActivationCTA: withWidgetSlug( widgetSlug )( WidgetCompleteModuleActivationCTA ),
-			WidgetNull: withWidgetSlug( widgetSlug )( WidgetNull ),
-		};
-	}
-);
+export const getWidgetComponentProps = memize( buildWidgetComponentProps );
 
 function withWidgetSlug( widgetSlug ) {
 	return ( WrappedComponent ) => {
-		const WithWidgetSlug = ( props ) => <WrappedComponent { ...props } widgetSlug={ widgetSlug } />;
+		const WithWidgetSlug = forwardRef( ( props, ref ) => {
+			return (
+				<WrappedComponent
+					{ ...props }
+					ref={ ref }
+					widgetSlug={ widgetSlug }
+				/>
+			);
+		} );
 		WithWidgetSlug.displayName = 'WithWidgetSlug';
 		if ( WrappedComponent.displayName || WrappedComponent.name ) {
-			WithWidgetSlug.displayName += `(${ WrappedComponent.displayName || WrappedComponent.name })`;
+			WithWidgetSlug.displayName += `(${
+				WrappedComponent.displayName || WrappedComponent.name
+			})`;
 		}
 		return WithWidgetSlug;
 	};
@@ -73,14 +117,51 @@ function withWidgetSlug( widgetSlug ) {
  * @param {string} widgetSlug The slug of the widget.
  * @return {Function} Enhancing function that adds the getWidgetComponentProps to the passed component.
  */
-export const withWidgetComponentProps = ( widgetSlug ) => {
+export function withWidgetComponentProps( widgetSlug ) {
 	const widgetComponentProps = getWidgetComponentProps( widgetSlug );
 	return ( WrappedComponent ) => {
-		const DecoratedComponent = ( props ) => <WrappedComponent { ...props } { ...widgetComponentProps } />;
+		function DecoratedComponent( props ) {
+			return (
+				<WrappedComponent { ...props } { ...widgetComponentProps } />
+			);
+		}
 		DecoratedComponent.displayName = 'WithWidgetComponentProps';
 		if ( WrappedComponent.displayName || WrappedComponent.name ) {
-			DecoratedComponent.displayName += `(${ WrappedComponent.displayName || WrappedComponent.name })`;
+			DecoratedComponent.displayName += `(${
+				WrappedComponent.displayName || WrappedComponent.name
+			})`;
 		}
 		return DecoratedComponent;
 	};
-};
+}
+
+/**
+ * Gets the props and passes them to the WP Dashboard widget's component through a HOC.
+ *
+ * @since 1.114.0
+ *
+ * @param {string} widgetSlug The slug of the widget.
+ * @return {Function} Enhancing function that adds the WP Dashboard specific
+ *                    props to the passed component.
+ */
+export function withWPDashboardWidgetComponentProps( widgetSlug ) {
+	return ( WrappedComponent ) => {
+		function DecoratedComponent( props ) {
+			return (
+				<WrappedComponent
+					{ ...props }
+					WPDashboardReportError={ withWidgetSlug( widgetSlug )(
+						WPDashboardReportError
+					) }
+				/>
+			);
+		}
+		DecoratedComponent.displayName = 'WithWPDashboardWidgetComponentProps';
+		if ( WrappedComponent.displayName || WrappedComponent.name ) {
+			DecoratedComponent.displayName += `(${
+				WrappedComponent.displayName || WrappedComponent.name
+			})`;
+		}
+		return DecoratedComponent;
+	};
+}

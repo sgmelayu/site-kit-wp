@@ -19,65 +19,88 @@
 /**
  * External dependencies
  */
-import PropTypes from 'prop-types';
 import classnames from 'classnames';
+import PropTypes from 'prop-types';
 
 /**
  * WordPress dependencies
  */
-import { sprintf, __ } from '@wordpress/i18n';
-import { useState, useCallback } from '@wordpress/element';
+import { useCallback, useState } from '@wordpress/element';
+import { __, sprintf } from '@wordpress/i18n';
 
 /**
  * Internal dependencies
  */
-import Data from 'googlesitekit-data';
-import { showErrorNotification } from '../../util';
-import ModuleIcon from '../ModuleIcon';
-import Spinner from '../Spinner';
-import Link from '../Link';
-import GenericError from '../legacy-notifications/generic-error';
-import ModuleSettingsWarning from '../legacy-notifications/module-settings-warning';
-import { CORE_MODULES } from '../../googlesitekit/modules/datastore/constants';
-import { CORE_LOCATION } from '../../googlesitekit/datastore/location/constants';
-const { useSelect, useDispatch } = Data;
+import { useDispatch, useSelect } from 'googlesitekit-data';
+import Badge from '@/js/components/Badge';
+import { BADGE_VARIANTS } from '@/js/components/Badge/constants';
+import Link from '@/js/components/Link';
+import ModuleIcon from '@/js/components/ModuleIcon';
+import NewBadge from '@/js/components/NewBadge.js';
+import ModuleSettingsWarning from '@/js/components/notifications/ModuleSettingsWarning.js';
+import Spinner from '@/js/components/Spinner';
+import Typography from '@/js/components/Typography';
+import { SIZE_MEDIUM } from '@/js/components/Typography/constants';
+import P from '@/js/components/Typography/P';
+import { setItem } from '@/js/googlesitekit/api/cache';
+import { CORE_LOCATION } from '@/js/googlesitekit/datastore/location/constants';
+import { CORE_SITE } from '@/js/googlesitekit/datastore/site/constants';
+import { CORE_MODULES } from '@/js/googlesitekit/modules/datastore/constants';
+import useViewContext from '@/js/hooks/useViewContext';
+import { trackEvent } from '@/js/util';
+import { BETA_MODULES, EXPERIMENTAL_MODULES, NEW_MODULES } from './constants';
 
-export default function SetupModule( {
-	slug,
-	name,
-	description,
-} ) {
+export default function SetupModule( { slug, name, description } ) {
+	const viewContext = useViewContext();
+
 	const [ isSaving, setIsSaving ] = useState( false );
 
 	const { activateModule } = useDispatch( CORE_MODULES );
 	const { navigateTo } = useDispatch( CORE_LOCATION );
+	const { setInternalServerError } = useDispatch( CORE_SITE );
 
 	const onSetup = useCallback( async () => {
 		setIsSaving( true );
 		const { error, response } = await activateModule( slug );
 
 		if ( ! error ) {
+			await trackEvent(
+				`${ viewContext }_module-list`,
+				'activate_module',
+				slug
+			);
+
+			await setItem(
+				'module_setup',
+				{ slug, options: {} },
+				{ ttl: 300 }
+			);
+
 			navigateTo( response.moduleReauthURL );
 		} else {
-			showErrorNotification( GenericError, {
+			setInternalServerError( {
 				id: 'activate-module-error',
-				title: __( 'Internal Server Error', 'google-site-kit' ),
 				description: error.message,
-				format: 'small',
-				type: 'win-error',
 			} );
 			setIsSaving( false );
 		}
-	} );
+	}, [
+		activateModule,
+		navigateTo,
+		setInternalServerError,
+		slug,
+		viewContext,
+	] );
 
-	const canActivateModule = useSelect( ( select ) => select( CORE_MODULES ).canActivateModule( slug ) );
+	const canActivateModule = useSelect( ( select ) =>
+		select( CORE_MODULES ).canActivateModule( slug )
+	);
 
 	return (
 		<div
 			className={ classnames(
 				'googlesitekit-settings-connect-module',
-				`googlesitekit-settings-connect-module--${ slug }`,
-				{ 'googlesitekit-settings-connect-module--disabled': ! canActivateModule }
+				`googlesitekit-settings-connect-module--${ slug }`
 			) }
 			key={ slug }
 		>
@@ -87,35 +110,62 @@ export default function SetupModule( {
 			<div className="googlesitekit-settings-connect-module__logo">
 				<ModuleIcon slug={ slug } />
 			</div>
-			<h3 className="
+			<div className="googlesitekit-settings-connect-module__heading">
+				<Typography
+					as="h3"
+					type="title"
+					size="small"
+					className="
 					googlesitekit-subheading-1
 					googlesitekit-settings-connect-module__title
-				">
-				{ name }
-			</h3>
-			<p className="googlesitekit-settings-connect-module__text">
+				"
+				>
+					{ name }
+				</Typography>
+				<div className="googlesitekit-settings-connect-module__badges">
+					{ EXPERIMENTAL_MODULES.includes( slug ) && (
+						<Badge
+							label={ __( 'Experimental', 'google-site-kit' ) }
+							variant={ BADGE_VARIANTS.EXPERIMENTAL }
+						/>
+					) }
+					{ BETA_MODULES.includes( slug ) && (
+						<Badge
+							label={ __( 'Beta', 'google-site-kit' ) }
+							variant={ BADGE_VARIANTS.ANNOUNCEMENT }
+						/>
+					) }
+					{ NEW_MODULES.includes( slug ) && (
+						<NewBadge hasNoSpacing />
+					) }
+				</div>
+			</div>
+			<P
+				className="googlesitekit-settings-connect-module__text"
+				size={ SIZE_MEDIUM }
+			>
 				{ description }
-			</p>
+			</P>
 
-			<ModuleSettingsWarning slug={ slug } />
-
-			<p className="googlesitekit-settings-connect-module__cta">
+			<P
+				className="googlesitekit-settings-connect-module__cta"
+				size={ SIZE_MEDIUM }
+			>
 				<Link
 					onClick={ onSetup }
 					href=""
-					inherit
-					disabled={ ! canActivateModule }
+					disabled={ ! canActivateModule || isSaving }
 					arrow
 				>
-					{
-						sprintf(
-							/* translators: %s: module name */
-							__( 'Set up %s', 'google-site-kit' ),
-							name
-						)
-					}
+					{ sprintf(
+						/* translators: %s: module name */
+						__( 'Set up %s', 'google-site-kit' ),
+						name
+					) }
 				</Link>
-			</p>
+			</P>
+
+			<ModuleSettingsWarning slug={ slug } />
 		</div>
 	);
 }

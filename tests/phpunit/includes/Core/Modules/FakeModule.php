@@ -6,18 +6,36 @@
  * @copyright 2021 Google LLC
  * @license   https://www.apache.org/licenses/LICENSE-2.0 Apache License 2.0
  * @link      https://sitekit.withgoogle.com
+ *
+ * phpcs:disable PHPCS.Commenting.RequireDocTagDescription -- Pre-existing violations; tracked for follow-up cleanup.
  */
 
 namespace Google\Site_Kit\Tests\Core\Modules;
 
 use Google\Site_Kit\Core\Modules\Module;
+use Google\Site_Kit\Core\Modules\Module_Settings;
+use Google\Site_Kit\Core\Modules\Module_With_Owner;
+use Google\Site_Kit\Core\Modules\Module_With_Owner_Trait;
+use Google\Site_Kit\Core\Modules\Module_With_Settings;
+use Google\Site_Kit\Core\Modules\Module_With_Settings_Trait;
 use Google\Site_Kit\Core\Authentication\Clients\Google_Site_Kit_Client;
+use Google\Site_Kit\Core\Modules\Module_With_Activation;
+use Google\Site_Kit\Core\Modules\Module_With_Deactivation;
+use Google\Site_Kit\Core\Modules\Module_With_Inline_Data;
 use Google\Site_Kit\Core\REST_API\Data_Request;
-use Psr\Http\Message\RequestInterface;
+use Google\Site_Kit\Tests\Core\Modules\Datapoints\FakeModule_Permission_Aware_Request;
+use Google\Site_Kit\Tests\Core\Modules\Datapoints\FakeModule_Schema_Aware_Request;
+use Google\Site_Kit\Tests\Core\Modules\Datapoints\FakeModule_Test_Request;
 use WP_Error;
 use Exception;
 
-class FakeModule extends Module {
+#[\AllowDynamicProperties]
+class FakeModule extends Module implements Module_With_Activation, Module_With_Deactivation, Module_With_Inline_Data, Module_With_Owner, Module_With_Settings {
+
+	use Module_With_Owner_Trait;
+	use Module_With_Settings_Trait;
+
+	public $owner_id = 0;
 
 	/**
 	 * Whether or not the module has been registered.
@@ -25,6 +43,20 @@ class FakeModule extends Module {
 	 * @var bool
 	 */
 	protected $is_registered = false;
+
+	/**
+	 * Whether or not the latest request was made as a shared data request.
+	 *
+	 * @var bool|null
+	 */
+	protected $made_shared_data_request = null;
+
+	/**
+	 * The Google client the latest request ran with.
+	 *
+	 * @var Google_Site_Kit_Client|null
+	 */
+	protected $request_client = null;
 
 	/**
 	 * Callback to invoke on activation.
@@ -99,6 +131,20 @@ class FakeModule extends Module {
 	 */
 	public function register() {
 		$this->is_registered = true;
+
+		add_action(
+			'googlesitekit_fake_module_data_request',
+			function ( Data_Request $data ) {
+				$this->made_shared_data_request = $this->is_shared_data_request( $data );
+			}
+		);
+
+		add_action(
+			'googlesitekit_fake_module_request_client',
+			function ( Google_Site_Kit_Client $client ) {
+				$this->request_client = $client;
+			}
+		);
 	}
 
 	/**
@@ -110,55 +156,58 @@ class FakeModule extends Module {
 	 */
 	protected function get_datapoint_definitions() {
 		return array(
-			'GET:test-request' => array( 'service' => '' ),
+			'GET:test-request'                       => new FakeModule_Test_Request(
+				array(
+					'service' => '',
+				)
+			),
+			'POST:test-request'                      => new FakeModule_Test_Request( array( 'service' => '' ) ),
+			'GET:permission-aware-request'           => new FakeModule_Permission_Aware_Request( array( 'service' => '' ) ),
+			'POST:permission-aware-request'          => new FakeModule_Permission_Aware_Request( array( 'service' => '' ) ),
+			'POST:throwing-permission-aware-request' => new FakeModule_Permission_Aware_Request(
+				array(
+					'service'             => '',
+					'permission_callback' => function () {
+						throw new \Error( 'Permission check failed.' );
+					},
+				)
+			),
+			'GET:schema-aware-request'               => new FakeModule_Schema_Aware_Request( array( 'service' => '' ) ),
+			'POST:schema-aware-request'              => new FakeModule_Schema_Aware_Request( array( 'service' => '' ) ),
 		);
 	}
 
 	/**
-	 * Creates a request object for the given datapoint.
+	 * Gets whether or not the latest request was made as a shared data request.
 	 *
-	 * @since 1.0.0
+	 * @since 1.98.0
 	 *
-	 * @param Data_Request $data Data request object.
-	 *
-	 * @return RequestInterface|callable|WP_Error Request object or callable on success, or WP_Error on failure.
+	 * @return bool|null True if the latest request was made as a shared data request, false if not, or null if no request has been made yet.
 	 */
-	protected function create_data_request( Data_Request $data ) {
-		$method    = $data->method;
-		$datapoint = $data->datapoint;
-
-		switch ( "$method:$datapoint" ) {
-			case 'GET:test-request':
-				return function () use ( $method, $datapoint, $data ) {
-					$data = $data->data;
-					return json_encode( compact( 'method', 'datapoint', 'data' ) );
-				};
-		}
-
-		return function () {
-		};
+	public function made_shared_data_request() {
+		return $this->made_shared_data_request;
 	}
 
 	/**
-	 * Parses a response for the given datapoint.
+	 * Gets the Google client the latest request ran with.
 	 *
-	 * @since 1.0.0
+	 * @since 1.191.0
 	 *
-	 * @param Data_Request $data Data request object.
-	 * @param mixed $response Request response.
-	 *
-	 * @return mixed Parsed response data on success, or WP_Error on failure.
+	 * @return Google_Site_Kit_Client|null The client, or null if no request has run yet.
 	 */
-	protected function parse_data_response( Data_Request $data, $response ) {
-		$method    = $data->method;
-		$datapoint = $data->datapoint;
+	public function get_request_client() {
+		return $this->request_client;
+	}
 
-		switch ( "$method:$datapoint" ) {
-			case 'GET:test-request':
-				return json_decode( $response, $data['asArray'] );
-		}
-
-		return '';
+	/**
+	 * Gets required inline data for the module.
+	 *
+	 * @return array An array of the module's inline data.
+	 */
+	public function get_inline_data() {
+		return array(
+			'testInlineData' => true,
+		);
 	}
 
 	/**
@@ -195,34 +244,31 @@ class FakeModule extends Module {
 	 * Transforms an exception into a WP_Error object.
 	 *
 	 * @since 1.0.0
+	 * @since 1.70.0 $datapoint parameter is optional.
 	 *
 	 * @param Exception $e         Exception object.
-	 * @param string    $datapoint Datapoint originally requested.
+	 * @param string    $datapoint Optional. Datapoint originally requested. Default is an empty string.
 	 * @return WP_Error WordPress error object.
 	 */
-	public function exception_to_error( Exception $e, $datapoint ) { // phpcs:ignore Generic.CodeAnalysis.UselessOverridingMethod
+	public function exception_to_error( Exception $e, $datapoint = '' ) { // phpcs:ignore Generic.CodeAnalysis.UselessOverridingMethod
 		return parent::exception_to_error( $e, $datapoint );
 	}
 
+	/**
+	 * Gets the module's owner ID.
+	 *
+	 * @return int
+	 */
+	public function get_owner_id() {
+		return $this->owner_id;
+	}
 
 	/**
-	 * Parses a date range string into a start date and an end date.
+	 * Sets up the module's settings instance.
 	 *
-	 * @since 1.0.0
-	 *
-	 * @param string $range         Date range string. Either 'last-7-days', 'last-14-days', 'last-90-days', or
-	 *                              'last-28-days' (default).
-	 * @param string $multiplier    Optional. How many times the date range to get. This value can be specified if the
-	 *                              range should be request multiple times back. Default 1.
-	 * @param int    $offset        Days the range should be offset by. Default 1. Used by Search Console where
-	 *                              data is delayed by two days.
-	 * @param bool   $previous      Whether to select the previous period. Default false.
-	 * @param bool   $weekday_align Whether to align the previous period days of the week to current period. Default false.
-	 *
-	 * @return array List with two elements, the first with the start date and the second with the end date, both as
-	 *               'Y-m-d'.
+	 * @return Module_Settings
 	 */
-	public function parse_date_range( $range, $multiplier = 1, $offset = 1, $previous = false, $weekday_align = false ) { // phpcs:ignore Generic.CodeAnalysis.UselessOverridingMethod
-		return parent::parse_date_range( $range, $multiplier, $offset, $previous, $weekday_align );
+	protected function setup_settings() {
+		return new FakeModuleSettings( $this->options );
 	}
 }

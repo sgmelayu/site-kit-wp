@@ -17,39 +17,34 @@
  */
 
 /**
+ * External dependencies
+ */
+import classnames from 'classnames';
+
+/**
  * WordPress dependencies
  */
-import { sprintf, __ } from '@wordpress/i18n';
+import { __ } from '@wordpress/i18n';
 
 /**
  * Internal dependencies
  */
-import Data from 'googlesitekit-data';
-import { CORE_SITE } from '../../googlesitekit/datastore/site/constants';
-import { sanitizeHTML } from '../../util';
-const { useSelect } = Data;
+import { SIZE_SMALL } from '@/js/components/Typography/constants';
+import P from '@/js/components/Typography/P';
 
-export default function UserInputQuestionNotice() {
-	const settingsURL = useSelect( ( select ) => select( CORE_SITE ).getAdminURL( 'googlesitekit-settings' ) );
-	if ( ! settingsURL ) {
-		return null;
-	}
-
-	const notice = sprintf(
-		/* translators: %s: Settings page URL */
-		__( 'You can always edit your answers after your submission in <a href="%s">Settings</a>.', 'google-site-kit' ),
-		`${ settingsURL }#admin`,
-	);
-
-	const sanitizeArgs = {
-		ALLOWED_TAGS: [ 'a' ],
-		ALLOWED_ATTR: [ 'href' ],
-	};
-
+export default function UserInputQuestionNotice( { className } ) {
 	return (
-		<p
-			className="googlesitekit-user-input__question-instructions--notice"
-			dangerouslySetInnerHTML={ sanitizeHTML( notice, sanitizeArgs ) }
-		/>
+		<P
+			className={ classnames(
+				className,
+				'googlesitekit-user-input__question-notice'
+			) }
+			size={ SIZE_SMALL }
+		>
+			{ __(
+				'You can always edit your answers later in Settings',
+				'google-site-kit'
+			) }
+		</P>
 	);
 }

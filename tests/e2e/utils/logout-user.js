@@ -1,20 +1,16 @@
 /**
- * WordPress dependencies
+ * Internal dependencies
  */
-import { createURL, isCurrentURL } from '@wordpress/e2e-test-utils';
+import { createURL, isCurrentURL } from './create-url';
+import { deleteAuthCookie } from './delete-auth-cookie';
 
 /**
  * Deletes authentication cookies to sign out the current user.
  */
 export async function logoutUser() {
-	const cookies = ( await page.cookies() )
-		.filter( ( cookie ) => cookie.name.match( /^wordpress_/ ) )
-		.filter( ( cookie ) => cookie.name !== 'wordpress_test_cookie' );
-	await page.deleteCookie( ...cookies );
+	await deleteAuthCookie();
 
 	if ( ! isCurrentURL( 'wp-login.php' ) ) {
-		await page.goto(
-			createURL( 'wp-login.php' )
-		);
+		await page.goto( createURL( 'wp-login.php' ) );
 	}
 }

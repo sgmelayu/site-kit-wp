@@ -24,54 +24,75 @@ import { __ } from '@wordpress/i18n';
 /**
  * Internal dependencies
  */
-import Data from 'googlesitekit-data';
-import { CORE_USER } from '../../googlesitekit/datastore/user/constants';
-import { CORE_SITE } from '../../googlesitekit/datastore/site/constants';
-import { MODULES_SEARCH_CONSOLE, DATE_RANGE_OFFSET } from '../../modules/search-console/datastore/constants';
-import { calculateChange } from '../../util';
-import { isZeroReport } from '../../modules/search-console/util/is-zero-report';
-import PreviewBlock from '../PreviewBlock';
-import DataBlock from '../DataBlock';
-import sumObjectListValue from '../../util/sum-object-list-value';
-const { useSelect } = Data;
+import { useSelect } from 'googlesitekit-data';
+import DataBlock from '@/js/components/DataBlock';
+import { NOTICE_STYLE } from '@/js/components/GatheringDataNotice';
+import PreviewBlock from '@/js/components/PreviewBlock';
+import { CORE_SITE } from '@/js/googlesitekit/datastore/site/constants';
+import { CORE_USER } from '@/js/googlesitekit/datastore/user/constants';
+import { MODULES_SEARCH_CONSOLE } from '@/js/modules/search-console/datastore/constants';
+import { calculateChange } from '@/js/util';
+import { partitionReport } from '@/js/util/partition-report';
+import sumObjectListValue from '@/js/util/sum-object-list-value';
 
-function AdminBarClicks( { WidgetReportZero, WidgetReportError } ) {
-	const url = useSelect( ( select ) => select( CORE_SITE ).getCurrentEntityURL() );
-	const { compareStartDate, endDate } = useSelect( ( select ) => select( CORE_USER ).getDateRangeDates( {
-		compare: true,
-		offsetDays: DATE_RANGE_OFFSET,
-	} ) );
+function AdminBarClicks( { WidgetReportError } ) {
+	const isGatheringData = useSelect( ( select ) =>
+		select( MODULES_SEARCH_CONSOLE ).isGatheringData()
+	);
+	const url = useSelect( ( select ) =>
+		select( CORE_SITE ).getCurrentEntityURL()
+	);
+	const { compareStartDate, endDate } = useSelect( ( select ) =>
+		select( CORE_USER ).getDateRangeDates( {
+			compare: true,
+		} )
+	);
+	const dateRangeLength = useSelect( ( select ) =>
+		select( CORE_USER ).getDateRangeNumberOfDays()
+	);
 	const reportArgs = {
 		startDate: compareStartDate,
 		endDate,
 		dimensions: 'date',
 		url,
+		reportID: 'adminbar_admin-bar-clicks_component_reportArgs',
 	};
 
-	const searchConsoleData = useSelect( ( select ) => select( MODULES_SEARCH_CONSOLE ).getReport( reportArgs ) );
-	const hasFinishedResolution = useSelect( ( select ) => select( MODULES_SEARCH_CONSOLE ).hasFinishedResolution( 'getReport', [ reportArgs ] ) );
-	const error = useSelect( ( select ) => select( MODULES_SEARCH_CONSOLE ).getErrorForSelector( 'getReport', [ reportArgs ] ) );
+	const searchConsoleData = useSelect( ( select ) =>
+		select( MODULES_SEARCH_CONSOLE ).getReport( reportArgs )
+	);
+	const hasFinishedResolution = useSelect( ( select ) =>
+		select( MODULES_SEARCH_CONSOLE ).hasFinishedResolution( 'getReport', [
+			reportArgs,
+		] )
+	);
+	const error = useSelect( ( select ) =>
+		select( MODULES_SEARCH_CONSOLE ).getErrorForSelector( 'getReport', [
+			reportArgs,
+		] )
+	);
 
-	if ( ! hasFinishedResolution ) {
+	if ( ! hasFinishedResolution || isGatheringData === undefined ) {
 		return <PreviewBlock width="auto" height="59px" />;
 	}
 
 	if ( error ) {
-		return <WidgetReportError moduleSlug="search-console" error={ error } />;
+		return (
+			<WidgetReportError moduleSlug="search-console" error={ error } />
+		);
 	}
 
-	if ( isZeroReport( searchConsoleData ) ) {
-		return <WidgetReportZero moduleSlug="search-console" />;
-	}
-
-	// Split the data in two chunks.
-	const half = Math.floor( searchConsoleData.length / 2 );
-	const latestData = searchConsoleData.slice( half );
-	const olderData = searchConsoleData.slice( 0, half );
-
-	const totalClicks = sumObjectListValue( latestData, 'clicks' );
-	const totalOlderClicks = sumObjectListValue( olderData, 'clicks' );
+	const { compareRange, currentRange } = partitionReport( searchConsoleData, {
+		dateRangeLength,
+	} );
+	const totalClicks = sumObjectListValue( currentRange, 'clicks' );
+	const totalOlderClicks = sumObjectListValue( compareRange, 'clicks' );
 	const totalClicksChange = calculateChange( totalOlderClicks, totalClicks );
+
+	const gatheringDataProps = {
+		gatheringData: isGatheringData,
+		gatheringDataNoticeStyle: NOTICE_STYLE.SMALL,
+	};
 
 	return (
 		<DataBlock
@@ -80,6 +101,7 @@ function AdminBarClicks( { WidgetReportZero, WidgetReportError } ) {
 			datapoint={ totalClicks }
 			change={ totalClicksChange }
 			changeDataUnit="%"
+			{ ...gatheringDataProps }
 		/>
 	);
 }

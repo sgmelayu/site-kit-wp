@@ -19,31 +19,57 @@
 /**
  * Internal dependencies
  */
-import Data from 'googlesitekit-data';
-import { createErrorStore } from '../../data/create-error-store';
+import { combineStores, commonStore } from 'googlesitekit-data';
+import { createErrorStore } from '@/js/googlesitekit/data/create-error-store';
+import adblocker from './adblocker';
+import audienceSettings from './audience-settings';
 import authentication from './authentication';
+import { CORE_USER } from './constants';
+import conversionReportingSettings from './conversion-reporting-settings';
 import dateRange from './date-range';
 import disconnect from './disconnect';
+import dismissedItems from './dismissed-items';
+import emailReportingSettings from './email-reporting-settings';
+import expirableItems from './expirable-items';
 import featureTours from './feature-tours';
+import feedback from './feedback';
+import initialSetupSettings from './initial-setup-settings';
+import keyMetrics from './key-metrics';
+import nonces from './nonces';
 import notifications from './notifications';
 import permissions from './permissions';
+import prompts from './prompts';
+import setupFlow from './setup-flow';
+import surveys from './surveys';
 import tracking from './tracking';
 import userInfo from './user-info';
 import userInputSettings from './user-input-settings';
-import { STORE_NAME } from './constants';
 
-const store = Data.combineStores(
-	Data.commonStore,
-	createErrorStore(),
+const store = combineStores(
+	commonStore,
+	createErrorStore( CORE_USER ),
+	adblocker,
+	audienceSettings,
 	authentication,
 	dateRange,
 	disconnect,
+	dismissedItems,
+	expirableItems,
 	featureTours,
+	feedback,
+	keyMetrics,
 	notifications,
 	permissions,
+	prompts,
+	nonces,
+	surveys,
 	tracking,
 	userInfo,
 	userInputSettings,
+	conversionReportingSettings,
+	emailReportingSettings,
+	initialSetupSettings,
+	setupFlow
 );
 
 export const {
@@ -55,8 +81,15 @@ export const {
 	selectors,
 } = store;
 
-export const registerStore = ( registry ) => {
-	registry.registerStore( STORE_NAME, store );
-};
+export function registerStore( registry ) {
+	registry.registerStore( CORE_USER, store );
+
+	// If a reference date was set by the server, set it in the store.
+	if ( global._googlesitekitBaseData?.referenceDate ) {
+		registry
+			.dispatch( CORE_USER )
+			.setReferenceDate( global._googlesitekitBaseData.referenceDate );
+	}
+}
 
 export default store;

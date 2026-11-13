@@ -1,0 +1,239 @@
+<?php
+/**
+ * REST_Prompts_ControllerTest
+ *
+ * @package   Google\Site_Kit\Tests\Core\Prompts
+ * @copyright 2024 Google LLC
+ * @license   https://www.apache.org/licenses/LICENSE-2.0 Apache License 2.0
+ * @link      https://sitekit.withgoogle.com
+ */
+namespace Google\Site_Kit\Tests\Core\Prompts;
+
+use Google\Site_Kit\Context;
+use Google\Site_Kit\Core\Prompts\Dismissed_Prompts;
+use Google\Site_Kit\Core\Prompts\REST_Prompts_Controller;
+use Google\Site_Kit\Core\REST_API\REST_Routes;
+use Google\Site_Kit\Core\Storage\User_Options;
+use Google\Site_Kit\Tests\RestTestTrait;
+use Google\Site_Kit\Tests\TestCase;
+use WP_REST_Request;
+
+class REST_Prompts_ControllerTest extends TestCase {
+
+	use RestTestTrait;
+
+	/**
+	 * Dismissed prompts instance.
+	 *
+	 * @var Dismissed_Prompts
+	 */
+	private $dismissed_prompts;
+
+	/**
+	 * Controller instance.
+	 *
+	 * @var REST_Prompts_Controller
+	 */
+	private $controller;
+
+	public function set_up() {
+		parent::set_up();
+
+		$user_id = $this->factory()->user->create( array( 'role' => 'administrator' ) );
+		wp_set_current_user( $user_id );
+
+		$context                 = new Context( GOOGLESITEKIT_PLUGIN_MAIN_FILE );
+		$user_options            = new User_Options( $context, $user_id );
+		$this->dismissed_prompts = new Dismissed_Prompts( $user_options );
+		$this->controller        = new REST_Prompts_Controller( $this->dismissed_prompts );
+	}
+
+	public function tear_down() {
+		parent::tear_down();
+		// This ensures the REST server is initialized fresh for each test using it.
+		unset( $GLOBALS['wp_rest_server'] );
+	}
+
+	public function test_register() {
+		remove_all_filters( 'googlesitekit_rest_routes' );
+		remove_all_filters( 'googlesitekit_apifetch_preload_paths' );
+
+		$this->controller->register();
+
+		$this->assertTrue(
+			has_filter( 'googlesitekit_rest_routes' ),
+			'Dismissed prompts REST routes should be registered.'
+		);
+		$this->assertTrue(
+			has_filter( 'googlesitekit_apifetch_preload_paths' ),
+			'Dismissed prompts endpoint should be added to API fetch preload paths.'
+		);
+	}
+
+	public function test_get_dismissed_prompts() {
+		remove_all_filters( 'googlesitekit_rest_routes' );
+		$this->controller->register();
+		$this->register_rest_routes();
+
+		$this->dismissed_prompts->add( 'foo' );
+		$this->dismissed_prompts->add( 'bar', 100 );
+
+		$request  = new WP_REST_Request( 'GET', '/' . REST_Routes::REST_ROOT . '/core/user/data/dismissed-prompts' );
+		$response = rest_get_server()->dispatch( $request );
+
+		$response_data = $response->get_data();
+		// The asserts are split to use assertEqualsWithDelta for the time based assertion.
+		$this->assertArrayHasKey( 'foo', $response_data, 'Response should include the permanent prompt dismissal.' );
+		$this->assertArrayHasKey( 'bar', $response_data, 'Response should include the expiring prompt dismissal.' );
+		$this->assertEquals( 0, $response_data['foo']['expires'], 'Permanent prompt dismissal should have no expiry.' );
+		$this->assertEquals( 1, $response_data['foo']['count'], 'Permanent prompt should have been dismissed once.' );
+		$this->assertEqualsWithDelta( time() + 100, $response_data['bar']['expires'], 2, 'Expiring prompt should include its expiration timestamp.' );
+		$this->assertEquals( 1, $response_data['bar']['count'], 'Expiring prompt should have been dismissed once.' );
+		$this->assertMatchesRouteResourceSchema( $response_data, 'core/user/data/dismissed-prompts', 'Dismissed prompts response should match its resource schema.' );
+	}
+
+	public function test_dismiss_new_prompt() {
+		remove_all_filters( 'googlesitekit_rest_routes' );
+		$this->controller->register();
+		$this->register_rest_routes();
+
+		$this->dismissed_prompts->add( 'foo' );
+
+		$request = new WP_REST_Request( 'POST', '/' . REST_Routes::REST_ROOT . '/core/user/data/dismiss-prompt' );
+		$request->set_body_params(
+			array(
+				'data' => array(
+					'slug'       => 'bar',
+					'expiration' => 100,
+				),
+			)
+		);
+
+		$this->assertEqualSets(
+			array( 'foo', 'bar' ),
+			array_keys( rest_get_server()->dispatch( $request )->get_data() ),
+			'Dismissing a new prompt should preserve existing prompt dismissals.'
+		);
+	}
+
+	public function test_dismiss_prompt_increments_count() {
+		remove_all_filters( 'googlesitekit_rest_routes' );
+		$this->controller->register();
+		$this->register_rest_routes();
+
+		$this->dismissed_prompts->add( 'foo' );
+
+		$request = new WP_REST_Request( 'POST', '/' . REST_Routes::REST_ROOT . '/core/user/data/dismiss-prompt' );
+		$request->set_body_params(
+			array(
+				'data' => array(
+					'slug'       => 'foo',
+					'expiration' => 100,
+				),
+			)
+		);
+
+		$response_data = rest_get_server()->dispatch( $request )->get_data();
+		// The asserts are split to use assertEqualsWithDelta for the time based assertion.
+		$this->assertArrayHasKey( 'foo', $response_data, 'Response should include the repeatedly dismissed prompt.' );
+		$this->assertEqualsWithDelta( time() + 100, $response_data['foo']['expires'], 2, 'Repeated dismissal should update the prompt expiration.' );
+		$this->assertEquals( 2, $response_data['foo']['count'], 'Repeated dismissal should increment the prompt count.' );
+	}
+
+	/**
+	 * @dataProvider provider_dismiss_prompt__permanent
+	 *
+	 * @param array $data Request data.
+	 */
+	public function test_dismiss_prompt__permanent( $data ) {
+		remove_all_filters( 'googlesitekit_rest_routes' );
+		$this->controller->register();
+		$this->register_rest_routes();
+
+		$request = new WP_REST_Request( 'POST', '/' . REST_Routes::REST_ROOT . '/core/user/data/dismiss-prompt' );
+		$request->set_body_params( array( 'data' => $data ) );
+
+		$this->assertEquals(
+			array(
+				'bar' => array(
+					'expires' => 0,
+					'count'   => 1,
+				),
+			),
+			rest_get_server()->dispatch( $request )->get_data(),
+			'Dismiss prompt endpoint should dismiss the prompt permanently.'
+		);
+	}
+
+	public function provider_dismiss_prompt__permanent() {
+		return array(
+			'expiration is 0'        => array(
+				array(
+					'slug'       => 'bar',
+					'expiration' => 0,
+				),
+			),
+			'expiration is negative' => array(
+				array(
+					'slug'       => 'bar',
+					'expiration' => -1,
+				),
+			),
+			'no expiration'          => array(
+				array( 'slug' => 'bar' ),
+			),
+		);
+	}
+
+	/**
+	 * @dataProvider provider_dismiss_prompt__invalid_data
+	 *
+	 * @param array  $body          Request body.
+	 * @param string $expected_code Expected error code.
+	 */
+	public function test_dismiss_prompt__invalid_data( $body, $expected_code ) {
+		remove_all_filters( 'googlesitekit_rest_routes' );
+		$this->controller->register();
+		$this->register_rest_routes();
+
+		$request = new WP_REST_Request( 'POST', '/' . REST_Routes::REST_ROOT . '/core/user/data/dismiss-prompt' );
+		$request->set_body_params( $body );
+
+		$this->assertRESTRequestRejected( $request, $expected_code );
+		$this->assertEmpty( $this->dismissed_prompts->get(), 'Dismiss prompt endpoint should dismiss no prompt for invalid data.' );
+	}
+
+	public function provider_dismiss_prompt__invalid_data() {
+		return array(
+			'no data'                      => array(
+				array(),
+				'rest_missing_callback_param',
+			),
+			'data is not an object'        => array(
+				array( 'data' => 'foo' ),
+				'rest_invalid_param',
+			),
+			'slug is not a string'         => array(
+				array( 'data' => array( 'slug' => 123 ) ),
+				'rest_invalid_param',
+			),
+			'expiration is not an integer' => array(
+				array(
+					'data' => array(
+						'slug'       => 'foo',
+						'expiration' => 'soon',
+					),
+				),
+				'rest_invalid_param',
+			),
+			'data has no slug'             => array(
+				array( 'data' => array( 'expiration' => 100 ) ),
+				'rest_invalid_param',
+			),
+			'slug is empty'                => array(
+				array( 'data' => array( 'slug' => '' ) ),
+				'rest_invalid_param',
+			),
+		);
+	}
+}

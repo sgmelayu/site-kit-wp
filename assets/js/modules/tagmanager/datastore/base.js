@@ -20,11 +20,24 @@
  * Internal dependencies
  */
 import Modules from 'googlesitekit-modules';
-import { STORE_NAME } from './constants';
-import { submitChanges, validateCanSubmitChanges } from './settings';
+import { MODULE_SLUG_TAGMANAGER } from '@/js/modules/tagmanager/constants';
+import { MODULES_TAGMANAGER } from './constants';
+import {
+	rollbackChanges,
+	submitChanges,
+	validateCanSubmitChanges,
+	validateHaveSettingsChanged,
+} from './settings';
 
-let baseModuleStore = Modules.createModuleStore( 'tagmanager', {
-	storeName: STORE_NAME,
+let baseModuleStore = Modules.createModuleStore( MODULE_SLUG_TAGMANAGER, {
+	ownedSettingsSlugs: [
+		'accountID',
+		'ampContainerID',
+		'containerID',
+		'internalAMPContainerID',
+		'internalContainerID',
+	],
+	storeName: MODULES_TAGMANAGER,
 	settingSlugs: [
 		'accountID',
 		'ampContainerID',
@@ -33,18 +46,19 @@ let baseModuleStore = Modules.createModuleStore( 'tagmanager', {
 		'internalAMPContainerID',
 		'useSnippet',
 		'ownerID',
-		'gaPropertyID',
 	],
 	submitChanges,
+	rollbackChanges,
 	validateCanSubmitChanges,
+	validateHaveSettingsChanged,
 } );
 
 // Rename generated pieces to adhere to our convention.
 baseModuleStore = ( ( { actions, selectors, ...store } ) => {
 	// eslint-disable-next-line sitekit/acronym-case
-	const { setAmpContainerID, setGaPropertyID, ...restActions } = actions;
+	const { setAmpContainerID, ...restActions } = actions;
 	// eslint-disable-next-line sitekit/acronym-case
-	const { getAmpContainerID, getGaPropertyID, ...restSelectors } = selectors;
+	const { getAmpContainerID, ...restSelectors } = selectors;
 
 	return {
 		...store,
@@ -52,15 +66,11 @@ baseModuleStore = ( ( { actions, selectors, ...store } ) => {
 			...restActions,
 			// eslint-disable-next-line sitekit/acronym-case
 			setAMPContainerID: setAmpContainerID,
-			// eslint-disable-next-line sitekit/acronym-case
-			setGAPropertyID: setGaPropertyID,
 		},
 		selectors: {
 			...restSelectors,
 			// eslint-disable-next-line sitekit/acronym-case
 			getAMPContainerID: getAmpContainerID,
-			// eslint-disable-next-line sitekit/acronym-case
-			getGAPropertyID: getGaPropertyID,
 		},
 	};
 } )( baseModuleStore );

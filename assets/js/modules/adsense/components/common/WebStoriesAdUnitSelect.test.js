@@ -19,57 +19,97 @@
 /**
  * Internal dependencies
  */
+import * as fixtures from '@/js/modules/adsense/datastore/__fixtures__';
+import { MODULES_ADSENSE } from '@/js/modules/adsense/datastore/constants';
+import {
+	createTestRegistry,
+	fireEvent,
+	freezeFetch,
+	render,
+} from '@tests/js/test-utils';
 import WebStoriesAdUnitSelect from './WebStoriesAdUnitSelect';
-import { fireEvent, render, freezeFetch } from '../../../../../../tests/js/test-utils';
-import { STORE_NAME } from '../../datastore/constants';
-import * as fixtures from '../../datastore/__fixtures__';
 
 const TEST_ACCOUNT_ID = '123';
 const TEST_CLIENT_ID = '456';
 
-const setupRegistry = ( registry ) => {
-	registry.dispatch( STORE_NAME ).setSettings( { accountID: TEST_ACCOUNT_ID, clientID: TEST_CLIENT_ID } );
-
-	registry.dispatch( STORE_NAME ).receiveGetAdUnits( fixtures.adunits, { accountID: TEST_ACCOUNT_ID, clientID: TEST_CLIENT_ID } );
-	registry.dispatch( STORE_NAME ).finishResolution( 'getAdUnits', [ TEST_ACCOUNT_ID, TEST_CLIENT_ID ] );
-};
-
-const setupLoadingRegistry = ( registry ) => {
-	registry.dispatch( STORE_NAME ).setSettings( { accountID: TEST_ACCOUNT_ID, clientID: TEST_CLIENT_ID } );
-
-	// Do not provided Ad Units in this test registry so that it will render the loading state for us.
-};
-
 describe( 'WebStoriesAdUnitSelect', () => {
+	let registry;
+
+	beforeEach( () => {
+		registry = createTestRegistry();
+
+		registry.dispatch( MODULES_ADSENSE ).setSettings( {
+			accountID: TEST_ACCOUNT_ID,
+			clientID: TEST_CLIENT_ID,
+		} );
+
+		registry
+			.dispatch( MODULES_ADSENSE )
+			.receiveGetAdUnits( fixtures.adunits, {
+				accountID: TEST_ACCOUNT_ID,
+				clientID: TEST_CLIENT_ID,
+			} );
+		registry
+			.dispatch( MODULES_ADSENSE )
+			.finishResolution( 'getAdUnits', [
+				TEST_ACCOUNT_ID,
+				TEST_CLIENT_ID,
+			] );
+	} );
+
 	it( 'should render an option for each AdSense ad unit', async () => {
-		const { getAllByRole } = render( <WebStoriesAdUnitSelect />, { setupRegistry } );
+		const { getAllByRole } = render( <WebStoriesAdUnitSelect />, {
+			registry,
+		} );
 
 		const listItems = await getAllByRole( 'menuitem', { hidden: true } );
 
-		expect( listItems ).toHaveLength( fixtures.adunits.items.length + 1 ); // + 1 accounts for the default value "Select ad unit".
+		expect( listItems ).toHaveLength( fixtures.adunits.length + 1 ); // + 1 accounts for the default value "Select ad unit".
 	} );
 
-	it( 'should render a loading state when ad units are undefined', async () => {
-		freezeFetch( /^\/google-site-kit\/v1\/modules\/adsense\/data\/adunits/ );
+	it( 'should render a loading state when ad units are undefined', () => {
+		registry
+			.dispatch( MODULES_ADSENSE )
+			.startResolution( 'getAdUnits', [
+				TEST_ACCOUNT_ID,
+				TEST_CLIENT_ID,
+			] );
 
-		const { queryAllByRole, queryByRole } = render( <WebStoriesAdUnitSelect />, { setupRegistry: setupLoadingRegistry } );
+		freezeFetch(
+			new RegExp( '^/google-site-kit/v1/modules/adsense/data/adunits' )
+		);
 
-		expect( queryAllByRole( 'menuitem', { hidden: true } ) ).toHaveLength( 0 );
+		const { queryAllByRole, queryByRole } = render(
+			<WebStoriesAdUnitSelect />,
+			{
+				registry,
+			}
+		);
+
+		expect( queryAllByRole( 'menuitem', { hidden: true } ) ).toHaveLength(
+			0
+		);
 		expect( queryByRole( 'progressbar' ) ).toBeInTheDocument();
 	} );
 
-	it( 'should update webStoriesAdUnit in the store when a new item is clicked', async () => {
-		const { getByText, container, registry } = render( <WebStoriesAdUnitSelect />, { setupRegistry } );
-		const originalWebStoriesAdUnit = registry.select( STORE_NAME ).getWebStoriesAdUnit();
-		const selectedAdUnit = fixtures.adunits.items[ 0 ];
+	it( 'should update webStoriesAdUnit in the store when a new item is clicked', () => {
+		const { getByText, container } = render( <WebStoriesAdUnitSelect />, {
+			registry,
+		} );
+		const originalWebStoriesAdUnit = registry
+			.select( MODULES_ADSENSE )
+			.getWebStoriesAdUnit();
+		const selectedAdUnit = fixtures.adunits[ 0 ];
 
 		// Click the label to expose the elements in the menu.
 		fireEvent.click( container.querySelector( '.mdc-floating-label' ) );
 		// Click this element to select it and fire the onChange event.
-		fireEvent.click( getByText( selectedAdUnit.name ) );
+		fireEvent.click( getByText( selectedAdUnit.displayName ) );
 
-		const newWebStoriesAdUnit = registry.select( STORE_NAME ).getWebStoriesAdUnit();
+		const newWebStoriesAdUnit = registry
+			.select( MODULES_ADSENSE )
+			.getWebStoriesAdUnit();
 		expect( originalWebStoriesAdUnit ).not.toEqual( newWebStoriesAdUnit );
-		expect( newWebStoriesAdUnit ).toEqual( selectedAdUnit.id );
+		expect( newWebStoriesAdUnit ).toEqual( selectedAdUnit._id );
 	} );
 } );

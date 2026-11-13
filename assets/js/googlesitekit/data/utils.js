@@ -20,7 +20,7 @@
  * External dependencies
  */
 import invariant from 'invariant';
-import mapValues from 'lodash/mapValues';
+import { cloneDeep, get, mapValues } from 'lodash';
 import memize from 'memize';
 
 /**
@@ -46,7 +46,7 @@ const AWAIT = 'AWAIT';
  * @param {...Object} items A list of arguments, each one should be an object to combine into one.
  * @return {Object} The combined object.
  */
-export const collect = ( ...items ) => {
+export function collect( ...items ) {
 	const collectedObject = items.reduce( ( acc, item ) => {
 		return { ...acc, ...item };
 	}, {} );
@@ -56,10 +56,15 @@ export const collect = ( ...items ) => {
 	}, [] );
 	const duplicates = findDuplicates( functionNames );
 
-	invariant( duplicates.length === 0, `collect() cannot accept collections with duplicate keys. Your call to collect() contains the following duplicated functions: ${ duplicates.join( ', ' ) }. Check your data stores for duplicates.` );
+	invariant(
+		duplicates.length === 0,
+		`collect() cannot accept collections with duplicate keys. Your call to collect() contains the following duplicated functions: ${ duplicates.join(
+			', '
+		) }. Check your data stores for duplicates.`
+	);
 
 	return collectedObject;
-};
+}
 
 /**
  * Collects all actions.
@@ -92,7 +97,7 @@ export const collectControls = collect;
  * @param {...(Object|Function)} args A list of reducers, each containing their own controls. If the first argument is not a function, it will be used as the combined reducer's `initialState`.
  * @return {Function} A Redux-style reducer.
  */
-export const collectReducers = ( ...args ) => {
+export function collectReducers( ...args ) {
 	const reducers = [ ...args ];
 	let initialState;
 
@@ -105,7 +110,7 @@ export const collectReducers = ( ...args ) => {
 			return reducer( newState, action );
 		}, state );
 	};
-};
+}
 
 /**
  * Collects all resolvers.
@@ -147,14 +152,17 @@ export const collectState = collect;
  * @param {...string} args A list of store names, all of which must be equal.
  * @return {string} The single store name.
  */
-export const collectName = ( ...args ) => {
+export function collectName( ...args ) {
 	const names = [ ...args ];
 
 	const duplicates = findDuplicates( names );
-	invariant( duplicates.length === names.length - 1, 'collectName() must not receive different names.' );
+	invariant(
+		duplicates.length === names.length - 1,
+		'collectName() must not receive different names.'
+	);
 
 	return names.shift();
-};
+}
 
 /**
  * Passes through state unmodified; eg. an empty reducer.
@@ -165,7 +173,9 @@ export const collectName = ( ...args ) => {
  * @param {Object} state A store's state.
  * @return {Object} The same state data as passed in `state`.
  */
-const passthroughReducer = ( state ) => state;
+function passthroughReducer( state ) {
+	return state;
+}
 
 /**
  * Combines multiple stores.
@@ -175,31 +185,31 @@ const passthroughReducer = ( state ) => state;
  * @param {...Object} stores A list of objects, each a store containing one or more of the following keys: initialState, actions, controls, reducer, resolvers, selectors.
  * @return {Object} The combined store.
  */
-export const combineStores = ( ...stores ) => {
+export function combineStores( ...stores ) {
 	const combinedInitialState = collectState(
-		...stores.map( ( store ) => ( store.initialState || {} ) )
+		...stores.map( ( store ) => store.initialState || {} )
 	);
 
 	return {
 		initialState: combinedInitialState,
 		controls: collectControls(
-			...stores.map( ( store ) => ( store.controls || {} ) )
+			...stores.map( ( store ) => store.controls || {} )
 		),
 		actions: collectActions(
-			...stores.map( ( store ) => ( store.actions || {} ) )
+			...stores.map( ( store ) => store.actions || {} )
 		),
 		reducer: collectReducers(
 			combinedInitialState,
-			...stores.map( ( store ) => ( store.reducer || passthroughReducer ) )
+			...stores.map( ( store ) => store.reducer || passthroughReducer )
 		),
 		resolvers: collectResolvers(
-			...stores.map( ( store ) => ( store.resolvers || {} ) )
+			...stores.map( ( store ) => store.resolvers || {} )
 		),
 		selectors: collectSelectors(
-			...stores.map( ( store ) => ( store.selectors || {} ) )
+			...stores.map( ( store ) => store.selectors || {} )
 		),
 	};
-};
+}
 
 /**
  * An object of common actions most stores will use.
@@ -285,12 +295,12 @@ export const commonControls = {
  * @param {Array} array Any array.
  * @return {Array} All values in the input array that were duplicated.
  */
-const findDuplicates = ( array ) => {
+function findDuplicates( array ) {
 	const duplicates = [];
 	const counts = {};
 
-	for ( let i = 0; i < array.length; i++ ) {
-		const item = array[ i ];
+	for ( let index = 0; index < array.length; index++ ) {
+		const item = array[ index ];
 		counts[ item ] = counts[ item ] >= 1 ? counts[ item ] + 1 : 1;
 		if ( counts[ item ] > 1 ) {
 			duplicates.push( item );
@@ -298,7 +308,7 @@ const findDuplicates = ( array ) => {
 	}
 
 	return duplicates;
-};
+}
 
 /**
  * A store containing the common actions, controls and reducer that all stores will use.
@@ -334,20 +344,22 @@ export const commonStore = {
  * @param {Function} select The registry.select function.
  * @return {Function} The strict version of registry.select.
  */
-export const createStrictSelect = ( select ) => ( storeName ) => {
-	return getStrictSelectors( select( storeName ) );
-};
+export function createStrictSelect( select ) {
+	return ( storeName ) => {
+		return getStrictSelectors( select( storeName ) );
+	};
+}
 
 // Based on {@link https://github.com/WordPress/gutenberg/blob/b1c8026087dfb026eff0a023a5f7febe28c876de/packages/data/src/registry.js#L91}
-const getStrictSelectors = memize(
-	( selectors ) => mapValues(
-		selectors,
-		( selector, selectorName ) => ( ...args ) => {
-			const returnValue = selector( ...args );
-			invariant( returnValue !== undefined, `${ selectorName }(...) is not resolved` );
-			return returnValue;
-		}
-	)
+const getStrictSelectors = memize( ( selectors ) =>
+	mapValues( selectors, ( selector, selectorName ) => ( ...args ) => {
+		const returnValue = selector( ...args );
+		invariant(
+			returnValue !== undefined,
+			`${ selectorName }(...) is not resolved`
+		);
+		return returnValue;
+	} )
 );
 
 /**
@@ -355,25 +367,89 @@ const getStrictSelectors = memize(
  *
  * @since 1.19.0
  *
- * @param {Function} validate Validation function callback.
+ * @param {Function} validate         Validation function callback.
+ * @param {Object}   [options]        Options to modify the behavior of the generated selectors.
+ * @param {boolean}  [options.negate] Whether to negate the boolean result or not. Default: false.
  * @return {Object} Safe and dangerous selectors.
  */
-export function createValidationSelector( validate ) {
-	const safeSelector = createRegistrySelector( ( select ) => ( state, ...args ) => {
-		try {
-			validate( select, state, ...args );
-			return true;
-		} catch {
-			return false;
-		}
-	} );
+export function createValidationSelector( validate, { negate = false } = {} ) {
+	const safeSelector = createRegistrySelector(
+		( select ) =>
+			( state, ...args ) => {
+				const pass = negate ? false : true;
+				const fail = negate ? true : false;
 
-	const dangerousSelector = createRegistrySelector( ( select ) => ( state, ...args ) => {
-		validate( select, state, ...args );
-	} );
+				try {
+					validate( select, state, ...args );
+					return pass;
+				} catch {
+					return fail;
+				}
+			}
+	);
+
+	const dangerousSelector = createRegistrySelector(
+		( select ) =>
+			( state, ...args ) => {
+				validate( select, state, ...args );
+			}
+	);
 
 	return {
 		safeSelector,
 		dangerousSelector,
 	};
+}
+
+/**
+ * Creates a validated action creator.
+ *
+ * @since 1.32.0
+ *
+ * @param {Function} validate      A function for validating action arguments.
+ * @param {Function} actionCreator A function for returning or yielding redux-style actions.
+ * @return {Function} An enhanced action creator.
+ */
+export function createValidatedAction( validate, actionCreator ) {
+	invariant(
+		typeof validate === 'function',
+		'a validator function is required.'
+	);
+	invariant(
+		typeof actionCreator === 'function',
+		'an action creator function is required.'
+	);
+	invariant(
+		validate[ Symbol.toStringTag ] !== 'Generator' &&
+			validate[ Symbol.toStringTag ] !== 'GeneratorFunction',
+		'an action’s validator function must not be a generator.'
+	);
+
+	return ( ...args ) => {
+		validate( ...args );
+
+		return actionCreator( ...args );
+	};
+}
+
+/**
+ * Gets a global data object by path.
+ *
+ * Returns a deep clone to avoid mutating the original object.
+ *
+ * @since 1.183.0
+ *
+ * @param {string} path      Path to a value in the global object.
+ * @param {Object} [_global] Optional. The global object to use. Default is `global`.
+ * @return {*} The value at the path in the global data object.
+ * @throws {Error} If the value is not found / undefined.
+ */
+export function getGlobalData( path, _global = global ) {
+	const value = get( _global, path );
+
+	if ( value === undefined ) {
+		throw new Error( `Global data value not found at path ${ path }.` );
+	}
+
+	return cloneDeep( value );
 }

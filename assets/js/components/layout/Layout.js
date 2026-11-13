@@ -19,8 +19,8 @@
 /**
  * External dependencies
  */
-import PropTypes from 'prop-types';
 import classnames from 'classnames';
+import PropTypes from 'prop-types';
 
 /**
  * WordPress dependencies
@@ -30,8 +30,8 @@ import { Component } from '@wordpress/element';
 /**
  * Internal dependencies
  */
-import LayoutHeader from './LayoutHeader';
 import LayoutFooter from './LayoutFooter';
+import LayoutHeader from './LayoutHeader';
 
 class Layout extends Component {
 	render() {
@@ -40,6 +40,7 @@ class Layout extends Component {
 			footer,
 			children,
 			title,
+			badge,
 			headerCTALabel,
 			headerCTALink,
 			footerCTALabel,
@@ -48,32 +49,37 @@ class Layout extends Component {
 			className,
 			fill,
 			relative,
+			rounded = false,
+			transparent = false,
+			...otherProps
 		} = this.props;
 
 		return (
-			<div className={ classnames(
-				'googlesitekit-layout',
-				className,
-				{
+			<div
+				className={ classnames( 'googlesitekit-layout', className, {
 					'googlesitekit-layout--fill': fill,
 					'googlesitekit-layout--relative': relative,
-				}
-			) }>
-				{ header &&
+					'googlesitekit-layout--rounded': rounded,
+					'googlesitekit-layout--transparent': transparent,
+				} ) }
+				{ ...otherProps }
+			>
+				{ header && (
 					<LayoutHeader
 						title={ title }
+						badge={ badge }
 						ctaLabel={ headerCTALabel }
 						ctaLink={ headerCTALink }
 					/>
-				}
+				) }
 				{ children }
-				{ footer &&
+				{ footer && (
 					<LayoutFooter
 						ctaLabel={ footerCTALabel }
 						ctaLink={ footerCTALink }
 						footerContent={ footerContent }
 					/>
-				}
+				) }
 			</div>
 		);
 	}
@@ -84,6 +90,7 @@ Layout.propTypes = {
 	footer: PropTypes.bool,
 	children: PropTypes.node.isRequired,
 	title: PropTypes.string,
+	badge: PropTypes.node,
 	headerCTALabel: PropTypes.string,
 	headerCTALink: PropTypes.string,
 	footerCTALabel: PropTypes.string,
@@ -92,12 +99,15 @@ Layout.propTypes = {
 	className: PropTypes.string,
 	fill: PropTypes.bool,
 	relative: PropTypes.bool,
+	rounded: PropTypes.bool,
+	transparent: PropTypes.bool,
 };
 
 Layout.defaultProps = {
 	header: false,
 	footer: false,
 	title: '',
+	badge: null,
 	headerCTALabel: '',
 	headerCTALink: '',
 	footerCTALabel: '',

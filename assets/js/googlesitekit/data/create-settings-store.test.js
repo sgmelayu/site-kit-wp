@@ -24,12 +24,9 @@ import { createRegistry } from '@wordpress/data';
 /**
  * Internal dependencies
  */
-import API from 'googlesitekit-api';
-import {
-	muteFetch,
-	subscribeUntil,
-	unsubscribeFromAll,
-} from '../../../../tests/js/utils';
+import { setUsingCache } from 'googlesitekit-api';
+import { CORE_SITE } from '@/js/googlesitekit/datastore/site/constants';
+import { muteFetch, subscribeUntil, untilResolved } from '@tests/js/utils';
 import { createSettingsStore } from './create-settings-store';
 
 const STORE_ARGS = [ 'core', 'site', 'settings' ];
@@ -42,14 +39,14 @@ describe( 'createSettingsStore store', () => {
 	let store;
 
 	beforeAll( () => {
-		API.setUsingCache( false );
+		setUsingCache( false );
 	} );
 
 	beforeEach( () => {
 		registry = createRegistry();
 
 		storeDefinition = createSettingsStore( ...STORE_ARGS, {
-			settingSlugs: [ 'isSkyBlue' ],
+			settingSlugs: [ 'isSkyBlue', 'isGroundGreen' ],
 			registry,
 		} );
 		registry.registerStore( storeDefinition.STORE_NAME, storeDefinition );
@@ -59,16 +56,14 @@ describe( 'createSettingsStore store', () => {
 	} );
 
 	afterAll( () => {
-		API.setUsingCache( true );
-	} );
-
-	afterEach( () => {
-		unsubscribeFromAll( registry );
+		setUsingCache( true );
 	} );
 
 	describe( 'name', () => {
 		it( 'returns the correct default store name', () => {
-			expect( storeDefinition.STORE_NAME ).toEqual( `${ STORE_ARGS[ 0 ] }/${ STORE_ARGS[ 1 ] }` );
+			expect( storeDefinition.STORE_NAME ).toEqual(
+				`${ STORE_ARGS[ 0 ] }/${ STORE_ARGS[ 1 ] }`
+			);
 		} );
 	} );
 
@@ -88,14 +83,21 @@ describe( 'createSettingsStore store', () => {
 				expect( store.getState().settings ).toMatchObject( values1 );
 
 				dispatch.setSettings( values2 );
-				expect( store.getState().settings ).toMatchObject( { ...values1, ...values2 } );
+				expect( store.getState().settings ).toMatchObject( {
+					...values1,
+					...values2,
+				} );
 			} );
 		} );
 
 		describe( 'fetchGetSettings', () => {
 			it( 'does not require any params', () => {
 				expect( () => {
-					muteFetch( /^\/google-site-kit\/v1\/core\/site\/data\/settings/ );
+					muteFetch(
+						new RegExp(
+							'^/google-site-kit/v1/core/site/data/settings'
+						)
+					);
 					dispatch.fetchGetSettings();
 				} ).not.toThrow();
 			} );
@@ -109,28 +111,38 @@ describe( 'createSettingsStore store', () => {
 			} );
 
 			it( 'receives and sets values', () => {
-				const serverValues = { setting1: 'serverside', setting2: 'serverside' };
+				const serverValues = {
+					setting1: 'serverside',
+					setting2: 'serverside',
+				};
 				const clientValues = { setting1: 'clientside' };
 
 				dispatch.setSettings( clientValues );
 				dispatch.receiveGetSettings( serverValues, {} );
 
 				// Client values take precedence if they were already modified before receiving from the server.
-				expect( store.getState().settings ).toMatchObject( { ...serverValues, ...clientValues } );
+				expect( store.getState().settings ).toMatchObject( {
+					...serverValues,
+					...clientValues,
+				} );
 			} );
 		} );
 
 		describe( 'saveSettings', () => {
 			it( 'does not require any params', () => {
 				fetchMock.getOnce(
-					/^\/google-site-kit\/v1\/core\/site\/data\/settings/,
+					new RegExp(
+						'^/google-site-kit/v1/core/site/data/settings'
+					),
 					{ body: {}, status: 200 }
 				);
 				const values = { setting1: 'serverside' };
 				dispatch.setSettings( values, {} );
 				expect( async () => {
 					fetchMock.postOnce(
-						/^\/google-site-kit\/v1\/core\/site\/data\/settings/,
+						new RegExp(
+							'^/google-site-kit/v1/core/site/data/settings'
+						),
 						{ body: values, status: 200 }
 					);
 					await dispatch.saveSettings();
@@ -140,7 +152,9 @@ describe( 'createSettingsStore store', () => {
 			it( 'updates settings from server', async () => {
 				const response = { isSkyBlue: 'yes' };
 				fetchMock.postOnce(
-					/^\/google-site-kit\/v1\/core\/site\/data\/settings/,
+					new RegExp(
+						'^/google-site-kit/v1/core/site/data/settings'
+					),
 					{ body: response, status: 200 }
 				);
 
@@ -153,11 +167,16 @@ describe( 'createSettingsStore store', () => {
 
 				dispatch.saveSettings();
 
-				await subscribeUntil( registry, () => select.isDoingSaveSettings() === false );
+				await subscribeUntil(
+					registry,
+					() => select.isDoingSaveSettings() === false
+				);
 
 				expect( fetchMock ).toHaveFetchedTimes( 1 );
 				expect( fetchMock ).toHaveFetched(
-					/^\/google-site-kit\/v1\/core\/site\/data\/settings/,
+					new RegExp(
+						'^/google-site-kit/v1/core/site/data/settings'
+					),
 					{
 						body: { data: { isSkyBlue: 'no' } },
 					}
@@ -176,7 +195,9 @@ describe( 'createSettingsStore store', () => {
 
 			it( 'sets isDoingSaveSettings', () => {
 				fetchMock.postOnce(
-					/^\/google-site-kit\/v1\/core\/site\/data\/settings/,
+					new RegExp(
+						'^/google-site-kit/v1/core/site/data/settings'
+					),
 					{ body: { setting1: true }, status: 200 }
 				);
 
@@ -193,14 +214,22 @@ describe( 'createSettingsStore store', () => {
 			} );
 
 			it( 'receives and sets values', () => {
-				const serverValues = { setting1: 'serverside', setting2: 'serverside' };
-				const clientValues = { setting1: 'clientside', setting3: 'clientside' };
+				const serverValues = {
+					setting1: 'serverside',
+					setting2: 'serverside',
+				};
+				const clientValues = {
+					setting1: 'clientside',
+					setting3: 'clientside',
+				};
 
 				dispatch.setSettings( clientValues );
 				dispatch.receiveSaveSettings( serverValues, { values: {} } );
 
 				// Client values are ignored here, server values replace them.
-				expect( store.getState().settings ).toMatchObject( { ...serverValues } );
+				expect( store.getState().settings ).toMatchObject( {
+					...serverValues,
+				} );
 			} );
 		} );
 
@@ -228,14 +257,18 @@ describe( 'createSettingsStore store', () => {
 			it( 'supports setting falsy values', () => {
 				expect( () => {
 					dispatch.setIsSkyBlue( false );
-				} ).not.toThrow( 'value is required for calls to setIsSkyBlue().' );
+				} ).not.toThrow(
+					'value is required for calls to setIsSkyBlue().'
+				);
 			} );
 
 			it( 'updates the respective setting', () => {
 				const value = 'new';
 
 				dispatch.setIsSkyBlue( value );
-				expect( store.getState().settings ).toMatchObject( { isSkyBlue: value } );
+				expect( store.getState().settings ).toMatchObject( {
+					isSkyBlue: value,
+				} );
 			} );
 		} );
 
@@ -254,6 +287,37 @@ describe( 'createSettingsStore store', () => {
 				expect( select.getIsSkyBlue() ).toBe( 'yes' );
 			} );
 		} );
+
+		describe( 'rollbackSetting', () => {
+			it( 'requires the setting param', () => {
+				expect( () => {
+					dispatch.rollbackSetting();
+				} ).toThrow( 'setting is required.' );
+			} );
+
+			it( 'returns a specific setting back to its saved value', () => {
+				const savedSettings = {
+					isSkyBlue: 'yes',
+					isGroundGreen: 'yes',
+				};
+
+				dispatch.receiveSaveSettings( savedSettings, { values: {} } );
+
+				expect( select.getIsSkyBlue() ).toBe( 'yes' );
+				expect( select.getIsGroundGreen() ).toBe( 'yes' );
+
+				dispatch.setIsSkyBlue( 'no' );
+				dispatch.setIsGroundGreen( 'maybe' );
+
+				expect( select.getIsSkyBlue() ).toBe( 'no' );
+				expect( select.getIsGroundGreen() ).toBe( 'maybe' );
+
+				dispatch.rollbackSetting( 'isGroundGreen' );
+
+				expect( select.getIsSkyBlue() ).toBe( 'no' );
+				expect( select.getIsGroundGreen() ).toBe( 'yes' );
+			} );
+		} );
 	} );
 
 	describe( 'selectors', () => {
@@ -261,17 +325,18 @@ describe( 'createSettingsStore store', () => {
 			it( 'uses a resolver to make a network request', async () => {
 				const response = { setting1: 'value' };
 				fetchMock.getOnce(
-					/^\/google-site-kit\/v1\/core\/site\/data\/settings/,
+					new RegExp(
+						'^/google-site-kit/v1/core/site/data/settings'
+					),
 					{ body: response, status: 200 }
 				);
 
 				const initialSettings = select.getSettings();
 				// Settings will be their initial value while being fetched.
 				expect( initialSettings ).toEqual( undefined );
-				await subscribeUntil( registry,
-					() => (
-						select.getSettings() !== undefined
-					),
+				await subscribeUntil(
+					registry,
+					() => select.getSettings() !== undefined
 				);
 
 				const settings = select.getSettings();
@@ -290,7 +355,9 @@ describe( 'createSettingsStore store', () => {
 
 				expect( select.getIsSkyBlue() ).toEqual( value );
 
-				await subscribeUntil( registry, () => select.hasFinishedResolution( 'getSettings' ) );
+				await subscribeUntil( registry, () =>
+					select.hasFinishedResolution( 'getSettings' )
+				);
 
 				expect( fetchMock ).not.toHaveFetched();
 			} );
@@ -301,7 +368,9 @@ describe( 'createSettingsStore store', () => {
 
 				// If settings are set on the client, they must be available even
 				// if settings have not been loaded from the server yet.
-				muteFetch( /^\/google-site-kit\/v1\/core\/site\/data\/settings/ );
+				muteFetch(
+					new RegExp( '^/google-site-kit/v1/core/site/data/settings' )
+				);
 				expect( select.getSettings() ).toEqual( values );
 			} );
 
@@ -312,22 +381,80 @@ describe( 'createSettingsStore store', () => {
 					data: { status: 500 },
 				};
 				fetchMock.getOnce(
-					/^\/google-site-kit\/v1\/core\/site\/data\/settings/,
+					new RegExp(
+						'^/google-site-kit/v1/core/site/data/settings'
+					),
 					{ body: response, status: 500 }
 				);
 
 				select.getSettings();
-				await subscribeUntil( registry,
+				await subscribeUntil(
+					registry,
 					// TODO: We may want a selector for this, but for now this is fine
 					// because it's internal-only.
-					() => select.isFetchingGetSettings() === false,
+					() => select.isFetchingGetSettings() === false
 				);
 
 				const settings = select.getSettings();
 
+				await untilResolved(
+					registry,
+					storeDefinition.STORE_NAME
+				).getSettings();
+
 				expect( fetchMock ).toHaveFetchedTimes( 1 );
 				expect( settings ).toEqual( undefined );
 				expect( console ).toHaveErrored();
+			} );
+		} );
+
+		test.each( [
+			[ 'haveSettingsChanged' ],
+			[ '__dangerousHaveSettingsChanged' ],
+		] )( 'should have %s selector', ( selector ) => {
+			const selectors = storeDefinition.selectors;
+			expect( typeof selectors[ selector ] ).toBe( 'function' );
+		} );
+
+		describe.each( [
+			[ 'haveSettingsChanged' ],
+			[ '__dangerousHaveSettingsChanged' ],
+		] )( '%s', ( selector ) => {
+			it( 'should use provided validateHaveSettingsChanged function', () => {
+				const validateHaveSettingsChanged = jest.fn();
+
+				storeDefinition = createSettingsStore( ...STORE_ARGS, {
+					settingSlugs: [ 'isSkyBlue' ],
+					validateHaveSettingsChanged,
+					registry,
+				} );
+
+				registry.registerStore(
+					storeDefinition.STORE_NAME,
+					storeDefinition
+				);
+
+				storeDefinition.selectors[ selector ]();
+
+				expect( validateHaveSettingsChanged ).toHaveBeenCalled();
+			} );
+		} );
+
+		describe( '__dangerousHaveSettingsChanged', () => {
+			it( 'should throw an exception from validateHaveSettingsChanged when error occurs', () => {
+				const validateHaveSettingsChanged = null;
+
+				createSettingsStore( ...STORE_ARGS, {
+					settingSlugs: [ 'isSkyBlue' ],
+					validateHaveSettingsChanged,
+					registry,
+				} );
+
+				expect( () =>
+					registry
+						.select( CORE_SITE )
+						.__dangerousHaveSettingsChanged()
+				).toThrow();
 			} );
 		} );
 
@@ -340,15 +467,16 @@ describe( 'createSettingsStore store', () => {
 				const clientValues = { setting1: 'clientside' };
 
 				fetchMock.getOnce(
-					/^\/google-site-kit\/v1\/core\/site\/data\/settings/,
+					new RegExp(
+						'^/google-site-kit/v1/core/site/data/settings'
+					),
 					{ body: serverValues, status: 200 }
 				);
 
 				select.getSettings();
-				await subscribeUntil( registry,
-					() => (
-						select.getSettings() !== undefined
-					),
+				await subscribeUntil(
+					registry,
+					() => select.getSettings() !== undefined
 				);
 
 				// Still false after fetching settings from server.
@@ -361,6 +489,192 @@ describe( 'createSettingsStore store', () => {
 				// False after updating settings back to original server value on client.
 				dispatch.setSettings( serverValues );
 				expect( select.haveSettingsChanged() ).toEqual( false );
+			} );
+
+			it( 'compares all keys when keys argument is not supplied', async () => {
+				const serverValues = {
+					setting1: 'serverside',
+					setting2: 'test-value',
+				};
+				const clientValues = {
+					setting1: 'clientside',
+					setting2: 'test-value',
+				};
+
+				fetchMock.getOnce(
+					new RegExp(
+						'^/google-site-kit/v1/core/site/data/settings'
+					),
+					{ body: serverValues, status: 200 }
+				);
+
+				select.getSettings();
+				await subscribeUntil(
+					registry,
+					() => select.getSettings() !== undefined
+				);
+
+				// Update the settings so they differ. All values are being checked
+				// here.
+				dispatch.setSettings( clientValues );
+				expect( select.haveSettingsChanged() ).toEqual( true );
+			} );
+
+			it( 'compares select keys when keys argument is supplied', async () => {
+				const serverValues = {
+					setting1: 'serverside',
+					setting2: 'test-value',
+				};
+				const clientValues = {
+					setting1: 'clientside',
+					setting2: 'test-value',
+				};
+
+				fetchMock.getOnce(
+					new RegExp(
+						'^/google-site-kit/v1/core/site/data/settings'
+					),
+					{ body: serverValues, status: 200 }
+				);
+
+				select.getSettings();
+				await subscribeUntil(
+					registry,
+					() => select.getSettings() !== undefined
+				);
+
+				// Update the settings so they differ. Only `setting1` should trigger
+				// a truthy return value.
+				dispatch.setSettings( clientValues );
+				expect( select.haveSettingsChanged( [ 'setting1' ] ) ).toEqual(
+					true
+				);
+				expect( select.haveSettingsChanged( [ 'setting2' ] ) ).toEqual(
+					false
+				);
+
+				// Checking all values should be possible.
+				expect(
+					select.haveSettingsChanged( [ 'setting1', 'setting2' ] )
+				).toEqual( true );
+
+				// Checking no values should be possible, and should not be treated as
+				// an `undefined` keys array.
+				expect( select.haveSettingsChanged( [] ) ).toEqual( false );
+			} );
+
+			it( 'should not throw an exception', () => {
+				const validateHaveSettingsChanged = null;
+
+				createSettingsStore( ...STORE_ARGS, {
+					settingSlugs: [ 'isSkyBlue' ],
+					validateHaveSettingsChanged,
+					registry,
+				} );
+
+				// Since selector is invalid, it should return false as exception would be caught by the safeSelector.
+				expect(
+					registry.select( CORE_SITE ).haveSettingsChanged()
+				).toBe( false );
+			} );
+		} );
+
+		describe( 'haveOwnedSettingsChanged', () => {
+			it( 'only compares owned settings when checking for changes', async () => {
+				storeDefinition = createSettingsStore( ...STORE_ARGS, {
+					ownedSettingsSlugs: [ 'ourSetting', 'ourSetting2' ],
+					settingSlugs: [
+						'yourSetting',
+						'ourSetting',
+						'ourSetting2',
+					],
+					registry,
+				} );
+				registry.registerStore(
+					storeDefinition.STORE_NAME,
+					storeDefinition
+				);
+				dispatch = registry.dispatch( storeDefinition.STORE_NAME );
+				select = registry.select( storeDefinition.STORE_NAME );
+
+				// Initially false.
+				expect( select.haveOwnedSettingsChanged() ).toEqual( false );
+
+				const serverValues = {
+					yourSetting: 'foo',
+					ourSetting: 'good',
+					ourSetting2: 1,
+				};
+				const clientValues = {
+					yourSetting: 'bar',
+					ourSetting: 'bad',
+					ourSetting2: 1,
+				};
+
+				fetchMock.getOnce(
+					new RegExp(
+						'^/google-site-kit/v1/core/site/data/settings'
+					),
+					{ body: serverValues, status: 200 }
+				);
+
+				select.getSettings();
+				await subscribeUntil(
+					registry,
+					() => select.getSettings() !== undefined
+				);
+
+				// Still false after fetching settings from server.
+				expect( select.haveOwnedSettingsChanged() ).toEqual( false );
+
+				// True after updating settings on client.
+				dispatch.setSettings( clientValues );
+				expect( select.haveOwnedSettingsChanged() ).toEqual( true );
+
+				// False after updating settings back to original server value on
+				// the client, then changing a non-owned setting.
+				dispatch.setSettings( {
+					...serverValues,
+					yourSetting: 'whatever',
+				} );
+				expect( select.haveOwnedSettingsChanged() ).toEqual( false );
+			} );
+		} );
+
+		describe( 'hasSettingChanged', () => {
+			it( 'informs whether client-side specific setting differ from server-side ones', async () => {
+				const serverValues = { setting1: 'serverside' };
+				const clientValues = { setting1: 'clientside' };
+
+				fetchMock.getOnce(
+					new RegExp(
+						'^/google-site-kit/v1/core/site/data/settings'
+					),
+					{ body: serverValues, status: 200 }
+				);
+
+				select.getSettings();
+				await subscribeUntil(
+					registry,
+					() => select.getSettings() !== undefined
+				);
+
+				// Still false after fetching settings from server.
+				expect( select.hasSettingChanged( 'setting1' ) ).toEqual(
+					false
+				);
+
+				// True after updating settings on client.
+				dispatch.setSettings( clientValues );
+				expect( select.hasSettingChanged( 'setting1' ) ).toEqual(
+					true
+				);
+
+				// False after updating settings back to original server value on client.
+				dispatch.setSettings( serverValues );
+				expect( select.hasSettingChanged( 'setting1' ) ).toEqual(
+					false
+				);
 			} );
 		} );
 
@@ -376,7 +690,9 @@ describe( 'createSettingsStore store', () => {
 			it( 'uses a resolver to make a network request', async () => {
 				const value = 'serverside';
 				fetchMock.getOnce(
-					/^\/google-site-kit\/v1\/core\/site\/data\/settings/,
+					new RegExp(
+						'^/google-site-kit/v1/core/site/data/settings'
+					),
 					{
 						body: {
 							otherSetting: 'other-value',
@@ -388,10 +704,9 @@ describe( 'createSettingsStore store', () => {
 
 				// Setting will have its initial value while being fetched.
 				expect( select.getIsSkyBlue() ).toEqual( undefined );
-				await subscribeUntil( registry,
-					() => (
-						select.getSettings() !== undefined
-					),
+				await subscribeUntil(
+					registry,
+					() => select.getSettings() !== undefined
 				);
 
 				expect( fetchMock ).toHaveFetchedTimes( 1 );
@@ -423,24 +738,25 @@ describe( 'createSettingsStore store', () => {
 				const [ type, identifier, datapoint ] = STORE_ARGS;
 				const response = { type, identifier, datapoint };
 
-				fetchMock.getOnce(
-					`path:/google-site-kit/v1/${ type }/${ identifier }/data/${ datapoint }`,
-					{ body: response, status: 200 }
-				).catch(
-					{
+				fetchMock
+					.getOnce(
+						`path:/google-site-kit/v1/${ type }/${ identifier }/data/${ datapoint }`,
+						{ body: response, status: 200 }
+					)
+					.catch( {
 						body: {
 							code: 'incorrect_api_endpoint',
 							message: 'Incorrect API endpoint',
 							data: { status: 400 },
 						},
 						init: { status: 400 },
-					}
-				);
+					} );
 
-				const result = await storeDefinition.controls.FETCH_GET_SETTINGS( {
-					type: 'FETCH_GET_SETTINGS',
-					payload: { params: {} },
-				} );
+				const result =
+					await storeDefinition.controls.FETCH_GET_SETTINGS( {
+						type: 'FETCH_GET_SETTINGS',
+						payload: { params: {} },
+					} );
 				expect( result ).toEqual( response );
 				// Ensure `console.error()` wasn't called, which will happen if the API
 				// request fails.
@@ -453,24 +769,25 @@ describe( 'createSettingsStore store', () => {
 				const [ type, identifier, datapoint ] = STORE_ARGS;
 				const response = { type, identifier, datapoint };
 
-				fetchMock.postOnce(
-					`path:/google-site-kit/v1/${ type }/${ identifier }/data/${ datapoint }`,
-					{ body: response, status: 200 }
-				).catch(
-					{
+				fetchMock
+					.postOnce(
+						`path:/google-site-kit/v1/${ type }/${ identifier }/data/${ datapoint }`,
+						{ body: response, status: 200 }
+					)
+					.catch( {
 						body: {
 							code: 'incorrect_api_endpoint',
 							message: 'Incorrect API endpoint',
 							data: { status: 400 },
 						},
 						init: { status: 400 },
-					}
-				);
+					} );
 
-				const result = await storeDefinition.controls.FETCH_SAVE_SETTINGS( {
-					type: 'FETCH_SAVE_SETTINGS',
-					payload: { params: { values: {} } },
-				} );
+				const result =
+					await storeDefinition.controls.FETCH_SAVE_SETTINGS( {
+						type: 'FETCH_SAVE_SETTINGS',
+						payload: { params: { values: {} } },
+					} );
 				expect( result ).toEqual( response );
 				// Ensure `console.error()` wasn't called, which will happen if the API
 				// request fails.

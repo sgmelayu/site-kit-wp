@@ -19,24 +19,24 @@
 /**
  * Internal dependencies
  */
-import API from 'googlesitekit-api';
-import Data from 'googlesitekit-data';
-import { STORE_NAME } from './constants';
-import { createFetchStore } from '../../data/create-fetch-store';
-
-const { createRegistrySelector } = Data;
+import { set } from 'googlesitekit-api';
+import {
+	combineStores,
+	createReducer,
+	createRegistrySelector,
+} from 'googlesitekit-data';
+import { createFetchStore } from '@/js/googlesitekit/data/create-fetch-store';
+import { CORE_USER } from './constants';
 
 const fetchDisconnectStore = createFetchStore( {
 	baseName: 'disconnect',
 	controlCallback: () => {
-		return API.set( 'core', 'user', 'disconnect' );
+		return set( 'core', 'user', 'disconnect' );
 	},
-	reducerCallback: ( state, disconnected ) => {
-		return {
-			...state,
-			disconnected,
-		};
-	},
+	reducerCallback: createReducer( ( state, disconnected ) => {
+		state.disconnected = disconnected;
+	} ),
+	isAction: true,
 } );
 
 const baseInitialState = {
@@ -59,18 +59,15 @@ const baseSelectors = {
 	 * @return {boolean} Is a disconnect occurring or not.
 	 */
 	isDoingDisconnect: createRegistrySelector( ( select ) => () => {
-		return select( STORE_NAME ).isFetchingDisconnect();
+		return select( CORE_USER ).isFetchingDisconnect();
 	} ),
 };
 
-const store = Data.combineStores(
-	fetchDisconnectStore,
-	{
-		initialState: baseInitialState,
-		actions: baseActions,
-		selectors: baseSelectors,
-	}
-);
+const store = combineStores( fetchDisconnectStore, {
+	initialState: baseInitialState,
+	actions: baseActions,
+	selectors: baseSelectors,
+} );
 
 export const initialState = store.initialState;
 export const actions = store.actions;

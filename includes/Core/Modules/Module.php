@@ -6,28 +6,33 @@
  * @copyright 2021 Google LLC
  * @license   https://www.apache.org/licenses/LICENSE-2.0 Apache License 2.0
  * @link      https://sitekit.withgoogle.com
+ *
+ * phpcs:disable PHPCS.Commenting.RequireDocTagDescription -- Pre-existing violations; tracked for follow-up cleanup.
  */
 
 namespace Google\Site_Kit\Core\Modules;
 
 use Closure;
+use Exception;
 use Google\Site_Kit\Context;
+use Google\Site_Kit\Core\Assets\Assets;
 use Google\Site_Kit\Core\Authentication\Clients\OAuth_Client;
 use Google\Site_Kit\Core\Authentication\Exception\Insufficient_Scopes_Exception;
 use Google\Site_Kit\Core\Authentication\Exception\Google_Proxy_Code_Exception;
 use Google\Site_Kit\Core\Contracts\WP_Errorable;
+use Google\Site_Kit\Core\Permissions\Permissions;
 use Google\Site_Kit\Core\Storage\Options;
 use Google\Site_Kit\Core\Storage\User_Options;
-use Google\Site_Kit\Core\Storage\Cache;
 use Google\Site_Kit\Core\Authentication\Authentication;
 use Google\Site_Kit\Core\Authentication\Clients\Google_Site_Kit_Client;
 use Google\Site_Kit\Core\REST_API\Exception\Invalid_Datapoint_Exception;
 use Google\Site_Kit\Core\REST_API\Data_Request;
-use Google\Site_Kit_Dependencies\Google_Service;
+use Google\Site_Kit\Core\Storage\Transients;
+use Google\Site_Kit_Dependencies\Google\Service as Google_Service;
 use Google\Site_Kit_Dependencies\Google_Service_Exception;
 use Google\Site_Kit_Dependencies\Psr\Http\Message\RequestInterface;
 use WP_Error;
-use Exception;
+use WP_REST_Request;
 
 /**
  * Base class for a module.
@@ -39,15 +44,54 @@ use Exception;
  * @property-read string $slug         Unique module identifier.
  * @property-read string $name         Module name.
  * @property-read string $description  Module description.
- * @property-read string $cta          Call to action to activate module.
  * @property-read int    $order        Module order within module lists.
  * @property-read string $homepage     External module homepage URL.
- * @property-read string $learn_more   External URL to learn more about the module.
  * @property-read array  $depends_on   List of other module slugs the module depends on.
  * @property-read bool   $force_active Whether the module cannot be disabled.
  * @property-read bool   $internal     Whether the module is internal, thus without any UI.
  */
 abstract class Module {
+
+	/**
+	 * HTTP status a Google API uses when a request was rate-limit rejected.
+	 *
+	 * Newer APIs return nothing but this: an Analytics Data API error body
+	 * returns `code`, `message`, and `status`, with no `error.errors` for the
+	 * client to read, so a reason alone would miss every Analytics report.
+	 *
+	 * @since 1.190.0
+	 * @var int
+	 */
+	const RATE_LIMIT_STATUS = 429;
+
+	/**
+	 * Google API error reasons that mean the same thing.
+	 *
+	 * The older APIs send these alongside a `403` rather than a `429`, so both are
+	 * checked. Kept in agreement with the same list in `assets/js/util/errors.ts`,
+	 * which decides whether the browser offers the reader a retry.
+	 *
+	 * @since 1.190.0
+	 * @var string[]
+	 */
+	const RATE_LIMIT_REASONS = array(
+		'rateLimitExceeded',
+		'userRateLimitExceeded',
+		'quotaExceeded',
+	);
+
+	/**
+	 * Seconds the browser keeps a rate-limit error before it asks again.
+	 *
+	 * Search Console measures its short-term load quota over ten minutes, and the Analytics
+	 * Data API refreshes hourly tokens continuously rather than on the hour. Ten minutes
+	 * therefore clears the shorter of the two windows without holding a reader on an error
+	 * for the whole of the longer one.
+	 *
+	 * @since 1.190.0
+	 * @var int
+	 */
+	const RATE_LIMIT_CACHE_TTL = 10 * MINUTE_IN_SECONDS;
 
 	/**
 	 * Plugin context.
@@ -82,6 +126,22 @@ abstract class Module {
 	protected $authentication;
 
 	/**
+	 * Assets API instance.
+	 *
+	 * @since 1.40.0
+	 * @var Assets
+	 */
+	protected $assets;
+
+	/**
+	 * Transients instance.
+	 *
+	 * @since 1.96.0
+	 * @var Transients
+	 */
+	protected $transients;
+
+	/**
 	 * Module information.
 	 *
 	 * @since 1.0.0
@@ -106,6 +166,14 @@ abstract class Module {
 	private $google_services;
 
 	/**
+	 * Memoized datapoint definitions map.
+	 *
+	 * @since 1.181.0
+	 * @var array|null
+	 */
+	private $datapoint_definitions;
+
+	/**
 	 * Constructor.
 	 *
 	 * @since 1.0.0
@@ -114,17 +182,21 @@ abstract class Module {
 	 * @param Options        $options        Optional. Option API instance. Default is a new instance.
 	 * @param User_Options   $user_options   Optional. User Option API instance. Default is a new instance.
 	 * @param Authentication $authentication Optional. Authentication instance. Default is a new instance.
+	 * @param Assets         $assets  Optional. Assets API instance. Default is a new instance.
 	 */
 	public function __construct(
 		Context $context,
-		Options $options = null,
-		User_Options $user_options = null,
-		Authentication $authentication = null
+		?Options $options = null,
+		?User_Options $user_options = null,
+		?Authentication $authentication = null,
+		?Assets $assets = null
 	) {
 		$this->context        = $context;
 		$this->options        = $options ?: new Options( $this->context );
 		$this->user_options   = $user_options ?: new User_Options( $this->context );
 		$this->authentication = $authentication ?: new Authentication( $this->context, $this->options, $this->user_options );
+		$this->assets         = $assets ?: new Assets( $this->context );
+		$this->transients     = new Transients( $this->context );
 		$this->info           = $this->parse_info( (array) $this->setup_info() );
 	}
 
@@ -168,31 +240,6 @@ abstract class Module {
 	}
 
 	/**
-	 * Returns all module information data for passing it to JavaScript.
-	 *
-	 * @since 1.0.0
-	 *
-	 * @return array Module information data.
-	 */
-	public function prepare_info_for_js() {
-		// TODO: Modify this to ditch unnecessary backward-compatibility.
-		return array(
-			'slug'         => $this->slug,
-			'name'         => $this->name,
-			'description'  => $this->description,
-			'cta'          => $this->cta,
-			'sort'         => $this->order,
-			'homepage'     => $this->homepage,
-			'learnMore'    => $this->learn_more,
-			'required'     => $this->depends_on,
-			'autoActivate' => $this->force_active,
-			'internal'     => $this->internal,
-			'screenID'     => $this instanceof Module_With_Screen ? $this->get_screen()->get_slug() : false,
-			'settings'     => $this instanceof Module_With_Settings ? $this->get_settings()->get() : false,
-		);
-	}
-
-	/**
 	 * Checks whether the module is connected.
 	 *
 	 * A module being connected means that all steps required as part of its activation are completed.
@@ -233,154 +280,6 @@ abstract class Module {
 		return $this->execute_data_request(
 			new Data_Request( 'POST', 'modules', $this->slug, $datapoint, $data )
 		);
-	}
-
-	/**
-	 * Gets data for multiple datapoints in one go.
-	 *
-	 * When needing to fetch multiple pieces of data at once, this method provides a more performant approach than
-	 * {@see Module::get_data()} by combining multiple external requests into a single one.
-	 *
-	 * @since 1.0.0
-	 *
-	 * @param \stdClass[]|Data_Request[] $datasets List of datapoints with data attached.
-	 * @return array List of responses. Each item is either the response data, or a WP_Error on failure.
-	 */
-	final public function get_batch_data( array $datasets ) {
-		// Ensure all services are initialized.
-		try {
-			$this->get_service( 'default' );
-		} catch ( Exception $e ) {
-			// Internal error.
-			if ( ! is_array( $this->google_services ) ) {
-				return array();
-			}
-		}
-
-		$restore_defer = $this->with_client_defer( true );
-
-		$datapoint_definitions = $this->get_datapoint_definitions();
-		$service_batches       = array();
-
-		$data_requests = array();
-		$results       = array();
-		foreach ( $datasets as $dataset ) {
-			if ( ! $dataset instanceof Data_Request ) {
-				$dataset = new Data_Request(
-					'GET',
-					'modules',
-					$dataset->identifier,
-					$dataset->datapoint,
-					(array) $dataset->data,
-					$dataset->key
-				);
-			}
-
-			/* @var Data_Request $dataset Request object. */
-			if ( $this->slug !== $dataset->identifier ) {
-				continue;
-			}
-
-			$definition_key = "{$dataset->method}:{$dataset->datapoint}";
-			if ( ! isset( $datapoint_definitions[ $definition_key ] ) ) {
-				continue;
-			}
-
-			$key                   = $dataset->key ?: wp_rand();
-			$data_requests[ $key ] = $dataset;
-			$datapoint             = $dataset->datapoint;
-
-			try {
-				$this->validate_data_request( $dataset );
-				$request = $this->create_data_request( $dataset );
-			} catch ( Exception $e ) {
-				$request = $this->exception_to_error( $e, $datapoint );
-			}
-
-			if ( is_wp_error( $request ) ) {
-				$results[ $key ] = $request;
-				continue;
-			}
-
-			if ( $request instanceof Closure ) {
-				try {
-					$response        = $request();
-					$results[ $key ] = $response;
-
-					if ( ! is_wp_error( $response ) ) {
-						$results[ $key ] = $this->parse_data_response( $dataset, $response );
-					}
-				} catch ( Exception $e ) {
-					$results[ $key ] = $this->exception_to_error( $e, $datapoint );
-				}
-				continue;
-			}
-
-			$datapoint_service = $datapoint_definitions[ $definition_key ]['service'];
-			if ( empty( $datapoint_service ) ) {
-				continue;
-			}
-
-			if ( ! isset( $service_batches[ $datapoint_service ] ) ) {
-				$service_batches[ $datapoint_service ] = $this->google_services[ $datapoint_service ]->createBatch();
-			}
-
-			$service_batches[ $datapoint_service ]->add( $request, $key );
-			$results[ $key ] = $definition_key;
-		}
-
-		foreach ( $service_batches as $service_identifier => $batch ) {
-			try {
-				$batch_results = $batch->execute();
-			} catch ( Exception $e ) {
-				// Set every result of this batch to the exception.
-				foreach ( $results as $key => $definition_key ) {
-					if ( is_wp_error( $definition_key ) ) {
-						continue;
-					}
-
-					$datapoint_service = ! empty( $datapoint_definitions[ $definition_key ] )
-						? $datapoint_definitions[ $definition_key ]['service']
-						: null;
-
-					if ( is_string( $definition_key ) && $service_identifier === $datapoint_service ) {
-						$results[ $key ] = $this->exception_to_error( $e, explode( ':', $definition_key, 2 )[1] );
-					}
-				}
-				continue;
-			}
-
-			foreach ( $batch_results as $key => $result ) {
-				if ( 0 === strpos( $key, 'response-' ) ) {
-					$key = substr( $key, 9 );
-				}
-				if ( ! isset( $results[ $key ] ) || ! is_string( $results[ $key ] ) ) {
-					continue;
-				}
-
-				if ( ! $result instanceof Exception ) {
-					$results[ $key ] = $result;
-					$results[ $key ] = $this->parse_data_response( $data_requests[ $key ], $result );
-				} else {
-					$definition_key  = $results[ $key ];
-					$results[ $key ] = $this->exception_to_error( $result, explode( ':', $definition_key, 2 )[1] );
-				}
-			}
-		}
-
-		$restore_defer();
-
-		// Cache the results for storybook.
-		if (
-			! empty( $results )
-			&& null !== $this->context->input()->filter( INPUT_GET, 'datacache' )
-			&& current_user_can( 'manage_options' )
-		) {
-			$cache = new Cache();
-			$cache->cache_batch_results( $datasets, $results );
-		}
-
-		return $results;
 	}
 
 	/**
@@ -431,16 +330,52 @@ abstract class Module {
 	}
 
 	/**
+	 * Gets the datapoint definition instance.
+	 *
+	 * @since 1.77.0
+	 * @since 1.181.0 Changed visibility to public so REST permission checks can
+	 *               inspect a datapoint (e.g. for Permission_Aware_Datapoint).
+	 *
+	 * @param string $datapoint_id Datapoint ID, in the `METHOD:datapoint` form (e.g. `GET:report`).
+	 * @return Datapoint Datapoint instance.
+	 * @throws Invalid_Datapoint_Exception Thrown if no datapoint exists by the given ID.
+	 */
+	public function get_datapoint_definition( $datapoint_id ) {
+		// Memoize the definitions map: a single module data request resolves the
+		// same datapoint twice (once for the permission check, once to execute),
+		// and rebuilding the full map instantiates every datapoint object.
+		if ( null === $this->datapoint_definitions ) {
+			$this->datapoint_definitions = $this->get_datapoint_definitions();
+		}
+
+		$definitions = $this->datapoint_definitions;
+
+		// All datapoints must be defined.
+		if ( empty( $definitions[ $datapoint_id ] ) ) {
+			throw new Invalid_Datapoint_Exception();
+		}
+
+		$datapoint = $definitions[ $datapoint_id ];
+
+		if ( $datapoint instanceof Datapoint ) {
+			return $datapoint;
+		}
+
+		return new Datapoint( $datapoint );
+	}
+
+	/**
 	 * Creates a request object for the given datapoint.
 	 *
 	 * @since 1.0.0
 	 *
 	 * @param Data_Request $data Data request object.
+	 *
 	 * // phpcs:ignore Squiz.Commenting.FunctionComment.InvalidNoReturn
 	 * @return RequestInterface|callable|WP_Error Request object or callable on success, or WP_Error on failure.
 	 * @throws Invalid_Datapoint_Exception Override in a sub-class.
 	 */
-	protected function create_data_request( Data_Request $data ) {
+	protected function create_data_request( Data_Request $data ) { // phpcs:ignore Generic.CodeAnalysis.UnusedFunctionParameter.Found,Generic.CodeAnalysis.UnusedFunctionParameter.FoundAfterLastUsed
 		throw new Invalid_Datapoint_Exception();
 	}
 
@@ -459,27 +394,100 @@ abstract class Module {
 	}
 
 	/**
+	 * Gets the data request with its parameters validated and sanitized against a datapoint's schema.
+	 *
+	 * Uses the REST API's parameter handling, so an invalid request fails with the
+	 * same `rest_missing_callback_param` or `rest_invalid_param` error, with status
+	 * 400, that a REST route with this schema would return, and a parameter's
+	 * `default` is applied the way the REST server applies it.
+	 *
+	 * @since 1.190.0
+	 *
+	 * @param Data_Request $data        Data request object.
+	 * @param array        $args_schema Map of parameter names to their schemas.
+	 * @return Data_Request|WP_Error Data request with the sanitized parameters, or error if a parameter is missing or invalid.
+	 */
+	private function get_validated_data_request( Data_Request $data, array $args_schema ) {
+		$request = new WP_REST_Request();
+		$request->set_attributes( array( 'args' => $args_schema ) );
+		$request->set_query_params( $data->data );
+		$request->set_default_params(
+			array_map(
+				fn ( $arg ) => $arg['default'],
+				array_filter( $args_schema, fn ( $arg ) => isset( $arg['default'] ) )
+			)
+		);
+
+		$check_required = $request->has_valid_params();
+		if ( is_wp_error( $check_required ) ) {
+			return $check_required;
+		}
+
+		$check_sanitized = $request->sanitize_params();
+		if ( is_wp_error( $check_sanitized ) ) {
+			return $check_sanitized;
+		}
+
+		return new Data_Request( $data->method, $data->type, $data->identifier, $data->datapoint, $request->get_params(), $data->key );
+	}
+
+	/**
 	 * Creates a request object for the given datapoint.
 	 *
 	 * @since 1.0.0
+	 * @since 1.190.0 Validates the parameters of a `Schema_Aware_Datapoint` before running it.
+	 * @since 1.191.0 Passes the Google client the request is sent with to a closure request.
 	 *
 	 * @param Data_Request $data Data request object.
 	 * @return mixed Data on success, or WP_Error on failure.
-	 *
-	 * phpcs:disable Squiz.Commenting.FunctionCommentThrowTag.Missing
 	 */
 	final protected function execute_data_request( Data_Request $data ) {
+		$restore_defers = array();
 		try {
-			$this->validate_data_request( $data );
+			$datapoint = $this->get_datapoint_definition( "{$data->method}:{$data->datapoint}" );
 
-			$request = $this->make_data_request( $data );
+			if ( $datapoint instanceof Schema_Aware_Datapoint ) {
+				$validated_data = $this->get_validated_data_request( $data, $datapoint->get_args_schema() );
+				if ( is_wp_error( $validated_data ) ) {
+					return $validated_data;
+				}
+				$data = $validated_data;
+			}
+
+			$oauth_client = $this->get_oauth_client_for_datapoint( $datapoint );
+
+			$this->validate_datapoint_scopes( $datapoint, $oauth_client );
+			$this->validate_base_scopes( $oauth_client );
+
+			// In order for a request to leverage a client other than the default
+			// it must return a RequestInterface (Google Services return this when defer = true),
+			// or a closure that sends its requests with the client it is called with.
+			// If not deferred, the request will be executed immediately with the client
+			// the service instance was instantiated with, which will always be the
+			// default client, configured for the current user and provided in `get_service`.
+
+			// Client defer is false by default, so we need to configure the default to defer
+			// even if a different client will be the one to execute the request because
+			// the default instance is what services are setup with.
+			$restore_defers[] = $this->get_client()->withDefer( true );
+			if ( $this->authentication->get_oauth_client() !== $oauth_client ) {
+				$restore_defers[] = $oauth_client->get_client()->withDefer( true );
+
+				$current_user = wp_get_current_user();
+			}
+
+			if ( $datapoint instanceof Executable_Datapoint ) {
+				$request = $datapoint->create_request( $data );
+			} else {
+				$request = $this->create_data_request( $data );
+			}
 
 			if ( is_wp_error( $request ) ) {
 				return $request;
 			} elseif ( $request instanceof Closure ) {
-				$response = $request();
+				$response = $request( $oauth_client->get_client() );
 			} elseif ( $request instanceof RequestInterface ) {
-				$response = $this->get_client()->execute( $request );
+				$response = $oauth_client->get_client()->execute( $request );
 			} else {
 				return new WP_Error(
 					'invalid_datapoint_request',
@@ -489,124 +497,62 @@ abstract class Module {
 			}
 		} catch ( Exception $e ) {
 			return $this->exception_to_error( $e, $data->datapoint );
+		} finally {
+			foreach ( $restore_defers as $restore_defer ) {
+				$restore_defer();
+			}
 		}
 
 		if ( is_wp_error( $response ) ) {
 			return $response;
 		}
 
+		if ( $datapoint instanceof Executable_Datapoint ) {
+			return $datapoint->parse_response( $response, $data );
+		}
+
 		return $this->parse_data_response( $data, $response );
 	}
 
 	/**
-	 * Validates the given data request.
+	 * Validates necessary scopes for the given datapoint.
 	 *
-	 * @since 1.9.0
+	 * @since 1.77.0
 	 *
-	 * @param Data_Request $data Data request object.
-	 *
-	 * @throws Invalid_Datapoint_Exception   Thrown if the datapoint does not exist.
-	 * @throws Insufficient_Scopes_Exception Thrown if the user has not granted
-	 *                                       necessary scopes required by the datapoint.
+	 * @param Datapoint    $datapoint    Datapoint instance.
+	 * @param OAuth_Client $oauth_client OAuth_Client instance.
+	 * @throws Insufficient_Scopes_Exception Thrown if required scopes are not satisfied.
 	 */
-	private function validate_data_request( Data_Request $data ) {
-		$definitions   = $this->get_datapoint_definitions();
-		$datapoint_key = "$data->method:$data->datapoint";
+	private function validate_datapoint_scopes( Datapoint $datapoint, OAuth_Client $oauth_client ) {
+		$required_scopes = $datapoint->get_required_scopes();
 
-		// All datapoints must be defined.
-		if ( empty( $definitions[ $datapoint_key ] ) ) {
-			throw new Invalid_Datapoint_Exception();
+		if ( $required_scopes && ! $oauth_client->has_sufficient_scopes( $required_scopes ) ) {
+			$message = $datapoint->get_request_scopes_message();
+
+			throw new Insufficient_Scopes_Exception( $message, 0, null, $required_scopes ); // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- Returned to the browser as JSON via WP_Error, escaping would show HTML entities to the user.
 		}
+	}
 
-		if ( empty( $definitions[ $datapoint_key ]['scopes'] ) ) {
+	/**
+	 * Validates necessary scopes for the module.
+	 *
+	 * @since 1.77.0
+	 *
+	 * @param OAuth_Client $oauth_client OAuth_Client instance.
+	 * @throws Insufficient_Scopes_Exception Thrown if required scopes are not satisfied.
+	 */
+	private function validate_base_scopes( OAuth_Client $oauth_client ) {
+		if ( ! $this instanceof Module_With_Scopes ) {
 			return;
 		}
-
-		$datapoint = $definitions[ $datapoint_key ];
-
-		// If the datapoint requires specific scopes, ensure they are satisfied.
-		if ( ! $this->authentication->get_oauth_client()->has_sufficient_scopes( $datapoint['scopes'] ) ) {
-			$request_scopes_message = ! empty( $datapoint['request_scopes_message'] )
-				? $datapoint['request_scopes_message']
-				: __( 'You’ll need to grant Site Kit permission to do this.', 'google-site-kit' );
-
-			throw new Insufficient_Scopes_Exception( $request_scopes_message, 0, null, $datapoint['scopes'] );
+		if ( ! $oauth_client->has_sufficient_scopes( $this->get_scopes() ) ) {
+			$message = sprintf(
+				/* translators: %s: module name */
+				__( 'Site Kit can’t access the relevant data from %s because you haven’t granted all permissions requested during setup.', 'google-site-kit' ),
+				$this->name
+			);
+			throw new Insufficient_Scopes_Exception( $message, 0, null, $this->get_scopes() ); // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- Returned to the browser as JSON via WP_Error, escaping would show HTML entities to the user.
 		}
-	}
-
-	/**
-	 * Facilitates the creation of a request object for execution.
-	 *
-	 * @since 1.9.0
-	 *
-	 * @param Data_Request $data Data request object.
-	 * @return RequestInterface|Closure|WP_Error
-	 */
-	private function make_data_request( Data_Request $data ) {
-		$definitions = $this->get_datapoint_definitions();
-
-		// We only need to initialize the client if this datapoint relies on a service.
-		$requires_client = ! empty( $definitions[ "$data->method:$data->datapoint" ]['service'] );
-
-		if ( $requires_client ) {
-			$restore_defer = $this->with_client_defer( true );
-		}
-
-		$request = $this->create_data_request( $data );
-
-		if ( isset( $restore_defer ) ) {
-			$restore_defer();
-		}
-
-		return $request;
-	}
-
-	/**
-	 * Parses a date range string into a start date and an end date.
-	 *
-	 * @since 1.0.0
-	 *
-	 * @param string $range         Date range string. Either 'last-7-days', 'last-14-days', 'last-90-days', or
-	 *                              'last-28-days' (default).
-	 * @param string $multiplier    Optional. How many times the date range to get. This value can be specified if the
-	 *                              range should be request multiple times back. Default 1.
-	 * @param int    $offset        Days the range should be offset by. Default 1. Used by Search Console where
-	 *                              data is delayed by two days.
-	 * @param bool   $previous      Whether to select the previous period. Default false.
-	 * @param bool   $weekday_align Whether to align the previous period days of the week to current period. Default false.
-	 *
-	 * @return array List with two elements, the first with the start date and the second with the end date, both as
-	 *               'Y-m-d'.
-	 */
-	protected function parse_date_range( $range, $multiplier = 1, $offset = 1, $previous = false, $weekday_align = false ) {
-		preg_match( '*-(\d+)-*', $range, $matches );
-		$number_of_days = $multiplier * ( isset( $matches[1] ) ? $matches[1] : 28 );
-
-		// Calculate the end date. For previous period requests, offset period by the number of days in the request.
-		$end_date_offset = $previous ? $offset + $number_of_days : $offset;
-		$date_end        = gmdate( 'Y-m-d', strtotime( $end_date_offset . ' days ago' ) );
-
-		// Set the start date.
-		$start_date_offset = $end_date_offset + $number_of_days - 1;
-		$date_start        = gmdate( 'Y-m-d', strtotime( $start_date_offset . ' days ago' ) );
-
-		// When weekday_align is true and request is for a previous period,
-		// ensure the last & previous periods align by day of the week.
-		$date_end_day_of_week      = gmdate( 'w', strtotime( $date_end ) );
-		$previous_date_end_of_week = gmdate( 'w', strtotime( $offset . ' days ago' ) );
-		if ( $weekday_align && $previous && $date_end_day_of_week !== $previous_date_end_of_week ) {
-			// Adjust the date to closest period that matches the same days of the week.
-			$off_by = $number_of_days % 7;
-			if ( $off_by > 3 ) {
-				$off_by = $off_by - 7;
-			}
-
-			// Move the date to match the same day of the week.
-			$date_end   = gmdate( 'Y-m-d', strtotime( $off_by . ' days', strtotime( $date_end ) ) );
-			$date_start = gmdate( 'Y-m-d', strtotime( $off_by . ' days', strtotime( $date_start ) ) );
-		}
-
-		return array( $date_start, $date_end );
 	}
 
 	/**
@@ -634,56 +580,58 @@ abstract class Module {
 	}
 
 	/**
-	 * Permutes site URL to cover all different variants of it (not considering the path).
-	 *
-	 * @since 1.0.0
-	 *
-	 * @param string $site_url Site URL to get permutations for.
-	 * @return array List of permutations.
-	 */
-	final protected function permute_site_url( $site_url ) {
-		$urls = array();
-
-		// Get host url.
-		$host = wp_parse_url( $site_url, PHP_URL_HOST );
-
-		// Add http:// and https:// to host.
-		$urls[] = 'https://' . $host;
-		$urls[] = 'http://' . $host;
-
-		if ( 0 === strpos( $host, 'www.' ) ) {
-			$urls[] = 'https://' . substr( $host, 4 );
-			$urls[] = 'http://' . substr( $host, 4 );
-		} else {
-			$urls[] = 'https://www.' . $host;
-			$urls[] = 'http://www.' . $host;
-		}
-
-		return $urls;
-	}
-
-	/**
 	 * Gets the Google client the module uses.
 	 *
 	 * This method should be used to access the client.
 	 *
 	 * @since 1.0.0
 	 * @since 1.2.0 Now returns Google_Site_Kit_Client instance.
+	 * @since 1.35.0 Updated to be public.
 	 *
 	 * @return Google_Site_Kit_Client Google client instance.
 	 *
 	 * @throws Exception Thrown when the module did not correctly set up the client.
 	 */
-	final protected function get_client() {
+	final public function get_client() {
 		if ( null === $this->google_client ) {
 			$client = $this->setup_client();
 			if ( ! $client instanceof Google_Site_Kit_Client ) {
-				throw new Exception( __( 'Google client not set up correctly.', 'google-site-kit' ) );
+				throw new Exception( __( 'Google client not set up correctly.', 'google-site-kit' ) ); // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- Returned to the browser as JSON via WP_Error, escaping would show HTML entities to the user.
 			}
 			$this->google_client = $client;
 		}
 
 		return $this->google_client;
+	}
+
+	/**
+	 * Gets the oAuth client instance to use for the given datapoint.
+	 *
+	 * @since 1.77.0
+	 *
+	 * @param Datapoint $datapoint Datapoint definition.
+	 * @return OAuth_Client OAuth_Client instance.
+	 */
+	private function get_oauth_client_for_datapoint( Datapoint $datapoint ) {
+		if (
+			$this instanceof Module_With_Owner
+			&& $this->is_shareable()
+			&& $datapoint->is_shareable()
+			&& $this->get_owner_id() !== get_current_user_id()
+			&& ! $this->is_recoverable()
+			&& current_user_can( Permissions::READ_SHARED_MODULE_DATA, $this->slug )
+		) {
+			$oauth_client = $this->get_owner_oauth_client();
+
+			try {
+				$this->validate_base_scopes( $oauth_client );
+				return $oauth_client;
+			} catch ( Exception $exception ) { // phpcs:ignore Generic.CodeAnalysis.EmptyStatement.DetectedCatch
+				// Fallthrough to default oauth client if scopes are unsatisfied.
+			}
+		}
+
+		return $this->authentication->get_oauth_client();
 	}
 
 	/**
@@ -702,11 +650,11 @@ abstract class Module {
 		if ( null === $this->google_services ) {
 			$services = $this->setup_services( $this->get_client() );
 			if ( ! is_array( $services ) ) {
-				throw new Exception( __( 'Google services not set up correctly.', 'google-site-kit' ) );
+				throw new Exception( __( 'Google services not set up correctly.', 'google-site-kit' ) ); // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- Returned to the browser as JSON via WP_Error, escaping would show HTML entities to the user.
 			}
 			foreach ( $services as $service ) {
 				if ( ! $service instanceof Google_Service ) {
-					throw new Exception( __( 'Google services not set up correctly.', 'google-site-kit' ) );
+					throw new Exception( __( 'Google services not set up correctly.', 'google-site-kit' ) ); // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- Returned to the browser as JSON via WP_Error, escaping would show HTML entities to the user.
 				}
 			}
 			$this->google_services = $services;
@@ -714,7 +662,7 @@ abstract class Module {
 
 		if ( ! isset( $this->google_services[ $identifier ] ) ) {
 			/* translators: %s: service identifier */
-			throw new Exception( sprintf( __( 'Google service identified by %s does not exist.', 'google-site-kit' ), $identifier ) );
+			throw new Exception( sprintf( __( 'Google service identified by %s does not exist.', 'google-site-kit' ), $identifier ) ); // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- Returned to the browser as JSON via WP_Error, escaping would show HTML entities to the user.
 		}
 
 		return $this->google_services[ $identifier ];
@@ -757,7 +705,7 @@ abstract class Module {
 	 * @return array Google services as $identifier => $service_instance pairs. Every $service_instance must be an
 	 *               instance of Google_Service.
 	 */
-	protected function setup_services( Google_Site_Kit_Client $client ) {
+	protected function setup_services( Google_Site_Kit_Client $client ) {// phpcs:ignore Generic.CodeAnalysis.UnusedFunctionParameter.Found
 		return array();
 	}
 
@@ -788,15 +736,11 @@ abstract class Module {
 				'slug'         => '',
 				'name'         => '',
 				'description'  => '',
-				'cta'          => '',
 				'order'        => 10,
-				'homepage'     => __( 'https://www.google.com', 'google-site-kit' ),
-				'learn_more'   => __( 'https://about.google/intl/en/', 'google-site-kit' ),
-				'group'        => '',
+				'homepage'     => '',
 				'feature'      => '',
-				'tags'         => array(),
 				'depends_on'   => array(),
-				'force_active' => false,
+				'force_active' => static::is_force_active(),
 				'internal'     => false,
 			)
 		);
@@ -804,12 +748,7 @@ abstract class Module {
 		if ( empty( $info['name'] ) && ! empty( $info['slug'] ) ) {
 			$info['name'] = $info['slug'];
 		}
-		if ( empty( $info['cta'] ) && ! empty( $info['name'] ) ) {
-			/* translators: %s: module name */
-			$info['cta'] = sprintf( __( 'Activate %s', 'google-site-kit' ), $info['name'] );
-		}
 
-		$info['tags']       = (array) $info['tags'];
 		$info['depends_on'] = (array) $info['depends_on'];
 
 		return $info;
@@ -819,12 +758,15 @@ abstract class Module {
 	 * Transforms an exception into a WP_Error object.
 	 *
 	 * @since 1.0.0
+	 * @since 1.49.0 Uses the new `Google_Proxy::setup_url_v2` method when the `serviceSetupV2` feature flag is enabled.
+	 * @since 1.70.0 $datapoint parameter is optional.
+	 * @since 1.191.0 Reconnect URL for proxy code exceptions points at setup start on the site.
 	 *
 	 * @param Exception $e         Exception object.
-	 * @param string    $datapoint Datapoint originally requested.
+	 * @param string    $datapoint Optional. Datapoint originally requested. Default is an empty string.
 	 * @return WP_Error WordPress error object.
 	 */
-	protected function exception_to_error( Exception $e, $datapoint ) {
+	protected function exception_to_error( Exception $e, $datapoint = '' ) { // phpcs:ignore phpcs:enable Generic.CodeAnalysis.UnusedFunctionParameter.Found,Generic.CodeAnalysis.UnusedFunctionParameter.FoundAfterLastUsed
 		if ( $e instanceof WP_Errorable ) {
 			return $e->to_wp_error();
 		}
@@ -845,11 +787,12 @@ abstract class Module {
 				$reason = $errors[0]['reason'];
 			}
 		} elseif ( $e instanceof Google_Proxy_Code_Exception ) {
+			// Reconnect through a new setup, not the access code: its proxy session has no nonce for the site to check.
 			$status        = 401;
 			$code          = $message;
 			$auth_client   = $this->authentication->get_oauth_client();
 			$message       = $auth_client->get_error_message( $code );
-			$reconnect_url = $auth_client->get_proxy_setup_url( $e->getAccessCode(), $code );
+			$reconnect_url = $this->authentication->get_proxy_setup_url();
 		}
 
 		if ( empty( $code ) ) {
@@ -860,6 +803,12 @@ abstract class Module {
 			'status' => $status,
 			'reason' => $reason,
 		);
+
+		// The browser caches errors with a `cacheTTL`, so a rate-limited
+		// request is not sent again until the quota has had time to reset.
+		if ( static::RATE_LIMIT_STATUS === $status || in_array( $reason, static::RATE_LIMIT_REASONS, true ) ) {
+			$data['cacheTTL'] = static::RATE_LIMIT_CACHE_TTL;
+		}
 
 		if ( ! empty( $reconnect_url ) ) {
 			$data['reconnectURL'] = $reconnect_url;
@@ -886,7 +835,7 @@ abstract class Module {
 		}
 
 		$items = array_map(
-			function( $item ) {
+			function ( $item ) {
 				if ( ! is_string( $item ) ) {
 					return false;
 				}
@@ -907,4 +856,88 @@ abstract class Module {
 		return $items;
 	}
 
+	/**
+	 * Determines whether the current request is for shared data.
+	 *
+	 * @since 1.98.0
+	 *
+	 * @param Data_Request $data Data request object.
+	 * @return bool TRUE if the request is for shared data, otherwise FALSE.
+	 */
+	protected function is_shared_data_request( Data_Request $data ) {
+		$datapoint = $this->get_datapoint_definition( "{$data->method}:{$data->datapoint}" );
+
+		return $this->is_shared_datapoint_request( $datapoint );
+	}
+
+	/**
+	 * Determines whether the current datapoint request is for shared data.
+	 *
+	 * @since 1.177.0
+	 *
+	 * @param Datapoint $datapoint Datapoint instance.
+	 * @return bool TRUE if the request is for shared data, otherwise FALSE.
+	 */
+	protected function is_shared_datapoint_request( Datapoint $datapoint ) {
+		$oauth_client = $this->get_oauth_client_for_datapoint( $datapoint );
+
+		if ( $this->authentication->get_oauth_client() !== $oauth_client ) {
+			return true;
+		}
+
+		return false;
+	}
+
+	/**
+	 * Determines whether the current module is forced to be active or not.
+	 *
+	 * @since 1.49.0
+	 *
+	 * @return bool TRUE if the module forced to be active, otherwise FALSE.
+	 */
+	public static function is_force_active() {
+		return false;
+	}
+
+	/**
+	 * Checks whether the module is shareable.
+	 *
+	 * @since 1.50.0
+	 *
+	 * @return bool True if module is shareable, false otherwise.
+	 */
+	public function is_shareable() {
+		if ( $this instanceof Module_With_Owner && $this->is_connected() ) {
+			$datapoints = $this->get_datapoint_definitions();
+			foreach ( $datapoints as $datapoint ) {
+				if ( $datapoint instanceof Datapoint && $datapoint->is_shareable() ) {
+					return true;
+				}
+
+				if ( is_array( $datapoint ) && ! empty( $datapoint['shareable'] ) ) {
+					return true;
+				}
+			}
+		}
+
+		return false;
+	}
+
+	/**
+	 * Checks whether the module is recoverable.
+	 *
+	 * @since 1.78.0
+	 *
+	 * @return bool
+	 */
+	public function is_recoverable() {
+		/**
+		 * Filters the recoverable status of the module.
+		 *
+		 * @since 1.78.0
+		 * @param bool   $_    Whether or not the module is recoverable. Default: false
+		 * @param string $slug Module slug.
+		 */
+		return (bool) apply_filters( 'googlesitekit_is_module_recoverable', false, $this->slug );
+	}
 }

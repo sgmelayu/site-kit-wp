@@ -19,25 +19,17 @@
 /**
  * Internal dependencies
  */
-import Data from 'googlesitekit-data';
-import Modules from 'googlesitekit-modules';
+import { combineStores } from 'googlesitekit-data';
+import activeTab from './active-tab';
+import baseModuleStore from './base';
+import { MODULES_PAGESPEED_INSIGHTS } from './constants';
 import report from './report';
 import service from './service';
-import { STORE_NAME } from './constants';
 
-const baseModuleStore = Modules.createModuleStore( 'pagespeed-insights', {
-	storeName: STORE_NAME,
-	requiresSetup: false,
-} );
+const store = combineStores( baseModuleStore, report, service, activeTab );
 
-const store = Data.combineStores(
-	baseModuleStore,
-	report,
-	service
-);
-
-export const registerStore = ( registry ) => {
-	registry.registerStore( STORE_NAME, store );
-};
+export function registerStore( registry ) {
+	registry.registerStore( MODULES_PAGESPEED_INSIGHTS, store );
+}
 
 export default store;

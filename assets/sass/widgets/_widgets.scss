@@ -16,39 +16,41 @@
  * limitations under the License.
  */
 
-.googlesitekit-widget {
+@use "sass:map";
 
-	@include shadow;
-	background: $c-base;
-	display: flex;
-	flex-direction: column;
-	height: 100%;
-	padding: 0;
+.googlesitekit-plugin {
+	.googlesitekit-widget {
+		background: $c-base;
+		border-radius: $br-sm;
+		display: flex;
+		flex-direction: column;
+		height: 100%;
+		overflow: hidden;
+		padding: 0;
 
-	&__body {
-		flex: 1;
-	}
+		.googlesitekit-widget__header--cta {
+			margin: $grid-gap-phone 0 0;
 
-	&__header {
-		border-bottom: 1px solid $c-border-light;
+			@media (min-width: $bp-tablet) {
+				margin: 0;
+			}
 
-		&-title {
-			margin: 0;
+			.googlesitekit-cta-link {
+				font-size: $fs-body-lg;
+				font-weight: $fw-normal;
+				letter-spacing: $ls-m;
+			}
 		}
 	}
 
-	&__footer {
-		border-top: 1px solid $c-border-light;
-	}
+	.googlesitekit-widget__header,
+	.googlesitekit-widget__body,
+	.googlesitekit-widget__footer {
 
-	&__header,
-	&__body,
-	&__footer {
+		@each $size in map.keys( $mdc-layout-grid-columns ) {
 
-		@each $size in map-keys($mdc-layout-grid-columns) {
-
-			@include mdc-layout-grid-media-query_($size) {
-				$margin: map-get($mdc-layout-grid-default-margin, $size);
+			@include mdc-layout-grid-media-query_( $size ) {
+				$margin: map.get($mdc-layout-grid-default-margin, $size);
 
 				padding: $margin;
 				padding: var(--mdc-layout-grid-margin-#{$size}, #{$margin});
@@ -56,14 +58,125 @@
 		}
 	}
 
-	.googlesitekit-widget-area--composite & {
-		// Background, shadow, and padding are applied to entire widget area instead.
+	/**
+	 * Widget header styles.
+	 */
+	.googlesitekit-widget__header {
+		border-bottom: 1px solid $c-border-light;
+
+		@media (min-width: $bp-tablet) {
+			display: flex;
+			justify-content: space-between;
+		}
+
+		.googlesitekit-typography.googlesitekit-widget__header-title {
+			font-size: $fs-title-md;
+			line-height: $lh-title-md;
+			margin: 0;
+		}
+
+		// A span, since it sits inside the heading.
+		.googlesitekit-widget__header-inner {
+			display: block;
+		}
+
+		&.googlesitekit-widget__header--collapsible {
+			font-weight: $fw-bold;
+			position: relative;
+
+			.googlesitekit-widget__header-inner  {
+				padding: 4px;
+			}
+		}
+
+		.googlesitekit-widget__header-toggle {
+			border-radius: 0;
+			color: inherit;
+			cursor: pointer;
+			font: inherit;
+			letter-spacing: inherit;
+			padding: 0;
+			text-align: inherit;
+
+			&:hover {
+				text-decoration: none;
+			}
+
+			// Matches the header's inner padding.
+			&:focus {
+				outline-offset: 4px;
+			}
+
+			// Makes the whole header clickable.
+			&::after {
+				content: "";
+				inset: 0;
+				position: absolute;
+			}
+
+			// Keeps the badge clickable without toggling the section.
+			~ * {
+				position: relative;
+				z-index: 1;
+			}
+		}
+	}
+
+	.googlesitekit-widget__header-icon {
+		transition: rotate 100ms ease-in-out;
+	}
+
+	.googlesitekit-widget__header-icon--collapsed {
+		/** `-90deg` is used so the animation of the icon works correctly. 270deg is the more "obvious" way to write this but will result in the icon rotating in the wrong direction */
+		rotate: -90deg;
+	}
+
+	/**
+	 * Widget body styles.
+	 */
+	.googlesitekit-widget__body {
+		flex: 1;
+	}
+
+	.googlesitekit-widget.googlesitekit-widget--no-padding .googlesitekit-widget__body {
+		padding: 0;
+	}
+
+	.googlesitekit-widget__body.googlesitekit-widget__body--collapsed {
+		display: none;
+	}
+
+	/**
+	 * Widget footer styles.
+	 */
+	.googlesitekit-widget__footer {
+		border-top: 1px solid $c-border-light;
+	}
+
+	.googlesitekit-widget--hidden-footer .googlesitekit-widget__footer {
+		// This intentionally uses `visibility` rather than `display`
+		// to preserve content dimensions.
+		visibility: hidden;
+	}
+
+	.googlesitekit-widget.googlesitekit-widget--footer-v2 .googlesitekit-widget__footer {
+		border-top: 0;
+		display: flex;
+		justify-content: flex-end;
+	}
+
+	/**
+	 * Composite widget styles.
+	 */
+	.googlesitekit-widget-area--composite .googlesitekit-widget {
+		// Background, shadow, and padding are applied to entire widget
+		// area instead.
 		background: transparent;
 		box-shadow: none;
 
-		&__header,
-		&__body,
-		&__footer {
+		.googlesitekit-widget__header,
+		.googlesitekit-widget__body,
+		.googlesitekit-widget__footer {
 			padding-left: 0;
 			padding-right: 0;
 
@@ -77,13 +190,23 @@
 		}
 	}
 
-	&.googlesitekit-widget--no-padding .googlesitekit-widget__body {
-		padding: 0;
+	/**
+	 * Widget dismiss transition wrapper.
+	 *
+	 * Drives the fade-out animation applied by the `WidgetDismissTransition`
+	 * React wrapper. The `transition` is declared on the base selector so
+	 * the browser always has a transition rule available; the modifier only
+	 * flips opacity and pointer events. The duration must match the
+	 * `DISMISS_TRANSITION_MS` constant in `WidgetDismissTransition.tsx`
+	 * since the JS timer governs when the widget unmounts.
+	 */
+	.googlesitekit-widget-dismiss-transition {
+		opacity: 1;
+		transition: opacity 1s ease-in-out;
 	}
 
-	&.googlesitekit-widget--footer-v2 .googlesitekit-widget__footer {
-		border-top: 0;
-		display: flex;
-		justify-content: flex-end;
+	.googlesitekit-widget-dismiss-transition--dismissing {
+		opacity: 0;
+		pointer-events: none;
 	}
 }

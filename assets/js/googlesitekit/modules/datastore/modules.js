@@ -19,31 +19,43 @@
 /**
  * External dependencies
  */
-import memize from 'memize';
-import defaults from 'lodash/defaults';
-import merge from 'lodash/merge';
-import isPlainObject from 'lodash/isPlainObject';
 import invariant from 'invariant';
-import { sprintf, __ } from '@wordpress/i18n';
+import { defaults, isPlainObject, merge } from 'lodash';
+import memize from 'memize';
 
 /**
  * WordPress dependencies
  */
+// This is used for JSDoc purposes.
+// eslint-disable-next-line no-unused-vars
 import { WPComponent } from '@wordpress/element';
+import { __, sprintf } from '@wordpress/i18n';
 
 /**
  * Internal dependencies
  */
-import API from 'googlesitekit-api';
-import Data from 'googlesitekit-data';
-import { STORE_NAME, ERROR_CODE_INSUFFICIENT_MODULE_DEPENDENCIES } from './constants';
-import { CORE_SITE } from '../../datastore/site/constants';
-import { CORE_USER } from '../../datastore/user/constants';
-import { createFetchStore } from '../../data/create-fetch-store';
-import { listFormat } from '../../../util';
-import DefaultSettingsSetupIncomplete from '../../../components/settings/DefaultSettingsSetupIncomplete';
-
-const { createRegistrySelector, createRegistryControl } = Data;
+import { get, set } from 'googlesitekit-api';
+import {
+	combineStores,
+	commonActions,
+	createReducer,
+	createRegistryControl,
+	createRegistrySelector,
+} from 'googlesitekit-data';
+import DefaultSettingsSetupIncomplete from '@/js/components/settings/DefaultSettingsSetupIncomplete';
+import DefaultSettingsStatus from '@/js/components/settings/SettingsActiveModule/DefaultSettingsStatus';
+import { createFetchStore } from '@/js/googlesitekit/data/create-fetch-store';
+import {
+	createValidatedAction,
+	getGlobalData,
+} from '@/js/googlesitekit/data/utils';
+import { CORE_SITE } from '@/js/googlesitekit/datastore/site/constants';
+import { CORE_USER } from '@/js/googlesitekit/datastore/user/constants';
+import { listFormat } from '@/js/util';
+import {
+	CORE_MODULES,
+	ERROR_CODE_INSUFFICIENT_MODULE_DEPENDENCIES,
+} from './constants';
 
 // Actions.
 const REFETCH_AUTHENTICATION = 'REFETCH_AUTHENTICATION';
@@ -51,6 +63,10 @@ const SELECT_MODULE_REAUTH_URL = 'SELECT_MODULE_REAUTH_URL';
 const REGISTER_MODULE = 'REGISTER_MODULE';
 const RECEIVE_CHECK_REQUIREMENTS_ERROR = 'RECEIVE_CHECK_REQUIREMENTS_ERROR';
 const RECEIVE_CHECK_REQUIREMENTS_SUCCESS = 'RECEIVE_CHECK_REQUIREMENTS_SUCCESS';
+const RECEIVE_RECOVERABLE_MODULES = 'RECEIVE_RECOVERABLE_MODULES';
+const RECEIVE_SHARED_OWNERSHIP_MODULES = 'RECEIVE_SHARED_OWNERSHIP_MODULES';
+const CLEAR_RECOVERED_MODULES = 'CLEAR_RECOVERED_MODULES';
+const RECEIVE_INLINE_MODULES_DATA = 'RECEIVE_INLINE_MODULES_DATA';
 
 const moduleDefaults = {
 	slug: '',
@@ -61,71 +77,97 @@ const moduleDefaults = {
 	internal: false,
 	active: false,
 	connected: false,
+	disconnectedAt: null,
 	dependencies: [],
 	dependants: [],
 	order: 10,
+	features: [],
+	SettingsDisconnectNoteComponent: null,
 	Icon: null,
 	SettingsEditComponent: null,
 	SettingsViewComponent: null,
 	SettingsSetupIncompleteComponent: DefaultSettingsSetupIncomplete,
+	SettingsStatusComponent: DefaultSettingsStatus,
 	SetupComponent: null,
+	SetupLayout: null,
+	onCompleteSetup: undefined,
+	checkRequirements: () => true,
+	DashboardMainEffectComponent: null,
+	DashboardEntityEffectComponent: null,
 };
 
-const normalizeModules = memize(
-	( serverDefinitions, clientDefinitions ) => {
-		// Module properties in `clientDefinitions` will overwrite `serverDefinitions`
-		// but only for keys whose values are not `undefined`.
-		const modules = merge( {}, serverDefinitions, clientDefinitions );
+const normalizeModules = memize( ( serverDefinitions, clientDefinitions ) => {
+	// Module properties in `clientDefinitions` will overwrite `serverDefinitions`
+	// but only for keys whose values are not `undefined`.
+	const modules = merge( {}, serverDefinitions, clientDefinitions );
 
-		return Object.keys( modules )
-			.map( ( slug ) => {
-				const module = { ...modules[ slug ], slug };
-				// Fill any `undefined` values with defaults.
-				defaults( module, { name: slug }, moduleDefaults );
+	return Object.keys( modules )
+		.map( ( slug ) => {
+			const module = { ...modules[ slug ], slug };
+			// Fill any `undefined` values with defaults.
+			defaults( module, { name: slug }, moduleDefaults );
 
-				return module;
-			} )
-			.sort( ( a, b ) => a.order - b.order )
-			.reduce( ( acc, module ) => {
-				return { ...acc, [ module.slug ]: module };
-			}, {} );
-	}
+			return module;
+		} )
+		.sort(
+			( a, b ) => a.order - b.order || a.name?.localeCompare( b.name )
+		)
+		.reduce( ( acc, module ) => {
+			return { ...acc, [ module.slug ]: module };
+		}, {} );
+} );
+
+/**
+ * Gets a memoized object mapping recoverable module slugs to their corresponding
+ * module objects.
+ *
+ * @since 1.78.0
+ *
+ * @param {Object} modules            Module definitions.
+ * @param {Array}  recoverableModules Array of recoverable module slugs.
+ * @return {Object} Map of recoverable module slugs to their corresponding module objects.
+ */
+const calculateRecoverableModules = memize( ( modules, recoverableModules ) =>
+	Object.values( modules ).reduce( ( recoverable, module ) => {
+		if ( recoverableModules.includes( module.slug ) ) {
+			return {
+				...recoverable,
+				[ module.slug ]: module,
+			};
+		}
+
+		return recoverable;
+	}, {} )
 );
 
 const fetchGetModulesStore = createFetchStore( {
 	baseName: 'getModules',
 	controlCallback: () => {
-		return API.get( 'core', 'modules', 'list', null, {
+		return get( 'core', 'modules', 'list', null, {
 			useCache: false,
 		} );
 	},
-	reducerCallback: ( state, modules ) => {
-		return {
-			...state,
-			isAwaitingModulesRefresh: false,
-			serverDefinitions: modules.reduce( ( acc, module ) => {
-				return { ...acc, [ module.slug ]: module };
-			}, {} ),
-		};
-	},
+	reducerCallback: createReducer( ( state, modules ) => {
+		state.isAwaitingModulesRefresh = false;
+		state.serverDefinitions = modules.reduce( ( acc, module ) => {
+			return { ...acc, [ module.slug ]: module };
+		}, {} );
+	} ),
 } );
 
 const fetchSetModuleActivationStore = createFetchStore( {
 	baseName: 'setModuleActivation',
 	controlCallback: ( { slug, active } ) => {
-		return API.set( 'core', 'modules', 'activation', {
+		return set( 'core', 'modules', 'activation', {
 			slug,
 			active,
 		} );
 	},
-	reducerCallback: ( state ) => {
+	reducerCallback: createReducer( ( state ) => {
 		// Updated module activation state is handled by re-fetching module
 		// data instead, so this reducer just sets the below flag.
-		return {
-			...state,
-			isAwaitingModulesRefresh: true,
-		};
-	},
+		state.isAwaitingModulesRefresh = true;
+	} ),
 	argsToParams: ( slug, active ) => {
 		return {
 			slug,
@@ -136,6 +178,41 @@ const fetchSetModuleActivationStore = createFetchStore( {
 		invariant( slug, 'slug is required.' );
 		invariant( active !== undefined, 'active is required.' );
 	},
+	isAction: true,
+} );
+
+const fetchCheckModuleAccessStore = createFetchStore( {
+	baseName: 'checkModuleAccess',
+	controlCallback: ( { slug } ) => {
+		return set( 'core', 'modules', 'check-access', { slug } );
+	},
+	reducerCallback: createReducer( ( state, { access }, { slug } ) => {
+		state.moduleAccess[ slug ] = access;
+	} ),
+	argsToParams: ( slug ) => {
+		return { slug };
+	},
+	validateParams: ( { slug } ) => {
+		invariant( slug, 'slug is required.' );
+	},
+	isAction: true,
+} );
+
+const fetchRecoverModulesStore = createFetchStore( {
+	baseName: 'recoverModules',
+	controlCallback: ( { slugs } ) => {
+		return set( 'core', 'modules', 'recover-modules', { slugs } );
+	},
+	reducerCallback: createReducer( ( state, recoveredModules ) => {
+		state.recoveredModules = recoveredModules;
+	} ),
+	argsToParams: ( slugs ) => {
+		return { slugs };
+	},
+	validateParams: ( { slugs } ) => {
+		invariant( slugs, 'slugs is required.' );
+	},
+	isAction: true,
 } );
 
 const baseInitialState = {
@@ -146,6 +223,11 @@ const baseInitialState = {
 	// before this data has been refreshed.
 	isAwaitingModulesRefresh: false,
 	checkRequirementsResults: {},
+	moduleAccess: {},
+	recoverableModules: undefined,
+	sharedOwnershipModules: undefined,
+	recoveredModules: undefined,
+	inlineModulesData: undefined,
 };
 
 const baseActions = {
@@ -156,17 +238,23 @@ const baseActions = {
 	 *
 	 * @since 1.8.0
 	 *
-	 * @param {string} slug Slug of the module to activate.
+	 * @param {string} slug      Slug of the module to activate.
+	 * @param {Object} [options] Optional. Activation options with `redirectQueryArgs` and `additionalScopes`.
 	 * @return {Object} Object with `{response, error}`. On success, `response.moduleReauthURL`
 	 *                  is set to redirect the user to the corresponding module setup or OAuth
 	 *                  consent screen.
 	 */
-	*activateModule( slug ) {
-		const { response, error } = yield baseActions.setModuleActivation( slug, true );
+	*activateModule( slug, options = {} ) {
+		const { redirectQueryArgs = {}, additionalScopes = [] } = options;
+
+		const { response, error } = yield baseActions.setModuleActivation( {
+			slug,
+			active: true,
+		} );
 
 		if ( response?.success === true ) {
 			const moduleReauthURL = yield {
-				payload: { slug },
+				payload: { slug, redirectQueryArgs, additionalScopes },
 				type: SELECT_MODULE_REAUTH_URL,
 			};
 			return {
@@ -189,7 +277,10 @@ const baseActions = {
 	 * @return {Object}      Object with `{response, error}`.
 	 */
 	*deactivateModule( slug ) {
-		const { response, error } = yield baseActions.setModuleActivation( slug, false );
+		const { response, error } = yield baseActions.setModuleActivation( {
+			slug,
+			active: false,
+		} );
 
 		return { response, error };
 	},
@@ -203,26 +294,37 @@ const baseActions = {
 	 * @since 1.8.0
 	 * @private
 	 *
-	 * @param {string}  slug   Slug of the module to activate/deactivate.
-	 * @param {boolean} active `true` to activate; `false` to deactivate.
+	 * @param {Object}  options        Options object.
+	 * @param {string}  options.slug   Slug of the module to activate/deactivate.
+	 * @param {boolean} options.active `true` to activate; `false` to deactivate.
 	 * @return {Object}         Object with `{response, error}`.
 	 */
-	*setModuleActivation( slug, active ) {
-		invariant( slug, 'slug is required.' );
-		invariant( active !== undefined, 'active is required.' );
+	setModuleActivation: createValidatedAction(
+		( { slug, active } ) => {
+			invariant( slug, 'slug is required.' );
+			invariant( active !== undefined, 'active is required.' );
+		},
+		function* ( { slug, active } ) {
+			const { response, error } =
+				yield fetchSetModuleActivationStore.actions.fetchSetModuleActivation(
+					slug,
+					active
+				);
+			if ( response?.success === true ) {
+				// Fetch (or re-fetch) all modules, with their updated status.
+				// TODO: This is temporary disabled until Site Kit no longer relies
+				// on page reloads between module activation changes.
+				// yield fetchGetModulesStore.actions.fetchGetModules();
 
-		const { response, error } = yield fetchSetModuleActivationStore.actions.fetchSetModuleActivation( slug, active );
-		if ( response?.success === true ) {
-			// Fetch (or re-fetch) all modules, with their updated status.
-			yield fetchGetModulesStore.actions.fetchGetModules();
-			yield {
-				payload: {},
-				type: REFETCH_AUTHENTICATION,
-			};
+				yield {
+					payload: {},
+					type: REFETCH_AUTHENTICATION,
+				};
+			}
+
+			return { response, error };
 		}
-
-		return { response, error };
-	},
+	),
 
 	/**
 	 * Registers a module.
@@ -233,66 +335,98 @@ const baseActions = {
 	 * @since 1.23.0 Introduced the ability to register an Icon component.
 	 * @since 1.24.0 Introduced the ability to explictly define a module store name.
 	 *
-	 * @param {string}      slug                                        Module slug.
-	 * @param {Object}      [settings]                                  Optional. Module settings.
-	 * @param {string}      [settings.storeName]                        Optional. Module storeName. If none is provided we assume no store exists for this module.
-	 * @param {string}      [settings.name]                             Optional. Module name. Default is the slug.
-	 * @param {string}      [settings.description]                      Optional. Module description. Default empty string.
-	 * @param {WPComponent} [settings.Icon]                             Optional. React component to render module icon. Default none.
-	 * @param {number}      [settings.order]                            Optional. Numeric indicator for module order. Default 10.
-	 * @param {string}      [settings.homepage]                         Optional. Module homepage URL. Default empty string.
-	 * @param {WPComponent} [settings.SettingsEditComponent]            Optional. React component to render the settings edit panel. Default none.
-	 * @param {WPComponent} [settings.SettingsViewComponent]            Optional. React component to render the settings view panel. Default none.
-	 * @param {WPComponent} [settings.SettingsSetupIncompleteComponent] Optional. React component to render the incomplete settings panel. Default none.
-	 * @param {WPComponent} [settings.SetupComponent]                   Optional. React component to render the setup panel. Default none.
-	 * @param {Function}    [settings.checkRequirements]                Optional. Function to check requirements for the module. Throws a WP error object for error or returns on success.
-	 * @param {Function}    [settings.screenWidgetContext]              Optional. Get the registered context name for a given module.
+	 * @param {string}         slug                                        Module slug.
+	 * @param {Object}         [settings]                                  Optional. Module settings.
+	 * @param {string}         [settings.storeName]                        Optional. Module storeName. If none is provided we assume no store exists for this module.
+	 * @param {string}         [settings.name]                             Optional. Module name. Default is the slug.
+	 * @param {string}         [settings.description]                      Optional. Module description. Default empty string.
+	 * @param {Array.<string>} [settings.features]                         Optional. Module features. Default empty array.
+	 * @param {WPComponent}    [settings.SettingsDisconnectNoteComponent]  Optional. React component to render the sub note below the features list within the disconnect modal dialogue box. Default none.
+	 * @param {WPComponent}    [settings.Icon]                             Optional. React component to render module icon. Default none.
+	 * @param {number}         [settings.order]                            Optional. Numeric indicator for module order. Default 10.
+	 * @param {string}         [settings.homepage]                         Optional. Module homepage URL. Default empty string.
+	 * @param {WPComponent}    [settings.SettingsEditComponent]            Optional. React component to render the settings edit panel. Default none.
+	 * @param {WPComponent}    [settings.SettingsViewComponent]            Optional. React component to render the settings view panel. Default none.
+	 * @param {WPComponent}    [settings.SettingsSetupIncompleteComponent] Optional. React component to render the incomplete settings panel. Default none.
+	 * @param {WPComponent}    [settings.SettingsStatusComponent]          Optional. React component to render the module status. Default none.
+	 * @param {WPComponent}    [settings.SetupComponent]                   Optional. React component to render the setup panel. Default none.
+	 * @param {WPComponent}    [settings.SetupLayout]                      Optional. React component to render the module setup screen layout. Default none.
+	 * @param {boolean}        [settings.overrideSetupSuccessNotification] Optional. Flag to denote whether to render a custom setup success notification. Default `false`.
+	 * @param {Function}       [settings.onCompleteSetup]                  Optional. Function to use as a complete CTA callback. Default `undefined`.
+	 * @param {Function}       [settings.checkRequirements]                Optional. Function to check requirements for the module. Throws a WP error object for error or returns on success.
+	 * @param {WPComponent}    [settings.DashboardMainEffectComponent]     Optional. React component to render the effects on main dashboard. Default none.
+	 * @param {WPComponent}    [settings.DashboardEntityEffectComponent]   Optional. React component to render the effects on entity dashboard. Default none.
 	 */
-	*registerModule( slug, {
-		storeName,
-		name,
-		description,
-		Icon,
-		order,
-		homepage,
-		SettingsEditComponent,
-		SettingsViewComponent,
-		SetupComponent,
-		SettingsSetupIncompleteComponent,
-		checkRequirements = () => true,
-		screenWidgetContext,
-	} = {} ) {
-		invariant( slug, 'module slug is required' );
+	registerModule: createValidatedAction(
+		( slug ) => {
+			invariant( slug, 'module slug is required' );
+		},
+		function* (
+			slug,
+			{
+				storeName,
+				name,
+				description,
+				features,
+				SettingsDisconnectNoteComponent,
+				Icon,
+				order,
+				homepage,
+				SettingsEditComponent,
+				SettingsViewComponent,
+				SettingsSetupIncompleteComponent,
+				SettingsStatusComponent,
+				SetupComponent,
+				SetupLayout,
+				overrideSetupSuccessNotification = false,
+				onCompleteSetup,
+				checkRequirements,
+				DashboardMainEffectComponent,
+				DashboardEntityEffectComponent,
+			} = {}
+		) {
+			const settings = {
+				storeName,
+				name,
+				description,
+				features,
+				SettingsDisconnectNoteComponent,
+				Icon,
+				order,
+				homepage,
+				SettingsEditComponent,
+				SettingsViewComponent,
+				SettingsSetupIncompleteComponent,
+				SettingsStatusComponent,
+				SetupComponent,
+				SetupLayout,
+				overrideSetupSuccessNotification,
+				onCompleteSetup,
+				checkRequirements,
+				DashboardMainEffectComponent,
+				DashboardEntityEffectComponent,
+			};
 
-		const settings = {
-			storeName,
-			name,
-			description,
-			Icon,
-			order,
-			homepage,
-			SettingsEditComponent,
-			SettingsViewComponent,
-			SetupComponent,
-			SettingsSetupIncompleteComponent,
-			checkRequirements,
-			screenWidgetContext,
-		};
+			yield {
+				payload: {
+					settings,
+					slug,
+				},
+				type: REGISTER_MODULE,
+			};
 
-		yield {
-			payload: {
-				settings,
-				slug,
-			},
-			type: REGISTER_MODULE,
-		};
+			const registry = yield commonActions.getRegistry();
 
-		const registry = yield Data.commonActions.getRegistry();
-
-		// As we can specify a custom checkRequirements function here, we're invalidating the resolvers for activation checks.
-		yield registry.dispatch( STORE_NAME ).invalidateResolution( 'canActivateModule', [ slug ] );
-		yield registry.dispatch( STORE_NAME ).invalidateResolution( 'getCheckRequirementsError', [ slug ] );
-	},
+			// As we can specify a custom checkRequirements function here, we're
+			// invalidating the resolvers for activation checks.
+			registry
+				.dispatch( CORE_MODULES )
+				.invalidateResolution( 'canActivateModule', [ slug ] );
+			registry
+				.dispatch( CORE_MODULES )
+				.invalidateResolution( 'getCheckRequirementsError', [ slug ] );
+		}
+	),
 
 	/**
 	 * Receives the check requirements error map for specified modules modules.
@@ -306,7 +440,10 @@ const baseActions = {
 	 */
 	receiveCheckRequirementsError( slug, error ) {
 		invariant( slug, 'slug is required' );
-		invariant( isPlainObject( error ), 'error is required and must be an object' );
+		invariant(
+			isPlainObject( error ),
+			'error is required and must be an object'
+		);
 		return {
 			payload: { slug, error },
 			type: RECEIVE_CHECK_REQUIREMENTS_ERROR,
@@ -332,82 +469,266 @@ const baseActions = {
 		};
 	},
 
+	/**
+	 * Receives the recoverable modules for dashboard sharing.
+	 * Stores recoverable modules in the datastore.
+	 *
+	 * @since 1.74.0
+	 * @private
+	 *
+	 * @param {Object} recoverableModules List of recoverable modules.
+	 * @return {Object} Action for RECEIVE_RECOVERABLE_MODULES.
+	 */
+	receiveRecoverableModules( recoverableModules ) {
+		invariant( recoverableModules, 'recoverableModules is required.' );
+		return {
+			payload: { recoverableModules },
+			type: RECEIVE_RECOVERABLE_MODULES,
+		};
+	},
+
+	/**
+	 * Recovers multiple modules on the server.
+	 *
+	 * Recovers multiple modules (based on the slugs provided).
+	 *
+	 * @since 1.77.0
+	 *
+	 * @param {Array.<string>} slugs Array of slugs of the modules to recover.
+	 * @return {Object} Object with `{response, error}`.
+	 */
+	recoverModules: createValidatedAction(
+		( slugs ) => {
+			invariant( Array.isArray( slugs ), 'slugs must be an array' );
+		},
+		function* ( slugs ) {
+			const { dispatch, select } = yield commonActions.getRegistry();
+			const { response } =
+				yield fetchRecoverModulesStore.actions.fetchRecoverModules(
+					slugs
+				);
+			const { success } = response;
+
+			const successfulRecoveries = Object.keys( success ).filter(
+				( slug ) => !! success[ slug ]
+			);
+
+			for ( const slug of successfulRecoveries ) {
+				const storeName =
+					select( CORE_MODULES ).getModuleStoreName( slug );
+
+				// Reload the module's settings from the server.
+				yield commonActions.await(
+					dispatch( storeName ).fetchGetSettings()
+				);
+			}
+
+			if ( successfulRecoveries.length ) {
+				// Reload all modules from the server.
+				yield fetchGetModulesStore.actions.fetchGetModules();
+
+				// Having reloaded the modules from the server, ensure the list of recoverable modules is also refreshed,
+				// as the recoverable modules list is derived from the main list of modules.
+				dispatch( CORE_MODULES ).invalidateResolution(
+					'getRecoverableModules',
+					[]
+				);
+
+				// Refresh user capabilities from the server.
+				yield commonActions.await(
+					dispatch( CORE_USER ).refreshCapabilities()
+				);
+			}
+
+			return { response };
+		}
+	),
+
+	/**
+	 * Receives the shared ownership modules for dashboard sharing.
+	 * Stores shared ownership modules in the datastore.
+	 *
+	 * Because this is frequently-accessed data, this is usually sourced
+	 * from a global variable (`_googlesitekitDashboardSharingData`), set by PHP
+	 * in the `before_print` callback for `googlesitekit-datastore-site`.
+	 *
+	 * @since 1.77.0
+	 * @private
+	 *
+	 * @param {Object} sharedOwnershipModules Shared ownership modules, usually supplied via a global variable from PHP.
+	 * @return {Object} Action for RECEIVE_SHARED_OWNERSHIP_MODULES.
+	 */
+	receiveSharedOwnershipModules( sharedOwnershipModules ) {
+		invariant(
+			sharedOwnershipModules,
+			'sharedOwnershipModules is required.'
+		);
+		return {
+			payload: { sharedOwnershipModules },
+			type: RECEIVE_SHARED_OWNERSHIP_MODULES,
+		};
+	},
+
+	/**
+	 * Clears the recoveredModules in the state.
+	 *
+	 * @since 1.87.0
+	 *
+	 * @return {Object} Action for RECEIVE_SHARED_OWNERSHIP_MODULES.
+	 */
+	clearRecoveredModules() {
+		return {
+			payload: {},
+			type: CLEAR_RECOVERED_MODULES,
+		};
+	},
+
+	/**
+	 * Receives inline modules data.
+	 * Stores inline modules data in the datastore.
+	 *
+	 * Because this is frequently-accessed data, this is usually sourced
+	 * from a global variable (`_googlesitekitModulesData`), set by PHP
+	 * in the `before_print` callback for `googlesitekit-modules`.
+	 *
+	 * @since 1.162.0
+	 * @private
+	 *
+	 * @param {Object} inlineModulesData Inline modules data, usually supplied via a global variable from PHP.
+	 * @return {Object} Action for RECEIVE_INLINE_MODULES_DATA.
+	 */
+	receiveInlineModulesData: createValidatedAction(
+		( inlineModulesData ) => {
+			invariant( inlineModulesData, 'inlineModulesData is required' );
+		},
+		( inlineModulesData ) => {
+			return {
+				payload: { inlineModulesData },
+				type: RECEIVE_INLINE_MODULES_DATA,
+			};
+		}
+	),
 };
 
 export const baseControls = {
-	[ REFETCH_AUTHENTICATION ]: createRegistryControl( ( { dispatch } ) => () => {
-		return dispatch( CORE_USER ).fetchGetAuthentication();
-	} ),
-	[ SELECT_MODULE_REAUTH_URL ]: createRegistryControl( ( { select } ) => ( { payload } ) => {
-		const { slug } = payload;
-		const storeName = select( STORE_NAME ).getModuleStoreName( slug );
+	[ REFETCH_AUTHENTICATION ]: createRegistryControl(
+		( { dispatch } ) =>
+			() => {
+				return dispatch( CORE_USER ).fetchGetAuthentication();
+			}
+	),
+	[ SELECT_MODULE_REAUTH_URL ]: createRegistryControl(
+		( { select, resolveSelect } ) =>
+			async ( { payload } ) => {
+				const {
+					slug,
+					redirectQueryArgs = {},
+					additionalScopes = [],
+				} = payload;
+				// Ensure the module is loaded before selecting the store name.
+				await resolveSelect( CORE_MODULES ).getModule( slug );
 
-		// If a storeName wasn't specified on registerModule we assume there is no store for this module
-		if ( ! storeName ) {
-			return;
-		}
+				const storeName =
+					select( CORE_MODULES ).getModuleStoreName( slug );
 
-		const getAdminReauthURL = select( storeName )?.getAdminReauthURL;
-		if ( getAdminReauthURL ) {
-			return getAdminReauthURL();
-		}
-		return select( CORE_SITE ).getAdminURL( 'googlesitekit-dashboard' );
-	} ),
+				// If a storeName wasn't specified on registerModule we assume there is no store for this module
+				if ( ! storeName ) {
+					return null;
+				}
+
+				if ( select( storeName )?.getAdminReauthURL ) {
+					return await resolveSelect( storeName ).getAdminReauthURL( {
+						redirectQueryArgs,
+						additionalScopes,
+					} );
+				}
+				return select( CORE_SITE ).getAdminURL(
+					'googlesitekit-dashboard'
+				);
+			}
+	),
 };
 
-const baseReducer = ( state, { type, payload } ) => {
+const baseReducer = createReducer( ( state, { type, payload } ) => {
 	switch ( type ) {
 		case REGISTER_MODULE: {
 			const { slug, settings } = payload;
 
 			if ( !! state.clientDefinitions[ slug ] ) {
-				global.console.warn( `Could not register module with slug "${ slug }". Module "${ slug }" is already registered.` );
-				return state;
+				global.console.warn(
+					`Could not register module with slug "${ slug }". Module "${ slug }" is already registered.`
+				);
+				return;
 			}
 
-			return {
-				...state,
-				clientDefinitions: {
-					...state.clientDefinitions,
-					[ slug ]: settings,
-				},
-			};
+			state.clientDefinitions[ slug ] = settings;
+			break;
 		}
 
 		case RECEIVE_CHECK_REQUIREMENTS_ERROR: {
 			const { slug, error } = payload;
 
-			return {
-				...state,
-				checkRequirementsResults: {
-					...state.checkRequirementsResults,
-					[ slug ]: error,
-				},
-			};
+			state.checkRequirementsResults[ slug ] = error;
+			break;
 		}
 
 		case RECEIVE_CHECK_REQUIREMENTS_SUCCESS: {
 			const { slug } = payload;
-			return {
-				...state,
-				checkRequirementsResults: {
-					...state.checkRequirementsResults,
-					[ slug ]: true,
-				},
-			};
+
+			state.checkRequirementsResults[ slug ] = true;
+			break;
 		}
 
-		default: {
-			return state;
+		case RECEIVE_RECOVERABLE_MODULES: {
+			const { recoverableModules } = payload;
+
+			state.recoverableModules = recoverableModules;
+			break;
 		}
+
+		case RECEIVE_SHARED_OWNERSHIP_MODULES: {
+			const { sharedOwnershipModules } = payload;
+
+			state.sharedOwnershipModules = sharedOwnershipModules;
+			break;
+		}
+
+		case CLEAR_RECOVERED_MODULES: {
+			state.recoveredModules = undefined;
+			break;
+		}
+
+		case RECEIVE_INLINE_MODULES_DATA: {
+			const { inlineModulesData } = payload;
+
+			state.inlineModulesData = inlineModulesData;
+			break;
+		}
+
+		default:
+			break;
 	}
-};
+} );
+
+function* waitForModules() {
+	const { resolveSelect } = yield commonActions.getRegistry();
+
+	yield commonActions.await( resolveSelect( CORE_MODULES ).getModules() );
+}
+
+function* waitForModulesInlineData() {
+	const { resolveSelect } = yield commonActions.getRegistry();
+
+	yield commonActions.await(
+		resolveSelect( CORE_MODULES ).getInlineModulesData()
+	);
+}
 
 const baseResolvers = {
 	*getModules() {
-		const registry = yield Data.commonActions.getRegistry();
+		const registry = yield commonActions.getRegistry();
 
-		const existingModules = registry.select( STORE_NAME ).getModules();
+		const existingModules = registry.select( CORE_MODULES ).getModules();
 
 		if ( ! existingModules ) {
 			yield fetchGetModulesStore.actions.fetchGetModules();
@@ -415,9 +736,12 @@ const baseResolvers = {
 	},
 
 	*canActivateModule( slug ) {
-		const registry = yield Data.commonActions.getRegistry();
-		yield Data.commonActions.await( registry.__experimentalResolveSelect( STORE_NAME ).getModules() );
-		const module = registry.select( STORE_NAME ).getModule( slug );
+		const registry = yield commonActions.getRegistry();
+		const { select, resolveSelect } = registry;
+		const module = yield commonActions.await(
+			resolveSelect( CORE_MODULES ).getModule( slug )
+		);
+		// At this point, all modules are loaded so we can safely select getModule below.
 
 		if ( ! module ) {
 			return;
@@ -426,7 +750,8 @@ const baseResolvers = {
 		const inactiveModules = [];
 
 		module.dependencies.forEach( ( dependencySlug ) => {
-			const dependedentModule = registry.select( STORE_NAME ).getModule( dependencySlug );
+			const dependedentModule =
+				select( CORE_MODULES ).getModule( dependencySlug );
 			if ( ! dependedentModule?.active ) {
 				inactiveModules.push( dependedentModule.name );
 			}
@@ -436,8 +761,15 @@ const baseResolvers = {
 		// activate the module until the dependencies have been activated.
 		if ( inactiveModules.length ) {
 			/* translators: Error message text. 1: A flattened list of module names. 2: A module name. */
-			const messageTemplate = __( 'You need to set up %1$s to gain access to %2$s.', 'google-site-kit' );
-			const errorMessage = sprintf( messageTemplate, listFormat( inactiveModules ), module.name );
+			const messageTemplate = __(
+				'You need to set up %1$s to gain access to %2$s.',
+				'google-site-kit'
+			);
+			const errorMessage = sprintf(
+				messageTemplate,
+				listFormat( inactiveModules ),
+				module.name
+			);
 
 			yield baseActions.receiveCheckRequirementsError( slug, {
 				code: ERROR_CODE_INSUFFICIENT_MODULE_DEPENDENCIES,
@@ -446,13 +778,119 @@ const baseResolvers = {
 			} );
 		} else {
 			try {
-				yield Data.commonActions.await( module.checkRequirements() );
+				yield commonActions.await(
+					module.checkRequirements( registry )
+				);
 				yield baseActions.receiveCheckRequirementsSuccess( slug );
 			} catch ( error ) {
 				yield baseActions.receiveCheckRequirementsError( slug, error );
 			}
 		}
 	},
+
+	*hasModuleAccess( slug ) {
+		const registry = yield commonActions.getRegistry();
+
+		const existingCheckAccess = registry
+			.select( CORE_MODULES )
+			.hasModuleAccess( slug );
+
+		if ( existingCheckAccess === undefined ) {
+			yield fetchCheckModuleAccessStore.actions.fetchCheckModuleAccess(
+				slug
+			);
+		}
+	},
+
+	*hasModuleOwnership( slug ) {
+		const { select, resolveSelect } = yield commonActions.getRegistry();
+
+		const hasOwnership = select( CORE_MODULES ).hasModuleOwnership( slug );
+
+		if ( hasOwnership !== undefined ) {
+			return;
+		}
+
+		const storeName = select( CORE_MODULES ).getModuleStoreName( slug );
+
+		yield commonActions.await(
+			Promise.all( [
+				resolveSelect( CORE_USER ).getUser(),
+				resolveSelect( storeName ).getSettings(),
+			] )
+		);
+	},
+
+	*getRecoverableModules() {
+		const registry = yield commonActions.getRegistry();
+		const modules = yield commonActions.await(
+			registry.resolveSelect( CORE_MODULES ).getModules()
+		);
+
+		const recoverableModules = Object.entries( modules || {} ).reduce(
+			( moduleList, [ moduleSlug, module ] ) => {
+				if ( module.recoverable && ! module.internal ) {
+					moduleList.push( moduleSlug );
+				}
+
+				return moduleList;
+			},
+			[]
+		);
+
+		yield baseActions.receiveRecoverableModules( recoverableModules );
+	},
+
+	*getSharedOwnershipModules() {
+		const registry = yield commonActions.getRegistry();
+
+		if ( registry.select( CORE_MODULES ).getSharedOwnershipModules() ) {
+			return;
+		}
+
+		let dashboardSharingData;
+		try {
+			dashboardSharingData = getGlobalData(
+				'_googlesitekitDashboardSharingData'
+			);
+		} catch ( error ) {
+			global.console.error(
+				'Could not load core/modules dashboard sharing.'
+			);
+			return;
+		}
+
+		yield baseActions.receiveSharedOwnershipModules(
+			dashboardSharingData.sharedOwnershipModules
+		);
+	},
+
+	*getInlineModulesData() {
+		const registry = yield commonActions.getRegistry();
+
+		if ( registry.select( CORE_MODULES ).getInlineModulesData() ) {
+			return;
+		}
+
+		let inlineModulesData;
+		try {
+			inlineModulesData = getGlobalData( '_googlesitekitModulesData' );
+		} catch ( error ) {
+			return;
+		}
+
+		yield baseActions.receiveInlineModulesData( inlineModulesData );
+	},
+
+	getModule: waitForModules,
+
+	getModuleInlineData: waitForModulesInlineData,
+
+	isModuleActive: waitForModules,
+
+	isModuleConnected: waitForModules,
+
+	isModuleDisconnected: waitForModules,
 };
 
 const baseSelectors = {
@@ -475,9 +913,7 @@ const baseSelectors = {
 	 *   "internal": false,
 	 *   "active": false,
 	 *   "connected": false,
-	 *   "dependencies": [
-	 *     "analytics"
-	 *   ],
+	 *   "dependencies": [],
 	 *   "dependents": []
 	 * }
 	 * ```
@@ -513,7 +949,7 @@ const baseSelectors = {
 	 * @return {(Object|undefined)} A specific module object; `undefined` if state is still loading or if said module doesn't exist.
 	 */
 	getModule: createRegistrySelector( ( select ) => ( state, slug ) => {
-		const modules = select( STORE_NAME ).getModules();
+		const modules = select( CORE_MODULES ).getModules();
 
 		// Return `undefined` if modules haven't been loaded yet.
 		if ( modules === undefined ) {
@@ -543,7 +979,7 @@ const baseSelectors = {
 	 * @return {(WPComponent|undefined|null)} A specific module's icon; `undefined` if state is still loading; `null` if said module doesn't exist or doesn't have an icon.
 	 */
 	getModuleIcon: createRegistrySelector( ( select ) => ( state, slug ) => {
-		const module = select( STORE_NAME ).getModule( slug );
+		const module = select( CORE_MODULES ).getModule( slug );
 		// Return `undefined` if module with this slug isn't loaded yet.
 		if ( module === undefined ) {
 			return undefined;
@@ -571,25 +1007,30 @@ const baseSelectors = {
 	 * @param {string} slug  Module slug.
 	 * @return {(Array|undefined)} An array of dependency module names; `undefined` if state is still loading.
 	 */
-	getModuleDependencyNames: createRegistrySelector( ( select ) => ( state, slug ) => {
-		const module = select( STORE_NAME ).getModule( slug );
+	getModuleDependencyNames: createRegistrySelector(
+		( select ) => ( state, slug ) => {
+			const module = select( CORE_MODULES ).getModule( slug );
 
-		// Return `undefined` if module with this slug isn't loaded yet.
-		if ( module === undefined ) {
-			return undefined;
+			// Return `undefined` if module with this slug isn't loaded yet.
+			if ( module === undefined ) {
+				return undefined;
+			}
+
+			// A module with this slug couldn't be found; return `[]` to signify the
+			// "not found" state.
+			if ( module === null ) {
+				return [];
+			}
+
+			// Module is found, return the names of the dependencies
+			// Modules are already resolved after we getModule() so they can't be undefined.
+			const modules = select( CORE_MODULES ).getModules();
+			return module.dependencies.map(
+				( dependencySlug ) =>
+					modules[ dependencySlug ]?.name || dependencySlug
+			);
 		}
-
-		// A module with this slug couldn't be found; return `[]` to signify the
-		// "not found" state.
-		if ( module === null ) {
-			return [];
-		}
-
-		// Module is found, return the names of the dependencies
-		// Modules are already resolved after we getModule() so they can't be undefined.
-		const modules = select( STORE_NAME ).getModules();
-		return module.dependencies.map( ( dependencySlug ) => modules[ dependencySlug ]?.name || dependencySlug );
-	} ),
+	),
 
 	/**
 	 * Gets module dependant names by slug.
@@ -603,25 +1044,30 @@ const baseSelectors = {
 	 * @param {string} slug  Module slug.
 	 * @return {(Array|undefined)} An array of dependant module names; `undefined` if state is still loading.
 	 */
-	getModuleDependantNames: createRegistrySelector( ( select ) => ( state, slug ) => {
-		const module = select( STORE_NAME ).getModule( slug );
+	getModuleDependantNames: createRegistrySelector(
+		( select ) => ( state, slug ) => {
+			const module = select( CORE_MODULES ).getModule( slug );
 
-		// Return `undefined` if module with this slug isn't loaded yet.
-		if ( module === undefined ) {
-			return undefined;
+			// Return `undefined` if module with this slug isn't loaded yet.
+			if ( module === undefined ) {
+				return undefined;
+			}
+
+			// A module with this slug couldn't be found; return `[]` to signify the
+			// "not found" state.
+			if ( module === null ) {
+				return [];
+			}
+
+			// Module is found, return the names of the dependants
+			// Modules are already resolved after we getModule() so they can't be undefined.
+			const modules = select( CORE_MODULES ).getModules();
+			return module.dependants.map(
+				( dependantSlug ) =>
+					modules[ dependantSlug ]?.name || dependantSlug
+			);
 		}
-
-		// A module with this slug couldn't be found; return `[]` to signify the
-		// "not found" state.
-		if ( module === null ) {
-			return [];
-		}
-
-		// Module is found, return the names of the dependants
-		// Modules are already resolved after we getModule() so they can't be undefined.
-		const modules = select( STORE_NAME ).getModules();
-		return module.dependants.map( ( dependantSlug ) => modules[ dependantSlug ]?.name || dependantSlug );
-	} ),
+	),
 
 	/**
 	 * Gets module store name by slug.
@@ -636,21 +1082,61 @@ const baseSelectors = {
 	 * 									 `null` if no store name was set.
 	 * 									 `undefined` if state is still loading.
 	 */
-	getModuleStoreName: createRegistrySelector( ( select ) => ( state, slug ) => {
-		const module = select( STORE_NAME ).getModule( slug );
+	getModuleStoreName: createRegistrySelector(
+		( select ) => ( state, slug ) => {
+			const module = select( CORE_MODULES ).getModule( slug );
 
-		// Return `undefined` if module with this slug isn't loaded yet.
-		if ( module === undefined ) {
-			return undefined;
+			// Return `undefined` if module with this slug isn't loaded yet.
+			if ( module === undefined ) {
+				return undefined;
+			}
+
+			// Return null if no store name was set
+			if ( module === null ) {
+				return null;
+			}
+
+			return module.storeName;
 		}
+	),
 
-		// Return null if no store name was set
-		if ( module === null ) {
-			return null;
+	/**
+	 * Checks a module's availability status.
+	 *
+	 * Note that an otherwise valid module may be removed from the list of available modules
+	 * by making use of the the googlesitekit_available_modules filter in PHP.
+	 *
+	 * Returns `true` if the module is available.
+	 * Returns `false` if the module is not available.
+	 * Returns `undefined` if state is still loading.
+	 *
+	 * @since 1.85.0
+	 *
+	 * @param {Object} state Data store's state.
+	 * @param {string} slug  Module slug.
+	 * @return {(boolean|undefined)} `true` when the module is available.
+	 * 									  `false` when the module is not available.
+	 * 									  `undefined` if state is still loading.
+	 */
+	isModuleAvailable: createRegistrySelector(
+		( select ) => ( state, slug ) => {
+			const module = select( CORE_MODULES ).getModule( slug );
+
+			// Return `undefined` if modules haven't been loaded yet.
+			if ( module === undefined ) {
+				return undefined;
+			}
+
+			// A module with this slug couldn't be found; return `false` to signify the
+			// unavailable state.
+			if ( module === null ) {
+				return false;
+			}
+
+			// Otherwise, the module exists and is available.
+			return true;
 		}
-
-		return module.storeName;
-	} ),
+	),
 
 	/**
 	 * Checks a module's activation status.
@@ -668,7 +1154,7 @@ const baseSelectors = {
 	 * 									  `null` if said module doesn't exist.
 	 */
 	isModuleActive: createRegistrySelector( ( select ) => ( state, slug ) => {
-		const module = select( STORE_NAME ).getModule( slug );
+		const module = select( CORE_MODULES ).getModule( slug );
 
 		// Return `undefined` if modules haven't been loaded yet.
 		if ( module === undefined ) {
@@ -699,22 +1185,59 @@ const baseSelectors = {
 	 * 									  `undefined` if state is still loading.
 	 * 									  `null` if said module doesn't exist.
 	 */
-	isModuleConnected: createRegistrySelector( ( select ) => ( state, slug ) => {
-		const module = select( STORE_NAME ).getModule( slug );
+	isModuleConnected: createRegistrySelector(
+		( select ) => ( state, slug ) => {
+			const module = select( CORE_MODULES ).getModule( slug );
 
-		// Return `undefined` if modules haven't been loaded yet.
-		if ( module === undefined ) {
-			return undefined;
+			// Return `undefined` if modules haven't been loaded yet.
+			if ( module === undefined ) {
+				return undefined;
+			}
+
+			// A module with this slug couldn't be found; return `null` to signify the
+			// "not found" state.
+			if ( module === null ) {
+				return null;
+			}
+
+			return module.active && module.connected;
 		}
+	),
 
-		// A module with this slug couldn't be found; return `null` to signify the
-		// "not found" state.
-		if ( module === null ) {
-			return null;
+	/**
+	 * Checks whether a module is disconnected or not.
+	 *
+	 * Returns `undefined` if state is still loading or if no module with that slug exists.
+	 *
+	 * @since 1.172.0
+	 *
+	 * @param {Object} state Data store's state.
+	 * @param {string} slug  Module slug.
+	 * @return {(boolean|null|undefined)} True if the module was disconnected.
+	 * 									  `undefined` if state is still loading.
+	 * 									  `null` if said module doesn't exist.
+	 */
+	isModuleDisconnected: createRegistrySelector(
+		( select ) => ( state, slug ) => {
+			const module = select( CORE_MODULES ).getModule( slug );
+
+			// Return `undefined` if modules haven't been loaded yet.
+			if ( module === undefined ) {
+				return undefined;
+			}
+
+			// A module with this slug couldn't be found; return `null` to signify the
+			// "not found" state.
+			if ( module === null ) {
+				return null;
+			}
+
+			return (
+				select( CORE_MODULES ).isModuleConnected( slug ) === false &&
+				module.disconnectedAt > 0
+			);
 		}
-
-		return module.active && module.connected;
-	} ),
+	),
 
 	/**
 	 * Checks if a module's status is changing.
@@ -729,26 +1252,38 @@ const baseSelectors = {
 	 * @param {string} slug  Module slug.
 	 * @return {(boolean|undefined)} Activation change status; `undefined` if state is still loading or if no module with that slug exists.
 	 */
-	isDoingSetModuleActivation: createRegistrySelector( ( select ) => ( state, slug ) => {
-		// Return undefined if modules not loaded or invalid slug.
-		if ( ! select( STORE_NAME ).getModule( slug ) ) {
-			return undefined;
-		}
+	isDoingSetModuleActivation: createRegistrySelector(
+		( select ) => ( state, slug ) => {
+			// Return undefined if modules not loaded or invalid slug.
+			if ( ! select( CORE_MODULES ).getModule( slug ) ) {
+				return undefined;
+			}
 
-		// Check if the module is being activated.
-		if ( select( STORE_NAME ).isFetchingSetModuleActivation( slug, true ) ) {
-			return true;
-		}
+			// Check if the module is being activated.
+			if (
+				select( CORE_MODULES ).isFetchingSetModuleActivation(
+					slug,
+					true
+				)
+			) {
+				return true;
+			}
 
-		// Check if the module is being deactivated.
-		if ( select( STORE_NAME ).isFetchingSetModuleActivation( slug, false ) ) {
-			return true;
-		}
+			// Check if the module is being deactivated.
+			if (
+				select( CORE_MODULES ).isFetchingSetModuleActivation(
+					slug,
+					false
+				)
+			) {
+				return true;
+			}
 
-		// Check if modules data still needs to be refreshed after activation
-		// update.
-		return state.isAwaitingModulesRefresh;
-	} ),
+			// Check if modules data still needs to be refreshed after activation
+			// update.
+			return state.isAwaitingModulesRefresh;
+		}
+	),
 
 	/**
 	 * Checks if we can activate a module with a given slug.
@@ -771,7 +1306,10 @@ const baseSelectors = {
 			return undefined;
 		}
 
-		return moduleRequirements === true;
+		return (
+			moduleRequirements === true ||
+			moduleRequirements?.canActivate === true
+		);
 	},
 
 	/**
@@ -786,46 +1324,425 @@ const baseSelectors = {
 	 * @param {string} slug  Module slug.
 	 * @return {(null|Object)} Activation error for a module slug; `null` if there is no error or an error object if we cannot activate a given module.
 	 */
-	getCheckRequirementsError: createRegistrySelector( ( select ) => ( state, slug ) => {
-		invariant( slug, 'slug is required.' );
+	getCheckRequirementsError: createRegistrySelector(
+		( select ) => ( state, slug ) => {
+			invariant( slug, 'slug is required.' );
 
-		// Need to use registry selector here to ensure resolver is invoked.
-		if ( select( STORE_NAME ).canActivateModule( slug ) ) {
-			return null;
+			const { checkRequirementsResults } = state;
+			const canActivate =
+				// Need to use registry selector here to ensure resolver is invoked.
+				select( CORE_MODULES ).canActivateModule( slug );
+
+			if (
+				canActivate === undefined ||
+				checkRequirementsResults[ slug ] === true
+			) {
+				return null;
+			}
+
+			return checkRequirementsResults[ slug ];
+		}
+	),
+
+	/**
+	 * Gets the module's list of features.
+	 *
+	 * Returns a list of features of this module.
+	 *
+	 * @since 1.30.0
+	 *
+	 * @param {Object} state Data store's state.
+	 * @param {string} slug  Module slug.
+	 * @return {(Array|undefined)} An array of features for the module; `undefined` if state is still loading.
+	 */
+	getModuleFeatures: createRegistrySelector(
+		( select ) => ( state, slug ) => {
+			const modules = select( CORE_MODULES ).getModules();
+
+			// Return `undefined` if modules haven't been loaded yet.
+			if ( modules === undefined ) {
+				return undefined;
+			}
+
+			return Array.isArray( modules[ slug ]?.features )
+				? modules[ slug ].features
+				: [];
+		}
+	),
+
+	/**
+	 * Checks if the given module has access.
+	 *
+	 * @since 1.70.0
+	 *
+	 * @param {Object} state Data store's state.
+	 * @param {string} slug  Module slug.
+	 * @return {(boolean|undefined)} `boolean` if the module has check access. If the state is still being resolved, returns `undefined`.
+	 */
+	hasModuleAccess( state, slug ) {
+		return state.moduleAccess[ slug ];
+	},
+
+	/**
+	 * Checks if current user has ownership of the given module.
+	 *
+	 * @since 1.148.0
+	 *
+	 * @param {Object} state Data store's state.
+	 * @param {string} slug  Module slug.
+	 * @return {(boolean|null|undefined)} `true` if the user has ownership.
+	 *                               	    `false` if the user doesn't have ownership.
+	 *                               	    `null` if the module doesn't exist.
+	 *                               	    `undefined` If the state is still being resolved.
+	 */
+	hasModuleOwnership: createRegistrySelector(
+		( select ) => ( state, moduleSlug ) => {
+			const moduleStoreName =
+				select( CORE_MODULES ).getModuleStoreName( moduleSlug );
+
+			if ( moduleStoreName === undefined ) {
+				return undefined;
+			}
+
+			// A store with this name doesn't exist, so the user can't have access to it.
+			// This is either caused by a module not being loaded or an incorrect module
+			// name being used.
+			if (
+				select( moduleStoreName ) === null ||
+				select( moduleStoreName ) === undefined
+			) {
+				return null;
+			}
+
+			const moduleOwnerID = select( moduleStoreName ).getOwnerID();
+
+			const loggedInUserID = select( CORE_USER ).getID();
+
+			if ( moduleOwnerID === undefined || loggedInUserID === undefined ) {
+				return undefined;
+			}
+
+			if ( moduleOwnerID === loggedInUserID ) {
+				return true;
+			}
+
+			return false;
+		}
+	),
+
+	/**
+	 * Checks if current user has ownership or access to the given module.
+	 *
+	 * @since 1.92.0
+	 *
+	 * @param {Object} state Data store's state.
+	 * @param {string} slug  Module slug.
+	 * @return {(boolean|undefined)} `true` if the user has ownership or access.
+	 *                               `false` if the user doesn't have ownership or access.
+	 *                               `undefined` If the state is still being resolved.
+	 */
+	hasModuleOwnershipOrAccess: createRegistrySelector(
+		( select ) => ( state, moduleSlug ) => {
+			const hasOwnership =
+				select( CORE_MODULES ).hasModuleOwnership( moduleSlug );
+
+			if ( hasOwnership === true ) {
+				return true;
+			}
+
+			if ( hasOwnership === undefined ) {
+				return undefined;
+			}
+
+			// If the module doesn't exist, the user can't have ownership or access.
+			if ( hasOwnership === null ) {
+				return false;
+			}
+
+			return select( CORE_MODULES ).hasModuleAccess( moduleSlug );
+		}
+	),
+
+	/**
+	 * Gets the list of recoverable modules for dashboard sharing.
+	 *
+	 * Returns an Object/map of objects, keyed by slug as same as `getModules`.
+	 *
+	 * @since 1.74.0
+	 *
+	 * @param {Object} state Data store's state.
+	 * @return {(Object|undefined)} Recoverable modules available on the site; `undefined` if not loaded.
+	 */
+	getRecoverableModules: createRegistrySelector( ( select ) => ( state ) => {
+		const modules = select( CORE_MODULES ).getModules();
+
+		// Return `undefined` if modules OR recoverableModules haven't been loaded yet.
+		if ( state.recoverableModules === undefined || modules === undefined ) {
+			return undefined;
 		}
 
-		return state.checkRequirementsResults[ slug ];
+		return calculateRecoverableModules( modules, state.recoverableModules );
 	} ),
 
 	/**
-	 * Gets the module's screenWidgetContext.
+	 * Checks if there are any recoverable modules for dashboard sharing.
 	 *
-	 * Returns `null` if there is no registered context string for the given module.
-	 * Returns `string` the registered context string, screenWidgetContext for the given module.
+	 * @since 1.133.0
 	 *
-	 * @since 1.28.0
-	 *
-	 * @param {Object} state      Data store's state.
-	 * @param {string} moduleSlug Module slug.
-	 * @return {(null|string)}    The module's registered context string, or null.
+	 * @param {Object} state Data store's state.
+	 * @return {(boolean|undefined)} `true` if there are recoverable modules.
+	 * 								 `false` if there are none.
+	 * 								 `undefined` if not loaded.
 	 */
-	getScreenWidgetContext: createRegistrySelector( ( select ) => ( state, moduleSlug ) => {
-		invariant( moduleSlug, 'slug is required.' );
-		const modules = select( STORE_NAME ).getModules();
-
-		if ( ! modules ) {
-			return null;
+	hasRecoverableModules: ( state ) => {
+		// Return `undefined` if recoverableModules haven't been loaded yet.
+		if ( state.recoverableModules === undefined ) {
+			return undefined;
 		}
 
-		const screenWidgetContext = modules[ moduleSlug ]?.screenWidgetContext;
+		return Object.keys( state.recoverableModules ).length > 0;
+	},
 
-		return screenWidgetContext || null;
+	/**
+	 * Gets the list of shared ownership modules for dashboard sharing.
+	 *
+	 * Returns an Object/map of objects, keyed by slug as same as `getModules`.
+	 *
+	 * @since 1.77.0
+	 *
+	 * @param {Object} state Data store's state.
+	 * @return {(Object|undefined)} Shared ownership modules available on the site; `undefined` if not loaded.
+	 */
+	getSharedOwnershipModules: createRegistrySelector(
+		( select ) => ( state ) => {
+			const modules = select( CORE_MODULES ).getModules();
+
+			// Return `undefined` if modules OR sharedOwnershipModules haven't been loaded yet.
+			if (
+				state.sharedOwnershipModules === undefined ||
+				modules === undefined
+			) {
+				return undefined;
+			}
+
+			return Object.values( modules ).reduce(
+				( sharedOwnershipModules, module ) => {
+					if (
+						state.sharedOwnershipModules.includes( module.slug )
+					) {
+						return {
+							...sharedOwnershipModules,
+							[ module.slug ]: module,
+						};
+					}
+
+					return sharedOwnershipModules;
+				},
+				{}
+			);
+		}
+	),
+
+	/**
+	 * Gets the list of non-internal shareable modules for dashboard sharing.
+	 *
+	 * Returns an Object/map of objects, keyed by slug as same as `getModules`.
+	 *
+	 * @since 1.95.0
+	 *
+	 * @param {Object} state Data store's state.
+	 * @return {(Object|undefined)} Non-internal shareable modules available on the site; `undefined` if not loaded.
+	 */
+	getShareableModules: createRegistrySelector( ( select ) => () => {
+		const modules = select( CORE_MODULES ).getModules();
+
+		// Return early if modules are not loaded.
+		if ( modules === undefined ) {
+			return undefined;
+		}
+
+		return Object.keys( modules ).reduce( ( acc, slug ) => {
+			if ( modules[ slug ].shareable ) {
+				return { [ slug ]: modules[ slug ], ...acc };
+			}
+
+			return acc;
+		}, {} );
 	} ),
+
+	/**
+	 * Gets recovery errors for recoverable modules.
+	 *
+	 * Returns an object keyed by module slug, containing error details and module name,
+	 * for all recoverable modules that have a corresponding recovery error.
+	 *
+	 * @since 1.157.0
+	 *
+	 * @param {Object} state Data store's state (unused in this selector).
+	 * @return {(Object|undefined)} Object of recovery errors keyed by module slug,
+	 *                              or `undefined` if recoverable modules are not yet available.
+	 */
+	getRecoveryErrors: createRegistrySelector( ( select ) => () => {
+		const recoverableModules =
+			select( CORE_MODULES ).getRecoverableModules();
+
+		if ( ! recoverableModules ) {
+			return undefined;
+		}
+
+		const recoveredModules = select( CORE_MODULES ).getRecoveredModules();
+
+		if ( ! recoveredModules ) {
+			return {};
+		}
+
+		const modules = Object.keys( recoverableModules );
+
+		function getRecoveryError( module ) {
+			return recoveredModules?.error?.[ module ];
+		}
+
+		return modules
+			.filter( ( module ) => !! getRecoveryError( module ) )
+			.reduce(
+				( acc, module ) => ( {
+					...acc,
+					[ module ]: {
+						name: recoverableModules[ module ].name,
+						...getRecoveryError( module ),
+					},
+				} ),
+				{}
+			);
+	} ),
+
+	/**
+	 * Gets the list of recoverable module slugs the current user has access to.
+	 *
+	 * Returns an array of module slugs from `getRecoverableModules` that the user
+	 * has access to based on `hasModuleAccess`.
+	 *
+	 * @since 1.157.0
+	 *
+	 * @param {Object} state Data store's state (unused in this selector).
+	 * @return {(Array<string>|undefined)} Array of accessible recoverable module slugs,
+	 *                                     or `undefined` if data is not ready.
+	 */
+	getUserRecoverableModuleSlugs: createRegistrySelector( ( select ) => () => {
+		const { getRecoverableModules, hasModuleAccess } =
+			select( CORE_MODULES );
+		const modules = getRecoverableModules();
+
+		if ( modules === undefined ) {
+			return undefined;
+		}
+
+		const slugAccessEntries = Object.keys( modules ).map( ( slug ) => [
+			slug,
+			hasModuleAccess( slug ),
+		] );
+
+		if (
+			slugAccessEntries.some(
+				( [ , hasAccess ] ) => hasAccess === undefined
+			)
+		) {
+			return undefined;
+		}
+
+		return slugAccessEntries
+			.filter( ( [ , hasAccess ] ) => hasAccess )
+			.map( ( [ slug ] ) => slug );
+	} ),
+
+	getRecoveredModules( state ) {
+		return state.recoveredModules;
+	},
+
+	/**
+	 * Gets the details link URL for a module.
+	 *
+	 * Returns the module homepage by default. This can be overwritten by a
+	 * custom selector of the same name in the module store implementation.
+	 *
+	 * @since 1.144.0
+	 *
+	 * @param {Object} state Data store's state.
+	 * @param {string} slug  Module slug.
+	 * @return {(string|null|undefined)} Details link URL; `null` if module is not available, or does not have a homepage. `undefined` if data is still loading.
+	 */
+	getDetailsLinkURL: createRegistrySelector(
+		( select ) => ( state, slug ) => {
+			const module = select( CORE_MODULES ).getModule( slug );
+
+			if ( module === undefined ) {
+				return undefined;
+			}
+
+			if ( module === null ) {
+				return null;
+			}
+
+			const storeName = select( CORE_MODULES ).getModuleStoreName( slug );
+
+			const { getDetailsLinkURL } = select( storeName ) || {};
+
+			if ( typeof getDetailsLinkURL === 'function' ) {
+				return getDetailsLinkURL();
+			}
+
+			if ( ! module.homepage ) {
+				return null;
+			}
+
+			return select( CORE_USER ).getAccountChooserURL( module.homepage );
+		}
+	),
+
+	/**
+	 * Gets inline modules data.
+	 *
+	 * Returns all inline modules data that was loaded from the global variable.
+	 *
+	 * @since 1.162.0
+	 *
+	 * @param {Object} state Data store's state.
+	 * @return {(Object|undefined)} Inline modules data object; `undefined` if not loaded.
+	 */
+	getInlineModulesData: ( state ) => {
+		return state.inlineModulesData;
+	},
+
+	/**
+	 * Gets inline data for a specific module.
+	 *
+	 * Returns inline data for the specified module slug.
+	 *
+	 * @since 1.162.0
+	 *
+	 * @param {Object} state Data store's state.
+	 * @param {string} slug  Module slug.
+	 * @return {(Object|undefined)} Module inline data object; `undefined` if not loaded.
+	 */
+	getModuleInlineData: createRegistrySelector(
+		( select ) => ( state, slug ) => {
+			const inlineModulesData =
+				select( CORE_MODULES ).getInlineModulesData();
+
+			if ( inlineModulesData === undefined ) {
+				return undefined;
+			}
+
+			return inlineModulesData[ slug ];
+		}
+	),
 };
 
-const store = Data.combineStores(
+const store = combineStores(
 	fetchGetModulesStore,
 	fetchSetModuleActivationStore,
+	fetchCheckModuleAccessStore,
+	fetchRecoverModulesStore,
 	{
 		initialState: baseInitialState,
 		actions: baseActions,

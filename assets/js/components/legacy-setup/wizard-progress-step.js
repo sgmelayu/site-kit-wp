@@ -19,9 +19,8 @@
 /**
  * External dependencies
  */
-import PropTypes from 'prop-types';
-import React from 'react';
 import classnames from 'classnames';
+import PropTypes from 'prop-types';
 
 /**
  * WordPress dependencies
@@ -31,20 +30,15 @@ import { Component } from '@wordpress/element';
 /**
  * Internal dependencies
  */
-import ExclamationIcon from '../../../svg/exclamation.svg';
-import CheckIcon from '../../../svg/check.svg';
+import { SIZE_MEDIUM } from '@/js/components/Typography/constants';
+import P from '@/js/components/Typography/P';
+import CheckIcon from '@/svg/icons/check.svg';
+import ExclamationIcon from '@/svg/icons/exclamation.svg';
 
 class WizardProgressStep extends Component {
 	render() {
-		const {
-			currentStep,
-			step,
-			title,
-			status,
-			warning,
-			error,
-			stepKey,
-		} = this.props;
+		const { currentStep, step, title, status, warning, error, stepKey } =
+			this.props;
 
 		let statusClass = status;
 		if ( warning ) {
@@ -68,36 +62,50 @@ class WizardProgressStep extends Component {
 		}
 
 		return (
-			<div className={ classnames(
-				'googlesitekit-wizard-progress-step',
-				`googlesitekit-wizard-progress-step--${ step }`,
-				`googlesitekit-wizard-progress-step--${ stepKey }`,
-				{ 'googlesitekit-wizard-progress-step--current': currentStep }
-			) }>
+			<div
+				className={ classnames(
+					'googlesitekit-wizard-progress-step',
+					`googlesitekit-wizard-progress-step--${ step }`,
+					`googlesitekit-wizard-progress-step--${ stepKey }`,
+					{
+						'googlesitekit-wizard-progress-step--current':
+							currentStep,
+					}
+				) }
+			>
 				<div className="googlesitekit-wizard-progress-step__number-wrapper">
-					<div className={ classnames(
-						'googlesitekit-wizard-progress-step__number',
-						`googlesitekit-wizard-progress-step__number--${ statusClass }`
-					) }>
-						<span className={ classnames(
-							'googlesitekit-wizard-progress-step__number-text',
-							`googlesitekit-wizard-progress-step__number-text--${ statusClass }`
-						) }>
+					<div
+						className={ classnames(
+							'googlesitekit-wizard-progress-step__number',
+							`googlesitekit-wizard-progress-step__number--${ statusClass }`
+						) }
+					>
+						<span
+							className={ classnames(
+								'googlesitekit-wizard-progress-step__number-text',
+								`googlesitekit-wizard-progress-step__number-text--${ statusClass }`
+							) }
+						>
 							{ step }
 						</span>
 						{ statusIcon && (
-							<span className={ classnames(
-								'googlesitekit-wizard-progress-step__number-icon',
-								`googlesitekit-wizard-progress-step__number-icon--${ statusClass }`
-							) }>
+							<span
+								className={ classnames(
+									'googlesitekit-wizard-progress-step__number-icon',
+									`googlesitekit-wizard-progress-step__number-icon--${ statusClass }`
+								) }
+							>
 								{ statusIcon }
 							</span>
 						) }
 					</div>
 				</div>
-				<p className="googlesitekit-wizard-progress-step__text">
+				<P
+					className="googlesitekit-wizard-progress-step__text"
+					size={ SIZE_MEDIUM }
+				>
 					{ title }
-				</p>
+				</P>
 			</div>
 		);
 	}

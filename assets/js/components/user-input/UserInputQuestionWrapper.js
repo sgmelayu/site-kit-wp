@@ -20,93 +20,116 @@
  * External dependencies
  */
 import PropTypes from 'prop-types';
-import classnames from 'classnames';
 
 /**
  * WordPress dependencies
  */
+import { createInterpolateElement } from '@wordpress/element';
 import { __ } from '@wordpress/i18n';
 
 /**
  * Internal dependencies
  */
-import Data from 'googlesitekit-data';
-import { CORE_USER } from '../../googlesitekit/datastore/user/constants';
-import Button from '../Button';
-import { Row, Cell } from '../../material-components';
+import { Button } from 'googlesitekit-components';
+import { useSelect } from 'googlesitekit-data';
+import ErrorNotice from '@/js/components/ErrorNotice';
+import SpinnerButton from '@/js/googlesitekit/components-gm2/SpinnerButton';
+import { CORE_LOCATION } from '@/js/googlesitekit/datastore/location/constants';
+import { CORE_USER } from '@/js/googlesitekit/datastore/user/constants';
+import { Cell, Row } from '@/js/material-components';
+import WarningSVG from '@/svg/icons/warning.svg';
+import CancelUserInputButton from './CancelUserInputButton';
 import UserInputQuestionInfo from './UserInputQuestionInfo';
-import ErrorNotice from '../ErrorNotice';
-const { useSelect } = Data;
+import { hasErrorForAnswer } from './util/validation';
 
 export default function UserInputQuestionWrapper( props ) {
-	const {
-		children,
-		slug,
-		isActive,
-		questionNumber,
-		title,
-		description,
-		next,
-		nextLabel,
-		back,
-		backLabel,
-		error,
-	} = props;
+	const { children, slug, questionNumber, next, back, complete, error } =
+		props;
 
-	const values = useSelect( ( select ) => select( CORE_USER ).getUserInputSetting( slug ) || [] );
-	const scope = useSelect( ( select ) => select( CORE_USER ).getUserInputSettingScope( slug ) );
-	const author = useSelect( ( select ) => select( CORE_USER ).getUserInputSettingAuthor( slug ) );
+	const values = useSelect(
+		( select ) => select( CORE_USER ).getUserInputSetting( slug ) || []
+	);
+
+	const settings = useSelect( ( select ) =>
+		select( CORE_USER ).getUserInputSettings()
+	);
+	const isSavingSettings = useSelect( ( select ) =>
+		select( CORE_USER ).isSavingUserInputSettings( settings )
+	);
+	const isNavigating = useSelect( ( select ) =>
+		select( CORE_LOCATION ).isNavigating()
+	);
+	const isScreenLoading = isSavingSettings || isNavigating;
 
 	return (
-		<div className={ classnames(
-			'googlesitekit-user-input__question',
-			{
-				'googlesitekit-user-input__question--active': isActive,
-				'googlesitekit-user-input__question--next': ! isActive,
-			}
-		) }>
-			<Row>
-				<Cell lgSize={ 12 } mdSize={ 8 } smSize={ 4 }>
-					<Row>
-						{ title && (
+		<div className="googlesitekit-user-input__question">
+			<div className="googlesitekit-user-input__question-contents">
+				<Row>
+					<Cell lgSize={ 12 } mdSize={ 8 } smSize={ 4 }>
+						<Row>
 							<UserInputQuestionInfo
-								title={ title }
-								description={ description }
-								scope={ scope }
+								slug={ slug }
 								questionNumber={ questionNumber }
-								author={ author }
 							/>
-						) }
 
-						{ children }
-					</Row>
+							{ children }
+						</Row>
+					</Cell>
+				</Row>
+			</div>
 
-					{ error && <ErrorNotice error={ error } /> }
+			{ error && (
+				<div className="googlesitekit-user-input__error">
+					<ErrorNotice error={ error } Icon={ WarningSVG } />
+				</div>
+			) }
 
-					{ isActive && (
-						<div className="googlesitekit-user-input__buttons">
-							{ back && (
-								<Button
-									className="googlesitekit-user-input__buttons--back"
-									onClick={ back }
-									text
-								>
-									{ backLabel || __( 'Back', 'google-site-kit' ) }
-								</Button>
-							) }
-							{ next && (
-								<Button
-									className="googlesitekit-user-input__buttons--next"
-									onClick={ next }
-									disabled={ values.filter( ( value ) => value.trim().length > 0 ).length === 0 }
-								>
-									{ nextLabel || __( 'Next', 'google-site-kit' ) }
-								</Button>
-							) }
-						</div>
+			<div className="googlesitekit-user-input__footer googlesitekit-user-input__buttons">
+				<div className="googlesitekit-user-input__footer-nav">
+					{ back && (
+						<Button
+							className="googlesitekit-user-input__buttons--back"
+							onClick={ back }
+							tertiary
+						>
+							{ __( 'Back', 'google-site-kit' ) }
+						</Button>
 					) }
-				</Cell>
-			</Row>
+					{ next && (
+						<Button
+							className="googlesitekit-user-input__buttons--next"
+							onClick={ next }
+							disabled={ hasErrorForAnswer( values ) }
+						>
+							{ __( 'Next', 'google-site-kit' ) }
+						</Button>
+					) }
+					{ complete && (
+						<SpinnerButton
+							className="googlesitekit-user-input__buttons--complete"
+							onClick={ complete }
+							isSaving={ isScreenLoading }
+							disabled={ hasErrorForAnswer( values ) }
+						>
+							{ createInterpolateElement(
+								__(
+									'Complete<span> setup</span>',
+									'google-site-kit'
+								),
+								{
+									span: (
+										<span className="googlesitekit-user-input__responsive-text" />
+									),
+								}
+							) }
+						</SpinnerButton>
+					) }
+				</div>
+
+				<div className="googlesitekit-user-input__footer-cancel">
+					<CancelUserInputButton />
+				</div>
+			</div>
 		</div>
 	);
 }
@@ -115,12 +138,9 @@ UserInputQuestionWrapper.propTypes = {
 	slug: PropTypes.string.isRequired,
 	questionNumber: PropTypes.number.isRequired,
 	children: PropTypes.node,
-	isActive: PropTypes.bool,
-	title: PropTypes.string,
 	description: PropTypes.string,
 	next: PropTypes.func,
-	nextLabel: PropTypes.string,
 	back: PropTypes.func,
-	backLabel: PropTypes.string,
+	complete: PropTypes.func,
 	error: PropTypes.object,
 };

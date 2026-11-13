@@ -1,0 +1,41 @@
+/**
+ * PDFPartialDataBadge tests.
+ *
+ * Site Kit by Google, Copyright 2026 Google LLC
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     https://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+/**
+ * Internal dependencies
+ */
+import { scalePDFValue } from '@/js/components/pdf-export/pdf-scale';
+import { PDF_COLORS } from '@/js/components/pdf-export/pdf-theme';
+import { renderJSON } from '@/js/components/pdf-export/test-utils';
+import PDFPartialDataBadge from './PDFPartialDataBadge';
+
+describe( 'PDFPartialDataBadge', () => {
+	it( 'renders the Partial data label in the warning colors', () => {
+		const badgeJSON = renderJSON( <PDFPartialDataBadge /> );
+
+		expect( badgeJSON ).toContain( 'Partial data' );
+		expect( badgeJSON ).toContain( PDF_COLORS.UTILITY_WARNING_CONTAINER );
+		expect( badgeJSON ).toContain( PDF_COLORS.YELLOW_Y_700 );
+	} );
+
+	it( 'should render at a fixed height', () => {
+		expect( renderJSON( <PDFPartialDataBadge /> ) ).toContain(
+			`"height":${ scalePDFValue( 28 ) }`
+		);
+	} );
+} );

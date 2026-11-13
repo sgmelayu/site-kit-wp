@@ -17,23 +17,20 @@
  */
 
 /**
- * WordPress dependencies
- */
-import { activatePlugin } from '@wordpress/e2e-test-utils';
-
-/**
  * Internal dependencies
  */
-import {
-	setSiteVerification,
-	setSearchConsoleProperty,
-} from '.';
+import { activatePlugin } from './activate-plugin';
+import { setSearchConsoleProperty, setSiteVerification } from '.';
 
-export const setupSiteKit = async ( { verified, property, auth = 'proxy' } = {} ) => {
+export async function setupSiteKit( {
+	verified,
+	property,
+	auth = 'proxy',
+} = {} ) {
 	if ( auth !== 'proxy' && auth !== 'gcp' ) {
 		throw new Error( 'Auth type must be either proxy or gcp' );
 	}
 	await activatePlugin( `e2e-tests-${ auth }-auth-plugin` );
-	await setSiteVerification( verified );
+	await setSiteVerification( { verified } );
 	await setSearchConsoleProperty( property );
-};
+}

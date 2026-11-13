@@ -1,0 +1,898 @@
+/**
+ * `core/feature-discovery` data store: selectors tests.
+ *
+ * Site Kit by Google, Copyright 2026 Google LLC
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     https://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+/**
+ * WordPress dependencies
+ */
+import { WPDataRegistry } from '@wordpress/data/build-types/registry';
+
+/**
+ * Internal dependencies
+ */
+import { CORE_UI } from '@/js/googlesitekit/datastore/ui/constants';
+import {
+	createTestRegistry,
+	freezeFetch,
+	provideModules,
+} from '@tests/js/utils';
+import {
+	CORE_FEATURE_DISCOVERY,
+	FEATURE_CATEGORIES,
+	FEATURE_EFFORTS,
+	FEATURE_SETUP_TYPES,
+	SUCCEEDED_FEATURES_UI_KEY,
+} from './constants';
+import type { FeatureSettings } from './types';
+
+function createSettings(
+	overrides: Partial< FeatureSettings > = {}
+): FeatureSettings {
+	return {
+		title: 'Test feature',
+		shortDescription: 'A feature used in tests.',
+		effort: FEATURE_EFFORTS.LOW,
+		goalCategories: [ FEATURE_CATEGORIES.AUDIENCE ],
+		addedInVersion: '1.100.0',
+		setup: {
+			type: FEATURE_SETUP_TYPES.SETUP_FLOW,
+			moduleSlug: 'analytics-4',
+		},
+		...overrides,
+	};
+}
+
+describe( 'core/feature-discovery selectors', () => {
+	let registry: WPDataRegistry;
+
+	function registerFeature(
+		slug: string,
+		overrides: Partial< FeatureSettings > = {}
+	) {
+		registry
+			.dispatch( CORE_FEATURE_DISCOVERY )
+			.registerFeature( slug, createSettings( overrides ) );
+	}
+
+	function freezeModules() {
+		freezeFetch(
+			new RegExp( '^/google-site-kit/v1/core/modules/data/list' )
+		);
+	}
+
+	beforeEach( () => {
+		registry = createTestRegistry();
+	} );
+
+	describe( 'getFeatureCategories', () => {
+		it( 'should return the categories in their fixed, curated order', () => {
+			expect(
+				registry
+					.select( CORE_FEATURE_DISCOVERY )
+					.getFeatureCategories()
+					.map( ( { title }: { title: string } ) => title )
+			).toEqual( [
+				'Get to know your audience',
+				'Engage your visitors',
+				'Earn money from your content',
+				'Drive traffic to your site',
+				'Manage privacy',
+				'Improve your site speed and experience',
+				'Collaborate and save time',
+			] );
+		} );
+
+		it( 'should return each category with its slug', () => {
+			expect(
+				registry
+					.select( CORE_FEATURE_DISCOVERY )
+					.getFeatureCategories()
+					.map( ( { slug }: { slug: string } ) => slug )
+			).toEqual( [
+				FEATURE_CATEGORIES.AUDIENCE,
+				FEATURE_CATEGORIES.ENGAGEMENT,
+				FEATURE_CATEGORIES.MONETIZATION,
+				FEATURE_CATEGORIES.TRAFFIC,
+				FEATURE_CATEGORIES.PRIVACY,
+				FEATURE_CATEGORIES.PERFORMANCE,
+				FEATURE_CATEGORIES.PRODUCTIVITY,
+			] );
+		} );
+
+		it( 'should return each category with its chip label', () => {
+			expect(
+				registry
+					.select( CORE_FEATURE_DISCOVERY )
+					.getFeatureCategories()
+					.map(
+						( { chipLabel }: { chipLabel: string } ) => chipLabel
+					)
+			).toEqual( [
+				'Know your audience',
+				'Engage your visitors',
+				'Monetize',
+				'Drive traffic',
+				'Manage privacy',
+				'Improve site speed',
+				'Collaborate',
+			] );
+		} );
+	} );
+
+	describe( 'isFeaturePrerequisiteMet', () => {
+		it( 'should return undefined for an unregistered feature', () => {
+			expect(
+				registry
+					.select( CORE_FEATURE_DISCOVERY )
+					.isFeaturePrerequisiteMet( 'nope' )
+			).toBeUndefined();
+		} );
+
+		it( 'should return true when the feature has no prerequisite modules', () => {
+			registerFeature( 'no-prerequisites' );
+
+			expect(
+				registry
+					.select( CORE_FEATURE_DISCOVERY )
+					.isFeaturePrerequisiteMet( 'no-prerequisites' )
+			).toBe( true );
+		} );
+
+		it( 'should return undefined while module state is loading', () => {
+			freezeModules();
+			registerFeature( 'needs-analytics', {
+				prerequisiteModules: [ 'analytics-4' ],
+			} );
+
+			expect(
+				registry
+					.select( CORE_FEATURE_DISCOVERY )
+					.isFeaturePrerequisiteMet( 'needs-analytics' )
+			).toBeUndefined();
+		} );
+
+		it( 'should return true when its single prerequisite module is connected', () => {
+			provideModules( registry, [
+				{ slug: 'analytics-4', active: true, connected: true },
+			] );
+			registerFeature( 'needs-analytics', {
+				prerequisiteModules: [ 'analytics-4' ],
+			} );
+
+			expect(
+				registry
+					.select( CORE_FEATURE_DISCOVERY )
+					.isFeaturePrerequisiteMet( 'needs-analytics' )
+			).toBe( true );
+		} );
+
+		it( 'should return false when its single prerequisite module is not connected', () => {
+			provideModules( registry, [
+				{ slug: 'analytics-4', active: false, connected: false },
+			] );
+			registerFeature( 'needs-analytics', {
+				prerequisiteModules: [ 'analytics-4' ],
+			} );
+
+			expect(
+				registry
+					.select( CORE_FEATURE_DISCOVERY )
+					.isFeaturePrerequisiteMet( 'needs-analytics' )
+			).toBe( false );
+		} );
+
+		it( 'should require every prerequisite module to be connected', () => {
+			provideModules( registry, [
+				{ slug: 'analytics-4', active: true, connected: true },
+				{ slug: 'adsense', active: false, connected: false },
+			] );
+			registerFeature( 'needs-both', {
+				prerequisiteModules: [ 'analytics-4', 'adsense' ],
+			} );
+
+			expect(
+				registry
+					.select( CORE_FEATURE_DISCOVERY )
+					.isFeaturePrerequisiteMet( 'needs-both' )
+			).toBe( false );
+		} );
+
+		it( 'should return true when all of several prerequisite modules are connected', () => {
+			provideModules( registry, [
+				{ slug: 'analytics-4', active: true, connected: true },
+				{ slug: 'adsense', active: true, connected: true },
+			] );
+			registerFeature( 'needs-both', {
+				prerequisiteModules: [ 'analytics-4', 'adsense' ],
+			} );
+
+			expect(
+				registry
+					.select( CORE_FEATURE_DISCOVERY )
+					.isFeaturePrerequisiteMet( 'needs-both' )
+			).toBe( true );
+		} );
+	} );
+
+	describe( 'isFeatureConnected', () => {
+		it( 'should return undefined for an unregistered feature', () => {
+			expect(
+				registry
+					.select( CORE_FEATURE_DISCOVERY )
+					.isFeatureConnected( 'nope' )
+			).toBeUndefined();
+		} );
+
+		it( 'should use the setup descriptor isEnabled check when provided', () => {
+			const isEnabled = jest.fn().mockReturnValue( true );
+
+			provideModules( registry, [
+				{ slug: 'analytics-4', active: false, connected: false },
+			] );
+			registerFeature( 'has-predicate', {
+				setup: {
+					type: FEATURE_SETUP_TYPES.BACKGROUND_TOGGLE,
+					isEnabled,
+				},
+			} );
+
+			expect(
+				registry
+					.select( CORE_FEATURE_DISCOVERY )
+					.isFeatureConnected( 'has-predicate' )
+			).toBe( true );
+			expect( isEnabled ).toHaveBeenCalled();
+		} );
+
+		it( 'should prefer isEnabled over the module connection state', () => {
+			provideModules( registry, [
+				{ slug: 'analytics-4', active: true, connected: true },
+			] );
+			registerFeature( 'connected-module-incomplete-feature', {
+				setup: {
+					type: FEATURE_SETUP_TYPES.SETUP_FLOW,
+					moduleSlug: 'analytics-4',
+					isEnabled: () => false,
+				},
+			} );
+
+			expect(
+				registry
+					.select( CORE_FEATURE_DISCOVERY )
+					.isFeatureConnected( 'connected-module-incomplete-feature' )
+			).toBe( false );
+		} );
+
+		it( 'should fall back to the module connection state', () => {
+			provideModules( registry, [
+				{ slug: 'analytics-4', active: true, connected: true },
+			] );
+			registerFeature( 'module-feature' );
+
+			expect(
+				registry
+					.select( CORE_FEATURE_DISCOVERY )
+					.isFeatureConnected( 'module-feature' )
+			).toBe( true );
+		} );
+
+		it( 'should return false when the module it sets up is not connected', () => {
+			provideModules( registry, [
+				{ slug: 'analytics-4', active: false, connected: false },
+			] );
+			registerFeature( 'module-feature' );
+
+			expect(
+				registry
+					.select( CORE_FEATURE_DISCOVERY )
+					.isFeatureConnected( 'module-feature' )
+			).toBe( false );
+		} );
+
+		it( 'should return undefined while module state is loading', () => {
+			freezeModules();
+			registerFeature( 'module-feature' );
+
+			expect(
+				registry
+					.select( CORE_FEATURE_DISCOVERY )
+					.isFeatureConnected( 'module-feature' )
+			).toBeUndefined();
+		} );
+
+		it( 'should return false when the feature has no completion state to read', () => {
+			registerFeature( 'no-completion-state', {
+				setup: { type: FEATURE_SETUP_TYPES.IN_PLACE_PANEL },
+			} );
+
+			expect(
+				registry
+					.select( CORE_FEATURE_DISCOVERY )
+					.isFeatureConnected( 'no-completion-state' )
+			).toBe( false );
+		} );
+	} );
+
+	describe( 'isFeatureInProgress', () => {
+		it( 'should return undefined for an unregistered feature', () => {
+			expect(
+				registry
+					.select( CORE_FEATURE_DISCOVERY )
+					.isFeatureInProgress( 'nope' )
+			).toBeUndefined();
+		} );
+
+		it( 'should return false when setup has no isInProgress callback', () => {
+			registerFeature( 'no-callback', {
+				setup: {
+					type: FEATURE_SETUP_TYPES.BACKGROUND_TOGGLE,
+					isEnabled: () => false,
+				},
+			} );
+
+			expect(
+				registry
+					.select( CORE_FEATURE_DISCOVERY )
+					.isFeatureInProgress( 'no-callback' )
+			).toBe( false );
+		} );
+
+		it( 'should return true when not connected and isInProgress returns true', () => {
+			registerFeature( 'in-progress', {
+				setup: {
+					type: FEATURE_SETUP_TYPES.BACKGROUND_TOGGLE,
+					isEnabled: () => false,
+					isInProgress: () => true,
+				},
+			} );
+
+			expect(
+				registry
+					.select( CORE_FEATURE_DISCOVERY )
+					.isFeatureInProgress( 'in-progress' )
+			).toBe( true );
+		} );
+
+		it( 'should return false when not connected and isInProgress returns false', () => {
+			registerFeature( 'not-in-progress', {
+				setup: {
+					type: FEATURE_SETUP_TYPES.BACKGROUND_TOGGLE,
+					isEnabled: () => false,
+					isInProgress: () => false,
+				},
+			} );
+
+			expect(
+				registry
+					.select( CORE_FEATURE_DISCOVERY )
+					.isFeatureInProgress( 'not-in-progress' )
+			).toBe( false );
+		} );
+
+		it( 'should return false when the feature is connected even if isInProgress returns true', () => {
+			registerFeature( 'connected', {
+				setup: {
+					type: FEATURE_SETUP_TYPES.BACKGROUND_TOGGLE,
+					isEnabled: () => true,
+					isInProgress: () => true,
+				},
+			} );
+
+			expect(
+				registry
+					.select( CORE_FEATURE_DISCOVERY )
+					.isFeatureInProgress( 'connected' )
+			).toBe( false );
+		} );
+
+		it( 'should return undefined while connection state is loading and isInProgress returns true', () => {
+			freezeModules();
+			registerFeature( 'connection-loading', {
+				setup: {
+					type: FEATURE_SETUP_TYPES.SETUP_FLOW,
+					moduleSlug: 'analytics-4',
+					isInProgress: () => true,
+				},
+			} );
+
+			expect(
+				registry
+					.select( CORE_FEATURE_DISCOVERY )
+					.isFeatureInProgress( 'connection-loading' )
+			).toBeUndefined();
+		} );
+
+		it( 'should return undefined while in-progress state is unresolved', () => {
+			registerFeature( 'unresolved', {
+				setup: {
+					type: FEATURE_SETUP_TYPES.BACKGROUND_TOGGLE,
+					isEnabled: () => false,
+					isInProgress: () => undefined,
+				},
+			} );
+
+			expect(
+				registry
+					.select( CORE_FEATURE_DISCOVERY )
+					.isFeatureInProgress( 'unresolved' )
+			).toBeUndefined();
+		} );
+	} );
+
+	describe( 'isSetupInProgress', () => {
+		it( 'should require a slug', () => {
+			expect( () =>
+				registry.select( CORE_FEATURE_DISCOVERY ).isSetupInProgress()
+			).toThrow( 'slug is required to check setup progress.' );
+		} );
+
+		it( 'should return false when setup has not started', () => {
+			registerFeature( 'test-feature' );
+
+			expect(
+				registry
+					.select( CORE_FEATURE_DISCOVERY )
+					.isSetupInProgress( 'test-feature' )
+			).toBe( false );
+
+			expect(
+				registry
+					.select( CORE_FEATURE_DISCOVERY )
+					.isSetupInProgress( 'unknown-feature' )
+			).toBe( false );
+		} );
+	} );
+
+	describe( 'getFeatureResumeURL', () => {
+		it( 'should return undefined for an unregistered feature', () => {
+			expect(
+				registry
+					.select( CORE_FEATURE_DISCOVERY )
+					.getFeatureResumeURL( 'nope' )
+			).toBeUndefined();
+		} );
+
+		it( 'should prefer getResumeURL over getSetupURL', () => {
+			registerFeature( 'resume-first', {
+				setup: {
+					type: FEATURE_SETUP_TYPES.SETUP_FLOW,
+					getSetupURL: () => 'https://example.test/setup',
+					getResumeURL: () => 'https://example.test/resume',
+				},
+			} );
+
+			expect(
+				registry
+					.select( CORE_FEATURE_DISCOVERY )
+					.getFeatureResumeURL( 'resume-first' )
+			).toBe( 'https://example.test/resume' );
+		} );
+
+		it( 'should fall back to getSetupURL when no getResumeURL exists', () => {
+			registerFeature( 'setup-fallback', {
+				setup: {
+					type: FEATURE_SETUP_TYPES.SETUP_FLOW,
+					getSetupURL: () => 'https://example.test/setup',
+				},
+			} );
+
+			expect(
+				registry
+					.select( CORE_FEATURE_DISCOVERY )
+					.getFeatureResumeURL( 'setup-fallback' )
+			).toBe( 'https://example.test/setup' );
+		} );
+
+		it( 'should return undefined when no URL callback exists', () => {
+			registerFeature( 'no-url-callback', {
+				setup: {
+					type: FEATURE_SETUP_TYPES.BACKGROUND_TOGGLE,
+					isEnabled: () => false,
+				},
+			} );
+
+			expect(
+				registry
+					.select( CORE_FEATURE_DISCOVERY )
+					.getFeatureResumeURL( 'no-url-callback' )
+			).toBeUndefined();
+		} );
+
+		it( 'should return undefined when getResumeURL is unresolved', () => {
+			registerFeature( 'unresolved-url', {
+				setup: {
+					type: FEATURE_SETUP_TYPES.SETUP_FLOW,
+					getResumeURL: () => undefined,
+				},
+			} );
+
+			expect(
+				registry
+					.select( CORE_FEATURE_DISCOVERY )
+					.getFeatureResumeURL( 'unresolved-url' )
+			).toBeUndefined();
+		} );
+	} );
+
+	describe( 'getAvailableFeatures', () => {
+		beforeEach( () => {
+			provideModules( registry, [
+				{ slug: 'analytics-4', active: false, connected: false },
+				{ slug: 'search-console', active: true, connected: true },
+			] );
+		} );
+
+		it( 'should return features from every category, in registration order', () => {
+			registerFeature( 'audience-one' );
+			registerFeature( 'monetization-one', {
+				goalCategories: [ FEATURE_CATEGORIES.MONETIZATION ],
+			} );
+
+			expect(
+				registry
+					.select( CORE_FEATURE_DISCOVERY )
+					.getAvailableFeatures()
+					.map( ( { slug }: { slug: string } ) => slug )
+			).toEqual( [ 'audience-one', 'monetization-one' ] );
+		} );
+
+		it( 'should exclude features that are already set up', () => {
+			registerFeature( 'already-set-up', {
+				setup: {
+					type: FEATURE_SETUP_TYPES.SETUP_FLOW,
+					moduleSlug: 'search-console',
+				},
+			} );
+
+			expect(
+				registry.select( CORE_FEATURE_DISCOVERY ).getAvailableFeatures()
+			).toEqual( [] );
+		} );
+
+		it( 'should keep a set-up feature only while its success notice is shown', () => {
+			registerFeature( 'already-set-up', {
+				setup: {
+					type: FEATURE_SETUP_TYPES.SETUP_FLOW,
+					moduleSlug: 'search-console',
+				},
+			} );
+			registerFeature( 'not-set-up' );
+
+			function getAvailableSlugs() {
+				return registry
+					.select( CORE_FEATURE_DISCOVERY )
+					.getAvailableFeatures()
+					.map( ( { slug }: { slug: string } ) => slug );
+			}
+
+			expect( getAvailableSlugs() ).toEqual( [ 'not-set-up' ] );
+
+			registry
+				.dispatch( CORE_UI )
+				.setValue( SUCCEEDED_FEATURES_UI_KEY, [ 'already-set-up' ] );
+
+			expect( getAvailableSlugs() ).toEqual( [
+				'already-set-up',
+				'not-set-up',
+			] );
+
+			registry
+				.dispatch( CORE_UI )
+				.setValue( SUCCEEDED_FEATURES_UI_KEY, [] );
+
+			expect( getAvailableSlugs() ).toEqual( [ 'not-set-up' ] );
+		} );
+
+		it( 'should not keep a feature whose connection state has not loaded, even while listed as succeeded', () => {
+			registerFeature( 'loading', {
+				setup: {
+					type: FEATURE_SETUP_TYPES.BACKGROUND_TOGGLE,
+					isEnabled: () => undefined,
+				},
+			} );
+
+			registry
+				.dispatch( CORE_UI )
+				.setValue( SUCCEEDED_FEATURES_UI_KEY, [ 'loading' ] );
+
+			expect(
+				registry.select( CORE_FEATURE_DISCOVERY ).getAvailableFeatures()
+			).toEqual( [] );
+		} );
+
+		it( 'should exclude features whose prerequisite modules are not connected', () => {
+			registerFeature( 'needs-analytics', {
+				prerequisiteModules: [ 'analytics-4' ],
+				setup: {
+					type: FEATURE_SETUP_TYPES.BACKGROUND_TOGGLE,
+					isEnabled: () => false,
+				},
+			} );
+
+			expect(
+				registry.select( CORE_FEATURE_DISCOVERY ).getAvailableFeatures()
+			).toEqual( [] );
+		} );
+
+		it( 'should exclude features hidden by their own checkRequirements', () => {
+			registerFeature( 'hidden', { checkRequirements: () => false } );
+
+			expect(
+				registry.select( CORE_FEATURE_DISCOVERY ).getAvailableFeatures()
+			).toEqual( [] );
+		} );
+	} );
+
+	describe( 'getFeaturesFilteredByGoal', () => {
+		beforeEach( () => {
+			provideModules( registry, [
+				{ slug: 'analytics-4', active: false, connected: false },
+			] );
+		} );
+
+		it( 'should require a category', () => {
+			expect( () =>
+				registry
+					.select( CORE_FEATURE_DISCOVERY )
+					.getFeaturesFilteredByGoal()
+			).toThrow(
+				'category is required to get filtered features by goal.'
+			);
+		} );
+
+		it( 'should return features whose primary category matches, in registration order', () => {
+			registerFeature( 'audience-one' );
+			registerFeature( 'monetization-one', {
+				goalCategories: [ FEATURE_CATEGORIES.MONETIZATION ],
+			} );
+			registerFeature( 'audience-two' );
+
+			expect(
+				registry
+					.select( CORE_FEATURE_DISCOVERY )
+					.getFeaturesFilteredByGoal( FEATURE_CATEGORIES.AUDIENCE )
+					.map( ( { slug }: { slug: string } ) => slug )
+			).toEqual( [ 'audience-one', 'audience-two' ] );
+		} );
+
+		it( 'should place in-progress features first and keep registration order within each group', () => {
+			registerFeature( 'not-started-first', {
+				setup: {
+					type: FEATURE_SETUP_TYPES.BACKGROUND_TOGGLE,
+					isEnabled: () => false,
+					isInProgress: () => false,
+				},
+			} );
+			registerFeature( 'in-progress-first', {
+				setup: {
+					type: FEATURE_SETUP_TYPES.BACKGROUND_TOGGLE,
+					isEnabled: () => false,
+					isInProgress: () => true,
+				},
+			} );
+			registerFeature( 'not-started-second', {
+				setup: {
+					type: FEATURE_SETUP_TYPES.BACKGROUND_TOGGLE,
+					isEnabled: () => false,
+					isInProgress: () => false,
+				},
+			} );
+			registerFeature( 'in-progress-second', {
+				setup: {
+					type: FEATURE_SETUP_TYPES.BACKGROUND_TOGGLE,
+					isEnabled: () => false,
+					isInProgress: () => true,
+				},
+			} );
+
+			expect(
+				registry
+					.select( CORE_FEATURE_DISCOVERY )
+					.getFeaturesFilteredByGoal( FEATURE_CATEGORIES.AUDIENCE )
+					.map( ( { slug }: { slug: string } ) => slug )
+			).toEqual( [
+				'in-progress-first',
+				'in-progress-second',
+				'not-started-first',
+				'not-started-second',
+			] );
+		} );
+
+		it( 'should not match on a secondary category', () => {
+			registerFeature( 'secondary-audience', {
+				goalCategories: [
+					FEATURE_CATEGORIES.MONETIZATION,
+					FEATURE_CATEGORIES.AUDIENCE,
+				],
+			} );
+
+			expect(
+				registry
+					.select( CORE_FEATURE_DISCOVERY )
+					.getFeaturesFilteredByGoal( FEATURE_CATEGORIES.AUDIENCE )
+			).toEqual( [] );
+		} );
+
+		it( 'should exclude features that are already set up', () => {
+			registerFeature( 'already-set-up', {
+				setup: {
+					type: FEATURE_SETUP_TYPES.BACKGROUND_TOGGLE,
+					isEnabled: () => true,
+				},
+			} );
+
+			expect(
+				registry
+					.select( CORE_FEATURE_DISCOVERY )
+					.getFeaturesFilteredByGoal( FEATURE_CATEGORIES.AUDIENCE )
+			).toEqual( [] );
+		} );
+
+		it( 'should exclude features whose prerequisite modules are not connected', () => {
+			registerFeature( 'needs-analytics', {
+				prerequisiteModules: [ 'analytics-4' ],
+				setup: {
+					type: FEATURE_SETUP_TYPES.BACKGROUND_TOGGLE,
+					isEnabled: () => false,
+				},
+			} );
+
+			expect(
+				registry
+					.select( CORE_FEATURE_DISCOVERY )
+					.getFeaturesFilteredByGoal( FEATURE_CATEGORIES.AUDIENCE )
+			).toEqual( [] );
+		} );
+
+		it( 'should include features whose prerequisite modules are connected', () => {
+			provideModules( registry, [
+				{ slug: 'analytics-4', active: true, connected: true },
+			] );
+			registerFeature( 'needs-analytics', {
+				prerequisiteModules: [ 'analytics-4' ],
+				setup: {
+					type: FEATURE_SETUP_TYPES.BACKGROUND_TOGGLE,
+					isEnabled: () => false,
+				},
+			} );
+
+			expect(
+				registry
+					.select( CORE_FEATURE_DISCOVERY )
+					.getFeaturesFilteredByGoal( FEATURE_CATEGORIES.AUDIENCE )
+					.map( ( { slug }: { slug: string } ) => slug )
+			).toEqual( [ 'needs-analytics' ] );
+		} );
+
+		it( 'should exclude features hidden by their own checkRequirements', () => {
+			registerFeature( 'hidden', {
+				checkRequirements: () => false,
+			} );
+
+			expect(
+				registry
+					.select( CORE_FEATURE_DISCOVERY )
+					.getFeaturesFilteredByGoal( FEATURE_CATEGORIES.AUDIENCE )
+			).toEqual( [] );
+		} );
+
+		it( 'should include features whose checkRequirements passes', () => {
+			const checkRequirements = jest.fn().mockReturnValue( true );
+
+			registerFeature( 'visible', { checkRequirements } );
+
+			expect(
+				registry
+					.select( CORE_FEATURE_DISCOVERY )
+					.getFeaturesFilteredByGoal( FEATURE_CATEGORIES.AUDIENCE )
+					.map( ( { slug }: { slug: string } ) => slug )
+			).toEqual( [ 'visible' ] );
+			expect( checkRequirements ).toHaveBeenCalled();
+		} );
+
+		it( 'should treat a feature with no checkRequirements as visible', () => {
+			registerFeature( 'default-visible' );
+
+			expect(
+				registry
+					.select( CORE_FEATURE_DISCOVERY )
+					.getFeaturesFilteredByGoal( FEATURE_CATEGORIES.AUDIENCE )
+					.map( ( { slug }: { slug: string } ) => slug )
+			).toEqual( [ 'default-visible' ] );
+		} );
+
+		it( 'should exclude features while their eligibility is still loading', () => {
+			const loadingRegistry = createTestRegistry();
+
+			freezeModules();
+
+			loadingRegistry
+				.dispatch( CORE_FEATURE_DISCOVERY )
+				.registerFeature( 'module-feature', createSettings() );
+
+			expect(
+				loadingRegistry
+					.select( CORE_FEATURE_DISCOVERY )
+					.getFeaturesFilteredByGoal( FEATURE_CATEGORIES.AUDIENCE )
+			).toEqual( [] );
+		} );
+
+		it( 'should match only primary category when no categories are selected', () => {
+			registerFeature( 'multi-goal', {
+				goalCategories: [
+					FEATURE_CATEGORIES.ENGAGEMENT,
+					FEATURE_CATEGORIES.AUDIENCE,
+				],
+			} );
+
+			expect(
+				registry
+					.select( CORE_FEATURE_DISCOVERY )
+					.getFeaturesFilteredByGoal( FEATURE_CATEGORIES.ENGAGEMENT )
+					.map( ( { slug }: { slug: string } ) => slug )
+			).toEqual( [ 'multi-goal' ] );
+
+			expect(
+				registry
+					.select( CORE_FEATURE_DISCOVERY )
+					.getFeaturesFilteredByGoal( FEATURE_CATEGORIES.AUDIENCE )
+			).toEqual( [] );
+		} );
+
+		it( 'should match on the first selected category in the feature goal order', () => {
+			registerFeature( 'multi-goal', {
+				goalCategories: [
+					FEATURE_CATEGORIES.ENGAGEMENT,
+					FEATURE_CATEGORIES.AUDIENCE,
+				],
+			} );
+
+			expect(
+				registry
+					.select( CORE_FEATURE_DISCOVERY )
+					.getFeaturesFilteredByGoal( FEATURE_CATEGORIES.ENGAGEMENT, [
+						FEATURE_CATEGORIES.AUDIENCE,
+						FEATURE_CATEGORIES.ENGAGEMENT,
+					] )
+					.map( ( { slug }: { slug: string } ) => slug )
+			).toEqual( [ 'multi-goal' ] );
+
+			expect(
+				registry
+					.select( CORE_FEATURE_DISCOVERY )
+					.getFeaturesFilteredByGoal( FEATURE_CATEGORIES.AUDIENCE, [
+						FEATURE_CATEGORIES.AUDIENCE,
+						FEATURE_CATEGORIES.ENGAGEMENT,
+					] )
+			).toEqual( [] );
+		} );
+
+		it( 'should not include a feature in unselected categories', () => {
+			registerFeature( 'audience-feature', {
+				goalCategories: [ FEATURE_CATEGORIES.AUDIENCE ],
+			} );
+
+			expect(
+				registry
+					.select( CORE_FEATURE_DISCOVERY )
+					.getFeaturesFilteredByGoal( FEATURE_CATEGORIES.ENGAGEMENT, [
+						FEATURE_CATEGORIES.ENGAGEMENT,
+					] )
+			).toEqual( [] );
+		} );
+	} );
+} );

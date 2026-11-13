@@ -1,5 +1,107 @@
 // Jest Snapshot v1, https://goo.gl/fbAQLP
 
+exports[`WidgetAreaRenderer should combine multiple widgets in RecoverableModules state with the same metadata into a single widget 1`] = `
+<div
+  class="googlesitekit-widget-area-widgets"
+>
+  <div
+    class="mdc-layout-grid__inner"
+  >
+    <div
+      class="mdc-layout-grid__cell mdc-layout-grid__cell--span-12"
+    >
+      <div
+        class="googlesitekit-widget googlesitekit-widget--overridden"
+      >
+        <div
+          class="googlesitekit-widget__body"
+        >
+          <div
+            class="googlesitekit-cta"
+          >
+            
+            <div
+              class="googlesitekit-cta__body"
+            >
+              <h3
+                class="googlesitekit-typography googlesitekit-cta__title googlesitekit-typography--title googlesitekit-typography--small"
+              >
+                Data Unavailable
+              </h3>
+              <p
+                class="googlesitekit-typography googlesitekit-cta__description googlesitekit-typography--body googlesitekit-typography--medium"
+              >
+                Search Console data was previously shared by an admin who no longer has access. Please contact another admin to restore it.
+              </p>
+              
+              
+            </div>
+          </div>
+        </div>
+      </div>
+      <div
+        class="googlesitekit-hidden"
+      >
+        <div
+          class="googlesitekit-cta"
+        >
+          
+          <div
+            class="googlesitekit-cta__body"
+          >
+            <h3
+              class="googlesitekit-typography googlesitekit-cta__title googlesitekit-typography--title googlesitekit-typography--small"
+            >
+              Data Unavailable
+            </h3>
+            <p
+              class="googlesitekit-typography googlesitekit-cta__description googlesitekit-typography--body googlesitekit-typography--medium"
+            >
+              Search Console data was previously shared by an admin who no longer has access. Please contact another admin to restore it.
+            </p>
+            
+            
+          </div>
+        </div>
+      </div>
+    </div>
+    <div
+      class="googlesitekit-hidden"
+    >
+      <div
+        class="googlesitekit-widget googlesitekit-widget--two"
+      >
+        <div
+          class="googlesitekit-widget__body"
+        >
+          <div
+            class="googlesitekit-cta"
+          >
+            
+            <div
+              class="googlesitekit-cta__body"
+            >
+              <h3
+                class="googlesitekit-typography googlesitekit-cta__title googlesitekit-typography--title googlesitekit-typography--small"
+              >
+                Data Unavailable
+              </h3>
+              <p
+                class="googlesitekit-typography googlesitekit-cta__description googlesitekit-typography--body googlesitekit-typography--medium"
+              >
+                Search Console data was previously shared by an admin who no longer has access. Please contact another admin to restore it.
+              </p>
+              
+              
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+`;
+
 exports[`WidgetAreaRenderer should not resize widgets in a row that is smaller than 9 columns (3, 12, 3-3) 1`] = `
 <div
   class="googlesitekit-widget-area-widgets"
@@ -8,7 +110,7 @@ exports[`WidgetAreaRenderer should not resize widgets in a row that is smaller t
     class="mdc-layout-grid__inner"
   >
     <div
-      class="mdc-layout-grid__cell mdc-layout-grid__cell--span-2-phone mdc-layout-grid__cell--span-3-desktop mdc-layout-grid__cell--span-4-tablet"
+      class="mdc-layout-grid__cell mdc-layout-grid__cell--span-3-desktop mdc-layout-grid__cell--span-4-tablet mdc-layout-grid__cell--span-2-phone"
     >
       <div
         class="googlesitekit-widget googlesitekit-widget--one"
@@ -42,7 +144,7 @@ exports[`WidgetAreaRenderer should not resize widgets in a row that is smaller t
       </div>
     </div>
     <div
-      class="mdc-layout-grid__cell mdc-layout-grid__cell--span-2-phone mdc-layout-grid__cell--span-3-desktop mdc-layout-grid__cell--span-4-tablet"
+      class="mdc-layout-grid__cell mdc-layout-grid__cell--span-3-desktop mdc-layout-grid__cell--span-4-tablet mdc-layout-grid__cell--span-2-phone"
     >
       <div
         class="googlesitekit-widget googlesitekit-widget--three"
@@ -59,7 +161,7 @@ exports[`WidgetAreaRenderer should not resize widgets in a row that is smaller t
       </div>
     </div>
     <div
-      class="mdc-layout-grid__cell mdc-layout-grid__cell--span-2-phone mdc-layout-grid__cell--span-3-desktop mdc-layout-grid__cell--span-4-tablet"
+      class="mdc-layout-grid__cell mdc-layout-grid__cell--span-3-desktop mdc-layout-grid__cell--span-4-tablet mdc-layout-grid__cell--span-2-phone"
     >
       <div
         class="googlesitekit-widget googlesitekit-widget--four"
@@ -87,7 +189,7 @@ exports[`WidgetAreaRenderer should not resize widgets in a row that is smaller t
     class="mdc-layout-grid__inner"
   >
     <div
-      class="mdc-layout-grid__cell mdc-layout-grid__cell--span-2-phone mdc-layout-grid__cell--span-3-desktop mdc-layout-grid__cell--span-4-tablet"
+      class="mdc-layout-grid__cell mdc-layout-grid__cell--span-3-desktop mdc-layout-grid__cell--span-4-tablet mdc-layout-grid__cell--span-2-phone"
     >
       <div
         class="googlesitekit-widget googlesitekit-widget--one"
@@ -104,7 +206,7 @@ exports[`WidgetAreaRenderer should not resize widgets in a row that is smaller t
       </div>
     </div>
     <div
-      class="mdc-layout-grid__cell mdc-layout-grid__cell--span-2-phone mdc-layout-grid__cell--span-3-desktop mdc-layout-grid__cell--span-4-tablet"
+      class="mdc-layout-grid__cell mdc-layout-grid__cell--span-3-desktop mdc-layout-grid__cell--span-4-tablet mdc-layout-grid__cell--span-2-phone"
     >
       <div
         class="googlesitekit-widget googlesitekit-widget--two"
@@ -160,7 +262,7 @@ exports[`WidgetAreaRenderer should not resize widgets that fit into a 12-column 
     class="mdc-layout-grid__inner"
   >
     <div
-      class="mdc-layout-grid__cell mdc-layout-grid__cell--span-2-phone mdc-layout-grid__cell--span-3-desktop mdc-layout-grid__cell--span-4-tablet"
+      class="mdc-layout-grid__cell mdc-layout-grid__cell--span-3-desktop mdc-layout-grid__cell--span-4-tablet mdc-layout-grid__cell--span-2-phone"
     >
       <div
         class="googlesitekit-widget googlesitekit-widget--one"
@@ -177,7 +279,7 @@ exports[`WidgetAreaRenderer should not resize widgets that fit into a 12-column 
       </div>
     </div>
     <div
-      class="mdc-layout-grid__cell mdc-layout-grid__cell--span-2-phone mdc-layout-grid__cell--span-3-desktop mdc-layout-grid__cell--span-4-tablet"
+      class="mdc-layout-grid__cell mdc-layout-grid__cell--span-3-desktop mdc-layout-grid__cell--span-4-tablet mdc-layout-grid__cell--span-2-phone"
     >
       <div
         class="googlesitekit-widget googlesitekit-widget--two"
@@ -194,7 +296,7 @@ exports[`WidgetAreaRenderer should not resize widgets that fit into a 12-column 
       </div>
     </div>
     <div
-      class="mdc-layout-grid__cell mdc-layout-grid__cell--span-2-phone mdc-layout-grid__cell--span-3-desktop mdc-layout-grid__cell--span-4-tablet"
+      class="mdc-layout-grid__cell mdc-layout-grid__cell--span-3-desktop mdc-layout-grid__cell--span-4-tablet mdc-layout-grid__cell--span-2-phone"
     >
       <div
         class="googlesitekit-widget googlesitekit-widget--three"
@@ -211,7 +313,7 @@ exports[`WidgetAreaRenderer should not resize widgets that fit into a 12-column 
       </div>
     </div>
     <div
-      class="mdc-layout-grid__cell mdc-layout-grid__cell--span-2-phone mdc-layout-grid__cell--span-3-desktop mdc-layout-grid__cell--span-4-tablet"
+      class="mdc-layout-grid__cell mdc-layout-grid__cell--span-3-desktop mdc-layout-grid__cell--span-4-tablet mdc-layout-grid__cell--span-2-phone"
     >
       <div
         class="googlesitekit-widget googlesitekit-widget--four"
@@ -239,7 +341,7 @@ exports[`WidgetAreaRenderer should not resize widgets that fit into a 12-column 
     class="mdc-layout-grid__inner"
   >
     <div
-      class="mdc-layout-grid__cell mdc-layout-grid__cell--span-2-phone mdc-layout-grid__cell--span-3-desktop mdc-layout-grid__cell--span-4-tablet"
+      class="mdc-layout-grid__cell mdc-layout-grid__cell--span-3-desktop mdc-layout-grid__cell--span-4-tablet mdc-layout-grid__cell--span-2-phone"
     >
       <div
         class="googlesitekit-widget googlesitekit-widget--one"
@@ -256,7 +358,7 @@ exports[`WidgetAreaRenderer should not resize widgets that fit into a 12-column 
       </div>
     </div>
     <div
-      class="mdc-layout-grid__cell mdc-layout-grid__cell--span-2-phone mdc-layout-grid__cell--span-3-desktop mdc-layout-grid__cell--span-4-tablet"
+      class="mdc-layout-grid__cell mdc-layout-grid__cell--span-3-desktop mdc-layout-grid__cell--span-4-tablet mdc-layout-grid__cell--span-2-phone"
     >
       <div
         class="googlesitekit-widget googlesitekit-widget--two"
@@ -301,7 +403,7 @@ exports[`WidgetAreaRenderer should not resize widgets that fit into a 12-column 
     class="mdc-layout-grid__inner"
   >
     <div
-      class="mdc-layout-grid__cell mdc-layout-grid__cell--span-2-phone mdc-layout-grid__cell--span-3-desktop mdc-layout-grid__cell--span-4-tablet"
+      class="mdc-layout-grid__cell mdc-layout-grid__cell--span-3-desktop mdc-layout-grid__cell--span-4-tablet mdc-layout-grid__cell--span-2-phone"
     >
       <div
         class="googlesitekit-widget googlesitekit-widget--one"
@@ -335,7 +437,7 @@ exports[`WidgetAreaRenderer should not resize widgets that fit into a 12-column 
       </div>
     </div>
     <div
-      class="mdc-layout-grid__cell mdc-layout-grid__cell--span-2-phone mdc-layout-grid__cell--span-3-desktop mdc-layout-grid__cell--span-4-tablet"
+      class="mdc-layout-grid__cell mdc-layout-grid__cell--span-3-desktop mdc-layout-grid__cell--span-4-tablet mdc-layout-grid__cell--span-2-phone"
     >
       <div
         class="googlesitekit-widget googlesitekit-widget--three"
@@ -400,6 +502,26 @@ exports[`WidgetAreaRenderer should not resize widgets that fit into a 12-column 
 </div>
 `;
 
+exports[`WidgetAreaRenderer should render a hidden widget area when it has no active widget 1`] = `
+NodeList [
+  <div
+    class="mdc-layout-grid googlesitekit-hidden googlesitekit-widget-area googlesitekit-widget-area--gridcell-test googlesitekit-widget-area--boxes"
+  >
+    <div
+      class="googlesitekit-hidden"
+    >
+      <div
+        class="googlesitekit-widget googlesitekit-widget--empty"
+      >
+        <div
+          class="googlesitekit-widget__body"
+        />
+      </div>
+    </div>
+  </div>,
+]
+`;
+
 exports[`WidgetAreaRenderer should resize widgets in a row that spans 9 columns to fill the full 12 columns (3, 12, 3-6, 6 -> 3, 12, 4-8, 6) 1`] = `
 <div
   class="googlesitekit-widget-area-widgets"
@@ -408,7 +530,7 @@ exports[`WidgetAreaRenderer should resize widgets in a row that spans 9 columns 
     class="mdc-layout-grid__inner"
   >
     <div
-      class="mdc-layout-grid__cell mdc-layout-grid__cell--span-2-phone mdc-layout-grid__cell--span-3-desktop mdc-layout-grid__cell--span-4-tablet"
+      class="mdc-layout-grid__cell mdc-layout-grid__cell--span-3-desktop mdc-layout-grid__cell--span-4-tablet mdc-layout-grid__cell--span-2-phone"
     >
       <div
         class="googlesitekit-widget googlesitekit-widget--one"
@@ -442,7 +564,7 @@ exports[`WidgetAreaRenderer should resize widgets in a row that spans 9 columns 
       </div>
     </div>
     <div
-      class="mdc-layout-grid__cell mdc-layout-grid__cell--span-2-phone mdc-layout-grid__cell--span-4-desktop mdc-layout-grid__cell--span-4-tablet"
+      class="mdc-layout-grid__cell mdc-layout-grid__cell--span-4-desktop mdc-layout-grid__cell--span-4-tablet mdc-layout-grid__cell--span-2-phone"
     >
       <div
         class="googlesitekit-widget googlesitekit-widget--three"
@@ -459,7 +581,7 @@ exports[`WidgetAreaRenderer should resize widgets in a row that spans 9 columns 
       </div>
     </div>
     <div
-      class="mdc-layout-grid__cell mdc-layout-grid__cell--span-8-desktop mdc-layout-grid__cell--span-8-tablet"
+      class="mdc-layout-grid__cell mdc-layout-grid__cell--span-8"
     >
       <div
         class="googlesitekit-widget googlesitekit-widget--four"
@@ -504,7 +626,7 @@ exports[`WidgetAreaRenderer should resize widgets in a row that spans 9 columns 
     class="mdc-layout-grid__inner"
   >
     <div
-      class="mdc-layout-grid__cell mdc-layout-grid__cell--span-2-phone mdc-layout-grid__cell--span-4-desktop mdc-layout-grid__cell--span-4-tablet"
+      class="mdc-layout-grid__cell mdc-layout-grid__cell--span-4-desktop mdc-layout-grid__cell--span-4-tablet mdc-layout-grid__cell--span-2-phone"
     >
       <div
         class="googlesitekit-widget googlesitekit-widget--one"
@@ -521,7 +643,7 @@ exports[`WidgetAreaRenderer should resize widgets in a row that spans 9 columns 
       </div>
     </div>
     <div
-      class="mdc-layout-grid__cell mdc-layout-grid__cell--span-2-phone mdc-layout-grid__cell--span-4-desktop mdc-layout-grid__cell--span-4-tablet"
+      class="mdc-layout-grid__cell mdc-layout-grid__cell--span-4-desktop mdc-layout-grid__cell--span-4-tablet mdc-layout-grid__cell--span-2-phone"
     >
       <div
         class="googlesitekit-widget googlesitekit-widget--two"
@@ -538,7 +660,7 @@ exports[`WidgetAreaRenderer should resize widgets in a row that spans 9 columns 
       </div>
     </div>
     <div
-      class="mdc-layout-grid__cell mdc-layout-grid__cell--span-2-phone mdc-layout-grid__cell--span-4-desktop mdc-layout-grid__cell--span-4-tablet"
+      class="mdc-layout-grid__cell mdc-layout-grid__cell--span-4-desktop mdc-layout-grid__cell--span-4-tablet mdc-layout-grid__cell--span-2-phone"
     >
       <div
         class="googlesitekit-widget googlesitekit-widget--three"
@@ -583,7 +705,7 @@ exports[`WidgetAreaRenderer should resize widgets in a row that spans 9 columns 
     class="mdc-layout-grid__inner"
   >
     <div
-      class="mdc-layout-grid__cell mdc-layout-grid__cell--span-2-phone mdc-layout-grid__cell--span-4-desktop mdc-layout-grid__cell--span-4-tablet"
+      class="mdc-layout-grid__cell mdc-layout-grid__cell--span-4-desktop mdc-layout-grid__cell--span-4-tablet mdc-layout-grid__cell--span-2-phone"
     >
       <div
         class="googlesitekit-widget googlesitekit-widget--one"
@@ -600,7 +722,7 @@ exports[`WidgetAreaRenderer should resize widgets in a row that spans 9 columns 
       </div>
     </div>
     <div
-      class="mdc-layout-grid__cell mdc-layout-grid__cell--span-2-phone mdc-layout-grid__cell--span-4-desktop mdc-layout-grid__cell--span-4-tablet"
+      class="mdc-layout-grid__cell mdc-layout-grid__cell--span-4-desktop mdc-layout-grid__cell--span-4-tablet mdc-layout-grid__cell--span-2-phone"
     >
       <div
         class="googlesitekit-widget googlesitekit-widget--two"
@@ -617,7 +739,7 @@ exports[`WidgetAreaRenderer should resize widgets in a row that spans 9 columns 
       </div>
     </div>
     <div
-      class="mdc-layout-grid__cell mdc-layout-grid__cell--span-2-phone mdc-layout-grid__cell--span-4-desktop mdc-layout-grid__cell--span-4-tablet"
+      class="mdc-layout-grid__cell mdc-layout-grid__cell--span-4-desktop mdc-layout-grid__cell--span-4-tablet mdc-layout-grid__cell--span-2-phone"
     >
       <div
         class="googlesitekit-widget googlesitekit-widget--three"
@@ -662,7 +784,7 @@ exports[`WidgetAreaRenderer should resize widgets in a row that spans 9 columns 
     class="mdc-layout-grid__inner"
   >
     <div
-      class="mdc-layout-grid__cell mdc-layout-grid__cell--span-2-phone mdc-layout-grid__cell--span-4-desktop mdc-layout-grid__cell--span-4-tablet"
+      class="mdc-layout-grid__cell mdc-layout-grid__cell--span-4-desktop mdc-layout-grid__cell--span-4-tablet mdc-layout-grid__cell--span-2-phone"
     >
       <div
         class="googlesitekit-widget googlesitekit-widget--one"
@@ -679,7 +801,7 @@ exports[`WidgetAreaRenderer should resize widgets in a row that spans 9 columns 
       </div>
     </div>
     <div
-      class="mdc-layout-grid__cell mdc-layout-grid__cell--span-2-phone mdc-layout-grid__cell--span-4-desktop mdc-layout-grid__cell--span-4-tablet"
+      class="mdc-layout-grid__cell mdc-layout-grid__cell--span-4-desktop mdc-layout-grid__cell--span-4-tablet mdc-layout-grid__cell--span-2-phone"
     >
       <div
         class="googlesitekit-widget googlesitekit-widget--two"
@@ -696,7 +818,7 @@ exports[`WidgetAreaRenderer should resize widgets in a row that spans 9 columns 
       </div>
     </div>
     <div
-      class="mdc-layout-grid__cell mdc-layout-grid__cell--span-2-phone mdc-layout-grid__cell--span-4-desktop mdc-layout-grid__cell--span-4-tablet"
+      class="mdc-layout-grid__cell mdc-layout-grid__cell--span-4-desktop mdc-layout-grid__cell--span-4-tablet mdc-layout-grid__cell--span-2-phone"
     >
       <div
         class="googlesitekit-widget googlesitekit-widget--three"
@@ -730,7 +852,7 @@ exports[`WidgetAreaRenderer should resize widgets in a row that spans 9 columns 
       </div>
     </div>
     <div
-      class="mdc-layout-grid__cell mdc-layout-grid__cell--span-2-phone mdc-layout-grid__cell--span-4-desktop mdc-layout-grid__cell--span-4-tablet"
+      class="mdc-layout-grid__cell mdc-layout-grid__cell--span-4-desktop mdc-layout-grid__cell--span-4-tablet mdc-layout-grid__cell--span-2-phone"
     >
       <div
         class="googlesitekit-widget googlesitekit-widget--five"
@@ -747,7 +869,7 @@ exports[`WidgetAreaRenderer should resize widgets in a row that spans 9 columns 
       </div>
     </div>
     <div
-      class="mdc-layout-grid__cell mdc-layout-grid__cell--span-2-phone mdc-layout-grid__cell--span-4-desktop mdc-layout-grid__cell--span-4-tablet"
+      class="mdc-layout-grid__cell mdc-layout-grid__cell--span-4-desktop mdc-layout-grid__cell--span-4-tablet mdc-layout-grid__cell--span-2-phone"
     >
       <div
         class="googlesitekit-widget googlesitekit-widget--six"
@@ -764,7 +886,7 @@ exports[`WidgetAreaRenderer should resize widgets in a row that spans 9 columns 
       </div>
     </div>
     <div
-      class="mdc-layout-grid__cell mdc-layout-grid__cell--span-2-phone mdc-layout-grid__cell--span-4-desktop mdc-layout-grid__cell--span-4-tablet"
+      class="mdc-layout-grid__cell mdc-layout-grid__cell--span-4-desktop mdc-layout-grid__cell--span-4-tablet mdc-layout-grid__cell--span-2-phone"
     >
       <div
         class="googlesitekit-widget googlesitekit-widget--seven"
@@ -809,7 +931,7 @@ exports[`WidgetAreaRenderer should resize widgets in a row that spans 9 columns 
       </div>
     </div>
     <div
-      class="mdc-layout-grid__cell mdc-layout-grid__cell--span-2-phone mdc-layout-grid__cell--span-4-desktop mdc-layout-grid__cell--span-4-tablet"
+      class="mdc-layout-grid__cell mdc-layout-grid__cell--span-4-desktop mdc-layout-grid__cell--span-4-tablet mdc-layout-grid__cell--span-2-phone"
     >
       <div
         class="googlesitekit-widget googlesitekit-widget--two"
@@ -826,7 +948,7 @@ exports[`WidgetAreaRenderer should resize widgets in a row that spans 9 columns 
       </div>
     </div>
     <div
-      class="mdc-layout-grid__cell mdc-layout-grid__cell--span-8-desktop mdc-layout-grid__cell--span-8-tablet"
+      class="mdc-layout-grid__cell mdc-layout-grid__cell--span-8"
     >
       <div
         class="googlesitekit-widget googlesitekit-widget--three"
@@ -854,7 +976,7 @@ exports[`WidgetAreaRenderer should treat widgets that render no content as zero-
     class="mdc-layout-grid__inner"
   >
     <div
-      class="mdc-layout-grid__cell mdc-layout-grid__cell--span-2-phone mdc-layout-grid__cell--span-3-desktop mdc-layout-grid__cell--span-4-tablet"
+      class="mdc-layout-grid__cell mdc-layout-grid__cell--span-3-desktop mdc-layout-grid__cell--span-4-tablet mdc-layout-grid__cell--span-2-phone"
     >
       <div
         class="googlesitekit-widget googlesitekit-widget--one"
@@ -882,7 +1004,7 @@ exports[`WidgetAreaRenderer should treat widgets that render no content as zero-
       </div>
     </div>
     <div
-      class="mdc-layout-grid__cell mdc-layout-grid__cell--span-2-phone mdc-layout-grid__cell--span-3-desktop mdc-layout-grid__cell--span-4-tablet"
+      class="mdc-layout-grid__cell mdc-layout-grid__cell--span-3-desktop mdc-layout-grid__cell--span-4-tablet mdc-layout-grid__cell--span-2-phone"
     >
       <div
         class="googlesitekit-widget googlesitekit-widget--three"

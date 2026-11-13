@@ -17,59 +17,68 @@
  */
 
 /**
- * WordPress dependencies
- */
-import { __ } from '@wordpress/i18n';
-
-/**
  * External dependencies
  */
 import PropTypes from 'prop-types';
 
 /**
+ * WordPress dependencies
+ */
+import { __ } from '@wordpress/i18n';
+
+/**
  * Internal dependencies
  */
-import Data from 'googlesitekit-data';
-const { useRegistry } = Data;
-import Warning from '../../legacy-notifications/warning';
-import ProgressBar from '../../ProgressBar';
-import { useChecks } from '../../../hooks/useChecks';
+import { ProgressBar } from 'googlesitekit-components';
+import { useRegistry } from 'googlesitekit-data';
+import { CORE_SITE } from '@/js/googlesitekit/datastore/site/constants';
+import { useChecks } from '@/js/hooks/useChecks';
+import { Grid } from '@/js/material-components';
+import Warning from '@/svg/icons/warning.svg';
+import {
+	checkAMPConnectivity,
+	checkHealthChecks,
+	checkHostname,
+	registryCheckSetupTag,
+} from './checks';
 import CompatibilityErrorNotice from './CompatibilityErrorNotice';
-import { CORE_SITE } from '../../../googlesitekit/datastore/site/constants';
-import { checkAMPConnectivity, checkHealthChecks, checkHostname, checkWPVersion, registryCheckSetupTag } from './checks';
 
-const createCompatibilityChecks = ( registry ) => {
+function createCompatibilityChecks( registry ) {
 	if ( registry.select( CORE_SITE ).isConnected() ) {
 		return [];
 	}
 
 	return [
 		checkHostname,
-		registryCheckSetupTag( registry ),
 		checkHealthChecks,
+		registryCheckSetupTag( registry ),
 		checkAMPConnectivity,
-		checkWPVersion,
 	];
-};
+}
 
 export default function CompatibilityChecks( { children, ...props } ) {
 	const registry = useRegistry();
-	const { complete, error } = useChecks( createCompatibilityChecks( registry ) );
+	const { complete, error } = useChecks(
+		createCompatibilityChecks( registry )
+	);
 
 	const ctaFeedback = error && (
-		<div className="googlesitekit-setup-compat mdc-layout-grid mdc-layout-grid--align-left">
+		<Grid className="googlesitekit-setup-compat" alignLeft>
 			<div className="googlesitekit-setup__warning">
 				<Warning />
 
 				<div className="googlesitekit-heading-4">
-					{ __( 'Your site may not be ready for Site Kit', 'google-site-kit' ) }
+					{ __(
+						'Your site may not be ready for Site Kit',
+						'google-site-kit'
+					) }
 				</div>
 			</div>
 			<CompatibilityErrorNotice error={ error } />
-		</div>
+		</Grid>
 	);
 
-	const inProgressFeedback = ( ! complete ) && (
+	const inProgressFeedback = ! complete && (
 		<div className="googlesitekit-margin-left-1rem googlesitekit-align-self-center">
 			<small>
 				{ __( 'Checking Compatibility…', 'google-site-kit' ) }

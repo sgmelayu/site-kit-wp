@@ -1,0 +1,252 @@
+/**
+ * Reader Revenue Manager newsletter signup CTA express setup flow.
+ *
+ * Site Kit by Google, Copyright 2026 Google LLC
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     https://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+/**
+ * External dependencies
+ */
+import type { FC } from 'react';
+import { useMount } from 'react-use';
+
+/**
+ * WordPress dependencies
+ */
+import {
+	createInterpolateElement,
+	useCallback,
+	useEffect,
+	useRef,
+	useState,
+} from '@wordpress/element';
+import { __ } from '@wordpress/i18n';
+
+/**
+ * Internal dependencies
+ */
+import { useDispatch } from 'googlesitekit-data';
+import { CORE_FEATURE_DISCOVERY } from '@/js/googlesitekit/datastore/feature-discovery/constants';
+import {
+	existingCTAStep,
+	publicationPoliciesStep,
+	publicationSetupStep,
+	setupCompleteStep,
+	termsOfServiceStep,
+} from '@/js/modules/reader-revenue-manager/components/setup/SetupMainExpress/common-steps';
+import ExpressSetupFallback from '@/js/modules/reader-revenue-manager/components/setup/SetupMainExpress/ExpressSetupFallback';
+import ExpressSetupLayout from '@/js/modules/reader-revenue-manager/components/setup/SetupMainExpress/ExpressSetupLayout';
+import ExpressSetupSteps from '@/js/modules/reader-revenue-manager/components/setup/SetupMainExpress/ExpressSetupSteps';
+import {
+	useExpressSetupScopes,
+	useExpressSetupStepEventLabel,
+	useExpressSetupTrackEvent,
+	useRecordExpressSetupProgress,
+	useSetupFlow,
+} from '@/js/modules/reader-revenue-manager/components/setup/SetupMainExpress/hooks';
+import ObservedStep from '@/js/modules/reader-revenue-manager/components/setup/SetupMainExpress/ObservedStep';
+import PublisherCenterLink from '@/js/modules/reader-revenue-manager/components/setup/SetupMainExpress/PublisherCenterLink';
+import { SetupStep } from '@/js/modules/reader-revenue-manager/components/setup/SetupMainExpress/types';
+import {
+	EXPRESS_SETUP_CTAS,
+	EXPRESS_SETUP_STEPS,
+} from '@/js/modules/reader-revenue-manager/datastore/constants';
+import { FEATURE_SLUG_NEWSLETTER_SIGNUP } from '@/js/modules/reader-revenue-manager/feature-discovery/constants';
+import StepSetupCompleteNewsletterSignup from './StepSetupCompleteNewsletterSignup';
+import { signupFormStep } from './StepSignupForm';
+import ViewOnSiteCTANewsletterSignup from './ViewOnSiteCTANewsletterSignup';
+
+const STEPS: SetupStep[] = [
+	publicationSetupStep,
+	termsOfServiceStep,
+	publicationPoliciesStep,
+	signupFormStep,
+	setupCompleteStep,
+];
+
+const SetupCTANewsletterSignup: FC = () => {
+	const { resetIncompleteSetupReminder } = useDispatch(
+		CORE_FEATURE_DISCOVERY
+	);
+
+	const hasRequiredScopes = useExpressSetupScopes();
+
+	const { currentStep, advance } = useSetupFlow(
+		STEPS,
+		EXPRESS_SETUP_CTAS.NEWSLETTER_SIGNUP
+	);
+
+	useRecordExpressSetupProgress(
+		EXPRESS_SETUP_CTAS.NEWSLETTER_SIGNUP,
+		currentStep?.slug
+	);
+
+	const trackEvent = useExpressSetupTrackEvent();
+	const stepEventLabel = useExpressSetupStepEventLabel( currentStep?.slug );
+
+	// Each step's start is tracked once, when it is first in view.
+	const [ stepInView, setStepInView ] = useState< string >();
+	const trackedStartStepRef = useRef< string >();
+
+	useMount( () => {
+		trackEvent( 'start_setup' );
+	} );
+
+	// Waits for the label as well as the step being in view, as the publication
+	// setup step only knows its label once its publications have loaded.
+	useEffect( () => {
+		const slug = currentStep?.slug;
+
+		if (
+			! slug ||
+			! stepEventLabel ||
+			stepInView !== slug ||
+			trackedStartStepRef.current === slug
+		) {
+			return;
+		}
+
+		trackedStartStepRef.current = slug;
+
+		trackEvent( 'start_step', stepEventLabel );
+
+		if ( slug === EXPRESS_SETUP_STEPS.SETUP_COMPLETE ) {
+			trackEvent( 'complete_setup' );
+		}
+	}, [ currentStep?.slug, stepEventLabel, stepInView, trackEvent ] );
+
+	useEffect( () => {
+		const slug = currentStep?.slug;
+
+		if ( ! slug || slug === EXPRESS_SETUP_STEPS.SETUP_COMPLETE ) {
+			return;
+		}
+
+		resetIncompleteSetupReminder( FEATURE_SLUG_NEWSLETTER_SIGNUP );
+	}, [ currentStep?.slug, resetIncompleteSetupReminder ] );
+
+	const onStepInView = useCallback( () => {
+		setStepInView( currentStep?.slug );
+	}, [ currentStep?.slug ] );
+
+	// Returns the tracking promise for the setup complete step, which leaves
+	// the page once it settles. Other steps advance without waiting for it.
+	const onStepComplete = useCallback( () => {
+		const tracking = trackEvent( 'complete_step', stepEventLabel );
+
+		advance();
+
+		return tracking;
+	}, [ advance, stepEventLabel, trackEvent ] );
+
+	// Copy this flow overrides on the shared steps, keyed by step slug.
+	const stepProps: Record< string, object > = {
+		[ publicationSetupStep.slug ]: {
+			connectDescription: __(
+				'To set up a newsletter sign-up form using Reader Revenue Manager, connect your publication or create a new one.',
+				'google-site-kit'
+			),
+			createDescription: __(
+				'To set up a newsletter sign-up form using Reader Revenue Manager, you will need to create a publication.',
+				'google-site-kit'
+			),
+		},
+		[ publicationPoliciesStep.slug ]: {
+			description: __(
+				'To set up a newsletter using Reader Revenue Manager, you will need to add links to your publication’s policies.',
+				'google-site-kit'
+			),
+		},
+		[ existingCTAStep.slug ]: {
+			title: __(
+				'We found an existing newsletter sign-up form for this publication',
+				'google-site-kit'
+			),
+			description: createInterpolateElement(
+				__(
+					'Your publication is now connected to Site Kit. However, Site Kit can’t create a newsletter sign-up form for a publication that already has one in Reader Revenue Manager. To view or edit your publications, go to <a>Publisher Center</a>',
+					'google-site-kit'
+				),
+				{
+					a: (
+						<PublisherCenterLink eventName="click_view_publications_link" />
+					),
+				}
+			),
+			targetingDescription: createInterpolateElement(
+				__(
+					'To change who sees your newsletter sign-up form, set targeting rules in <a>Publisher Center</a>',
+					'google-site-kit'
+				),
+				{
+					a: (
+						<PublisherCenterLink eventName="click_set_targeting_rules_link" />
+					),
+				}
+			),
+		},
+		[ setupCompleteStep.slug ]: {
+			title: __(
+				'Your newsletter signup form is ready!',
+				'google-site-kit'
+			),
+			secondaryCTA: <ViewOnSiteCTANewsletterSignup />,
+			children: <StepSetupCompleteNewsletterSignup />,
+		},
+	};
+
+	if ( hasRequiredScopes !== true || ! currentStep ) {
+		return (
+			<ExpressSetupFallback
+				showErrors={ hasRequiredScopes === true }
+				errorTitle={ __(
+					'We couldn’t set up your sign-up form',
+					'google-site-kit'
+				) }
+			/>
+		);
+	}
+
+	const StepComponent = currentStep.Component;
+
+	// Steps outside the sequence, like the existing CTA step, have no place in
+	// the stepper.
+	const isStepInSequence = STEPS.some(
+		( { slug } ) => slug === currentStep.slug
+	);
+
+	return (
+		<ExpressSetupLayout
+			sidebar={
+				isStepInSequence ? (
+					<ExpressSetupSteps
+						steps={ STEPS }
+						activeSlug={ currentStep.slug }
+					/>
+				) : undefined
+			}
+		>
+			{ /* Keyed by step, so each step is observed from when it renders. */ }
+			<ObservedStep key={ currentStep.slug } onInView={ onStepInView }>
+				<StepComponent
+					{ ...stepProps[ currentStep.slug ] }
+					onComplete={ onStepComplete }
+				/>
+			</ObservedStep>
+		</ExpressSetupLayout>
+	);
+};
+
+export default SetupCTANewsletterSignup;

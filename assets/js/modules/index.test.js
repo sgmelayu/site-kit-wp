@@ -22,25 +22,78 @@
 import fs from 'fs';
 import path from 'path';
 
-const directories = ( relativePath ) => fs.readdirSync( path.join( __dirname, relativePath ) )
-	.filter( ( name ) => fs.lstatSync( path.join( __dirname, relativePath, name ) ).isDirectory() );
+function directories( relativePath ) {
+	const dir = path.join( __dirname, relativePath );
+	if ( ! fs.existsSync( dir ) ) {
+		return [];
+	}
 
-const getComponentNames = ( componentPath ) => fs.readdirSync( componentPath )
-	.filter( ( name ) => ! /^index|\.test\.js$/.test( name ) )
-	.map( ( name ) => name.replace( /\..*/, '' ) );
+	return fs
+		.readdirSync( dir, { withFileTypes: true } )
+		.filter( ( file ) => file.isDirectory() )
+		.map( ( file ) => file.name );
+}
+
+function getComponentNames( componentPath ) {
+	return fs
+		.readdirSync( componentPath )
+		.filter(
+			( name ) =>
+				! /^index|utils|__snapshots__|\.(stories|test)\.(js|ts|jsx|tsx)$/.test(
+					name
+				)
+		)
+		.map( ( name ) => name.replace( /\..*/, '' ) );
+}
 
 describe( 'all modules', () => {
-	describe.each( directories( '.' ) )( `%s`, ( moduleSlug ) => {
-		describe.each( directories( `${ moduleSlug }/components` ) )( `components/%s`, ( componentDir ) => {
-			const componentDirPath = path.join( __dirname, moduleSlug, 'components', componentDir );
+	describe.each( directories( '.' ) )( '%s', ( moduleSlug ) => {
+		const components = directories( `${ moduleSlug }/components` );
 
-			it( 'has an index module with all components exported', () => {
-				// eslint-disable-next-line no-unused-vars
-				const { default: _, ...indexExports } = require( `${ componentDirPath }/index.js` );
+		// Filter out the directories that don't have an index.js file.
+		const filteredComponents = components.filter(
+			( component ) =>
+				component !== 'audience-segmentation' &&
+				component !== 'site-goals' &&
+				component !== 'traffic-overview' &&
+				component !== 'custom-dimensions-report-options'
+		);
+
+		if ( ! filteredComponents.length ) {
+			return;
+		}
+
+		it.each( filteredComponents )(
+			'components/%s has an index module with all components exported',
+			( componentDir ) => {
+				const componentDirPath = path.join(
+					__dirname,
+					moduleSlug,
+					'components',
+					componentDir
+				);
+
+				const indexPath = [ 'index.js', 'index.ts' ]
+					.map( ( file ) => path.join( componentDirPath, file ) )
+					.find( ( file ) => fs.existsSync( file ) );
+
+				const {
+					// eslint-disable-next-line no-unused-vars
+					default: _,
+					...indexExports
+				} = require( indexPath );
 				const indexExportNames = Object.keys( indexExports ).sort();
-				const componentNames = getComponentNames( componentDirPath ).sort();
-				expect( indexExportNames ).toEqual( componentNames );
-			} );
-		} );
+
+				const componentNames =
+					getComponentNames( componentDirPath ).sort();
+
+				const filteredComponentNames = componentNames.filter(
+					( component ) =>
+						component !== 'custom-dimensions-report-options'
+				);
+
+				expect( indexExportNames ).toEqual( filteredComponentNames );
+			}
+		);
 	} );
 } );

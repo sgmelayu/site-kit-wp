@@ -19,11 +19,16 @@
 /**
  * Internal dependencies
  */
-import API from 'googlesitekit-api';
-import Data from 'googlesitekit-data';
-import { STORE_NAME } from './constants';
-import { createFetchStore } from '../../../googlesitekit/data/create-fetch-store';
-import { actions as errorStoreActions } from '../../../googlesitekit/data/create-error-store';
+import { get } from 'googlesitekit-api';
+import {
+	combineStores,
+	commonActions,
+	createReducer,
+} from 'googlesitekit-data';
+import { actions as errorStoreActions } from '@/js/googlesitekit/data/create-error-store';
+import { createFetchStore } from '@/js/googlesitekit/data/create-fetch-store';
+import { MODULE_SLUG_ADSENSE } from '@/js/modules/adsense/constants';
+import { MODULES_ADSENSE } from './constants';
 
 // Actions
 const RESET_ACCOUNTS = 'RESET_ACCOUNTS';
@@ -31,16 +36,13 @@ const RESET_ACCOUNTS = 'RESET_ACCOUNTS';
 const fetchGetAccountsStore = createFetchStore( {
 	baseName: 'getAccounts',
 	controlCallback: () => {
-		return API.get( 'modules', 'adsense', 'accounts', undefined, {
+		return get( 'modules', MODULE_SLUG_ADSENSE, 'accounts', undefined, {
 			useCache: false,
 		} );
 	},
-	reducerCallback: ( state, accounts ) => {
-		return {
-			...state,
-			accounts: [ ...accounts ],
-		};
-	},
+	reducerCallback: createReducer( ( state, accounts ) => {
+		state.accounts = accounts;
+	} ),
 } );
 
 const baseInitialState = {
@@ -49,22 +51,23 @@ const baseInitialState = {
 
 const baseActions = {
 	*resetAccounts() {
-		const { dispatch } = yield Data.commonActions.getRegistry();
+		const { dispatch } = yield commonActions.getRegistry();
 
 		yield {
 			payload: {},
 			type: RESET_ACCOUNTS,
 		};
 
-		yield errorStoreActions.clearErrors( 'getAccounts' );
+		yield errorStoreActions.clearSelectorErrors( 'getAccounts' );
 
-		return dispatch( STORE_NAME )
-			.invalidateResolutionForStoreSelector( 'getAccounts' );
+		return dispatch( MODULES_ADSENSE ).invalidateResolutionForStoreSelector(
+			'getAccounts'
+		);
 	},
 };
 
-const baseReducer = ( state, { type } ) => {
-	switch ( type ) {
+const baseReducer = createReducer( ( state, action ) => {
+	switch ( action.type ) {
 		case RESET_ACCOUNTS: {
 			const {
 				accountID,
@@ -74,31 +77,32 @@ const baseReducer = ( state, { type } ) => {
 				accountSetupComplete,
 				siteSetupComplete,
 			} = state.savedSettings || {};
-			return {
-				...state,
-				accounts: baseInitialState.accounts,
-				settings: {
-					...( state.settings || {} ),
-					accountID,
-					clientID,
-					accountStatus,
-					siteStatus,
-					accountSetupComplete,
-					siteSetupComplete,
-				},
+
+			state.accounts = baseInitialState.accounts;
+
+			state.settings = {
+				...( state.settings || {} ),
+				accountID,
+				clientID,
+				accountStatus,
+				siteStatus,
+				accountSetupComplete,
+				siteSetupComplete,
 			};
+			break;
 		}
 
-		default: {
-			return state;
-		}
+		default:
+			break;
 	}
-};
+} );
 
 const baseResolvers = {
 	*getAccounts() {
-		const registry = yield Data.commonActions.getRegistry();
-		const existingAccounts = registry.select( STORE_NAME ).getAccounts();
+		const registry = yield commonActions.getRegistry();
+		const existingAccounts = registry
+			.select( MODULES_ADSENSE )
+			.getAccounts();
 
 		// If there are already accounts loaded in state, consider it fulfilled
 		// and don't make an API request.
@@ -126,16 +130,13 @@ const baseSelectors = {
 	},
 };
 
-const store = Data.combineStores(
-	fetchGetAccountsStore,
-	{
-		initialState: baseInitialState,
-		actions: baseActions,
-		reducer: baseReducer,
-		resolvers: baseResolvers,
-		selectors: baseSelectors,
-	}
-);
+const store = combineStores( fetchGetAccountsStore, {
+	initialState: baseInitialState,
+	actions: baseActions,
+	reducer: baseReducer,
+	resolvers: baseResolvers,
+	selectors: baseSelectors,
+} );
 
 export const initialState = store.initialState;
 export const actions = store.actions;

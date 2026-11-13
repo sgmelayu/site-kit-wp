@@ -19,11 +19,31 @@
 .googlesitekit-plugin {
 
 	.googlesitekit-settings-user-input {
+		.googlesitekit-settings-user-input__heading-container {
+			border-bottom: 1px solid $c-utility-divider;
+			margin: 0 0 12px;
+			padding-bottom: 12px;
+		}
 
-		.googlesitekit-user-input__preview {
-			margin-left: 0;
-			margin-right: 0;
+		.googlesitekit-settings-user-input__heading {
+			color: $c-surfaces-on-background;
+			margin: 0;
+		}
+
+		.googlesitekit-user-input__preview-contents {
+			overflow: visible;
 			padding: 0;
 		}
+
+		.googlesitekit-user-input__select-options-wrapper {
+
+			@media (min-width: $bp-xxxlarge) {
+				padding-left: unset;
+			}
+		}
+	}
+
+	.googlesitekit-user-input__notification-text-loading {
+		margin: 14px 0;
 	}
 }

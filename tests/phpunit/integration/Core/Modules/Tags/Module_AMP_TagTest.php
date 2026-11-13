@@ -19,8 +19,8 @@ class Module_AMP_TagTest extends TestCase {
 
 	private $module_slug;
 
-	public function setUp() {
-		parent::setUp();
+	public function set_up() {
+		parent::set_up();
 
 		$this->module_slug = 'fake-module';
 		$this->amp_tag     = new FakeModule_AMP_Tag( 'test-tag-id', $this->module_slug );
@@ -28,11 +28,11 @@ class Module_AMP_TagTest extends TestCase {
 
 	public function test_is_tag_blocked() {
 		// Tag is not blocked by default.
-		$this->assertFalse( $this->amp_tag->is_tag_blocked() );
+		$this->assertFalse( $this->amp_tag->is_tag_blocked(), 'AMP tag should not be blocked without filter.' );
 
 		add_filter( "googlesitekit_{$this->module_slug}_tag_amp_blocked", '__return_true' );
 
-		$this->assertTrue( $this->amp_tag->is_tag_blocked() );
+		$this->assertTrue( $this->amp_tag->is_tag_blocked(), 'AMP tag blocked filter should block tag.' );
 	}
 
 	/**
@@ -42,14 +42,14 @@ class Module_AMP_TagTest extends TestCase {
 	 */
 	public function test_get_tag_blocked_on_consent_attribute( $filter_value, $expected ) {
 		// Returns empty string by default.
-		$this->assertEquals( '', $this->amp_tag->get_tag_blocked_on_consent_attribute() );
+		$this->assertEquals( '', $this->amp_tag->get_tag_blocked_on_consent_attribute(), 'AMP tag should omit consent block attribute by default.' );
 
 		$filter_callback = function () use ( $filter_value ) {
 			return $filter_value;
 		};
 		add_filter( "googlesitekit_{$this->module_slug}_tag_amp_block_on_consent", $filter_callback );
 
-		$this->assertEquals( $expected, $this->amp_tag->get_tag_blocked_on_consent_attribute() );
+		$this->assertEquals( $expected, $this->amp_tag->get_tag_blocked_on_consent_attribute(), 'AMP consent filter should control block-on-consent attribute.' );
 	}
 
 	public function amp_block_on_consent_attribute_provider() {
@@ -96,5 +96,4 @@ class Module_AMP_TagTest extends TestCase {
 			),
 		);
 	}
-
 }

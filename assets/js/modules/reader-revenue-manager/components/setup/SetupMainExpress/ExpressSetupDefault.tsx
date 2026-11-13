@@ -1,0 +1,87 @@
+/**
+ * Reader Revenue Manager default express setup flow without a CTA step.
+ *
+ * Site Kit by Google, Copyright 2026 Google LLC
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     https://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+/**
+ * External dependencies
+ */
+import type { FC } from 'react';
+
+/**
+ * WordPress dependencies
+ */
+import { __ } from '@wordpress/i18n';
+
+/**
+ * Internal dependencies
+ */
+import {
+	publicationPoliciesStep,
+	publicationSetupStep,
+	setupCompleteStep,
+	termsOfServiceStep,
+} from '@/js/modules/reader-revenue-manager/components/setup/SetupMainExpress/common-steps';
+import {
+	useExpressSetupScopes,
+	useSetupFlow,
+} from '@/js/modules/reader-revenue-manager/components/setup/SetupMainExpress/hooks';
+import { SetupStep } from '@/js/modules/reader-revenue-manager/components/setup/SetupMainExpress/types';
+import ExpressSetupFallback from './ExpressSetupFallback';
+import ExpressSetupLayout from './ExpressSetupLayout';
+import ExpressSetupSteps from './ExpressSetupSteps';
+
+const STEPS: SetupStep[] = [
+	publicationSetupStep,
+	termsOfServiceStep,
+	publicationPoliciesStep,
+	setupCompleteStep,
+];
+
+const ExpressSetupDefault: FC = () => {
+	const hasRequiredScopes = useExpressSetupScopes();
+
+	const { currentStep, advance } = useSetupFlow( STEPS );
+
+	if ( hasRequiredScopes !== true || ! currentStep ) {
+		return (
+			<ExpressSetupFallback
+				showErrors={ hasRequiredScopes === true }
+				errorTitle={ __(
+					'We couldn’t set up Reader Revenue Manager',
+					'google-site-kit'
+				) }
+			/>
+		);
+	}
+
+	const StepComponent = currentStep.Component;
+
+	return (
+		<ExpressSetupLayout
+			sidebar={
+				<ExpressSetupSteps
+					steps={ STEPS }
+					activeSlug={ currentStep.slug }
+				/>
+			}
+		>
+			<StepComponent onComplete={ advance } />
+		</ExpressSetupLayout>
+	);
+};
+
+export default ExpressSetupDefault;

@@ -16,22 +16,23 @@
  * limitations under the License.
  */
 
-import { Page, ElementHandle } from 'puppeteer';
-
 /**
  * Asserts the given page/element has the given value.
  *
  * @since 1.9.0
  *
- * @param {(Page|ElementHandle)} instance      Page or element handle instance.
- * @param {string}               selector      Selector for element with value.
- * @param {string}               expectedValue Value expected to match element's actual value.
+ * @param {Object} instance      Page or element handle instance.
+ * @param {string} selector      Selector for element with value.
+ * @param {string} expectedValue Value expected to match element's actual value.
  * @return {Object} Matcher result.
  */
 export async function toHaveValue( instance, selector, expectedValue ) {
 	let pass, message;
 
-	const actualValue = await instance.$eval( selector, ( { value } ) => value );
+	const actualValue = await instance.$eval(
+		selector,
+		( { value } ) => value
+	);
 
 	if ( this.equals( expectedValue, actualValue ) ) {
 		pass = true;

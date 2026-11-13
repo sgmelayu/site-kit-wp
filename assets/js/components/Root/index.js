@@ -19,49 +19,75 @@
 /**
  * External dependencies
  */
+import {
+	ThemeProvider,
+	createMuiTheme,
+	// We're using the to avoid `StrictMode` warnings. It's a temporary
+	// workaround until we can upgrade `material-ui/core` to v5+.
+	// See: https://github.com/google/site-kit-wp/issues/5378
+	unstable_createMuiStrictModeTheme, // eslint-disable-line camelcase
+} from '@material-ui/core';
 import PropTypes from 'prop-types';
+
+/**
+ * WordPress dependencies
+ */
+import { StrictMode, useState } from '@wordpress/element';
 
 /**
  * Internal dependencies
  */
-import Data from 'googlesitekit-data';
-import ErrorHandler from '../ErrorHandler';
-import FeaturesProvider from '../FeaturesProvider';
-import { enabledFeatures } from '../../features';
-import PermissionsModal from '../PermissionsModal';
-import RestoreSnapshots from '../RestoreSnapshots';
-import CollectModuleData from '../data/collect-module-data';
+import Data, { RegistryProvider } from 'googlesitekit-data';
+import ErrorHandler from '@/js/components/ErrorHandler';
+import FeaturesProvider from '@/js/components/FeaturesProvider';
+import FeatureTours from '@/js/components/FeatureTours';
+import InViewProvider from '@/js/components/InViewProvider';
+import PermissionsModal from '@/js/components/PermissionsModal';
+import RestoreSnapshots from '@/js/components/RestoreSnapshots';
+import { enabledFeatures } from '@/js/features';
+import { isSiteKitScreen } from '@/js/util/is-site-kit-screen';
+import { Provider as ViewContextProvider } from './ViewContextContext';
 
-export default function Root( {
-	children,
-	registry,
-	// TODO: Remove legacy dataAPI prop support once phased out.
-	dataAPIContext,
-	dataAPIModuleArgs,
-} ) {
+export default function Root( { children, registry, viewContext = null } ) {
+	const theme =
+		process.env.NODE_ENV === 'production'
+			? createMuiTheme
+			: unstable_createMuiStrictModeTheme; // eslint-disable-line camelcase
+
+	const [ inViewState ] = useState( {
+		key: 'Root',
+		value: true,
+	} );
+
 	return (
-		<Data.RegistryProvider value={ registry }>
-			<FeaturesProvider value={ enabledFeatures }>
-				<ErrorHandler>
-					<RestoreSnapshots>
-						{ children }
-						{ dataAPIContext && (
-						// Legacy dataAPI support.
-							<CollectModuleData context={ dataAPIContext } args={ dataAPIModuleArgs } />
-						) }
-					</RestoreSnapshots>
-					<PermissionsModal />
-				</ErrorHandler>
-			</FeaturesProvider>
-		</Data.RegistryProvider>
+		<StrictMode>
+			<InViewProvider value={ inViewState }>
+				<RegistryProvider value={ registry }>
+					<FeaturesProvider value={ enabledFeatures }>
+						<ViewContextProvider value={ viewContext }>
+							<ThemeProvider theme={ theme() }>
+								<ErrorHandler>
+									<RestoreSnapshots>
+										{ children }
+										{ viewContext && <FeatureTours /> }
+									</RestoreSnapshots>
+									{ isSiteKitScreen( viewContext ) && (
+										<PermissionsModal />
+									) }
+								</ErrorHandler>
+							</ThemeProvider>
+						</ViewContextProvider>
+					</FeaturesProvider>
+				</RegistryProvider>
+			</InViewProvider>
+		</StrictMode>
 	);
 }
 
 Root.propTypes = {
-	children: PropTypes.node.isRequired,
+	children: PropTypes.node,
 	registry: PropTypes.object,
-	dataAPIContext: PropTypes.string,
-	dataAPIModuleArgs: PropTypes.object,
+	viewContext: PropTypes.string.isRequired,
 };
 
 Root.defaultProps = {
